@@ -125,18 +125,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </h3>
         
         <div className="flex flex-col gap-1.5">
-          {(categories || []).map((cat) => {
-            const isActive = activeCategoryId === cat.id && !showPopularOnly && !activePromoFilter;
+          {(categories || [])?.map((cat) => {
+            if (!cat) return null;
+            const catId = cat?.id || "";
+            const catName = cat?.name || "Kategori";
+            const isActive = activeCategoryId === catId && !showPopularOnly && !activePromoFilter;
 
             return (
               <button
-                key={cat.id}
-                id={`sidebar-cat-${cat.id}`}
+                key={catId || Math.random()}
+                id={`sidebar-cat-${catId}`}
                 type="button"
                 onClick={() => {
                   if (showPopularOnly) onTogglePopularOnly();
                   if (onSelectPromoFilter) onSelectPromoFilter(null);
-                  onSelectCategory(cat.id);
+                  onSelectCategory(catId);
                 }}
                 className={`flex items-center justify-between px-3 py-2 rounded-lg font-medium text-sm transition-colors text-left cursor-pointer ${
                   isActive
@@ -145,16 +148,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 truncate">
-                  {getCategoryIcon(cat.icon)}
-                  <span className="truncate">{cat.name}</span>
+                  {getCategoryIcon(cat?.icon || "Grid")}
+                  <span className="truncate">{catName}</span>
                 </div>
-                {typeof cat.count === "number" && (
+                {typeof cat?.count === "number" && (
                   <span
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                       isActive ? "bg-blue-200 text-blue-800" : "bg-slate-100 text-slate-600"
                     }`}
                   >
-                    {cat.count}
+                    {cat?.count}
                   </span>
                 )}
               </button>

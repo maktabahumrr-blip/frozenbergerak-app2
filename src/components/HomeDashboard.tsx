@@ -189,69 +189,85 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   // Active promos from Alltimepromo tab or fallback to promo products in sheets
   const activeAllTimePromos = useMemo(() => {
-    if (promos && promos.length > 0) {
-      return promos;
+    try {
+      if (promos && promos.length > 0) {
+        return promos;
+      }
+      const safeProducts = Array.isArray(products) ? products : [];
+      // Fallback: Use products that have promoPrice or originalPrice in the main sheet
+      return safeProducts
+        .filter((p) => Boolean((p?.promoPrice && p?.originalPrice && p.promoPrice < p.originalPrice) || (p?.promoPrice && p.promoPrice > 0)))
+        .map((p) => ({
+          id: p?.id || `PROMO-${Math.random()}`,
+          title: p?.name || "Promosi",
+          description: p?.description || "",
+          imageUrl: p?.cookedImageUrl || p?.imageUrl || p?.packagingImageUrl,
+          originalPrice: p?.originalPrice,
+          promoPrice: p?.promoPrice || p?.price || 0,
+          status: p?.inStock ? "Aktif" : "Habis",
+          unit: p?.unit || "1 pek"
+        }));
+    } catch (e) {
+      console.warn("Error calculating activeAllTimePromos:", e);
+      return [];
     }
-    // Fallback: Use products that have promoPrice or originalPrice in the main sheet
-    return products
-      .filter((p) => (p.promoPrice && p.originalPrice && p.promoPrice < p.originalPrice) || (p.promoPrice && p.promoPrice > 0))
-      .map((p) => ({
-        id: p.id,
-        title: p.name,
-        description: p.description,
-        imageUrl: p.cookedImageUrl || p.imageUrl || p.packagingImageUrl,
-        originalPrice: p.originalPrice,
-        promoPrice: p.promoPrice || p.price,
-        status: p.inStock ? "Aktif" : "Habis",
-        unit: p.unit
-      }));
   }, [promos, products]);
 
   // Curate seasonal promo items strictly from Seasonalpromo Google Sheet tab or products with Seasonal category
   const displaySeasonalItems = useMemo(() => {
-    if (seasonalPromos && seasonalPromos.length > 0) {
-      return seasonalPromos.map((sp) => {
-        const found = products.find(
-          (p) =>
-            p.id.toLowerCase() === sp.id.toLowerCase() ||
-            p.name.trim().toLowerCase() === sp.title.trim().toLowerCase()
-        );
-        if (found) {
-          return {
-            ...found,
-            originalPrice: sp.originalPrice || found.originalPrice,
-            promoPrice: sp.promoPrice || found.promoPrice || found.price,
-            price: sp.promoPrice || found.promoPrice || found.price,
-            description: sp.description || found.description,
-            imageUrl: sp.imageUrl || found.imageUrl,
-            cookedImageUrl: sp.imageUrl || found.cookedImageUrl
-          };
-        }
-        return {
-          id: sp.id,
-          name: sp.title,
-          category: "PROMOSI BERMUSIM",
-          price: sp.promoPrice || sp.originalPrice || 0,
-          originalPrice: sp.originalPrice,
-          promoPrice: sp.promoPrice,
-          unit: sp.unit || "1 pek",
-          description: sp.description || "Promosi musiman istimewa FrozenBergerak.",
-          imageUrl: sp.imageUrl,
-          cookedImageUrl: sp.imageUrl,
-          isPopular: true,
-          isNew: false,
-          inStock: !sp.status?.toLowerCase().includes("habis") && !sp.status?.toLowerCase().includes("tidak"),
-          halalCertified: true,
-          storageInfo: "Simpan pada suhu sejuk beku (-18°C)."
-        };
-      });
-    }
+    try {
+      const safeProducts = Array.isArray(products) ? products : [];
 
-    // Check if any product in main sheet is explicitly categorized as Seasonal
-    return products.filter((p) => {
-      const catLower = (p.category || "").toLowerCase();
-      return catLower.includes("seasonal") || catLower.includes("musiman");
-    });
+      if (seasonalPromos && seasonalPromos.length > 0) {
+        return seasonalPromos.map((sp) => {
+          const spId = String(sp?.id || "").toLowerCase();
+          const spTitle = String(sp?.title || "").trim().toLowerCase();
+
+          const found = safeProducts.find(
+            (p) =>
+              (p?.id && spId && String(p.id).toLowerCase() === spId) ||
+              (p?.name && spTitle && String(p.name).trim().toLowerCase() === spTitle)
+          );
+          if (found) {
+            return {
+              ...found,
+              originalPrice: sp?.originalPrice || found.originalPrice,
+              promoPrice: sp?.promoPrice || found.promoPrice || found.price,
+              price: sp?.promoPrice || found.promoPrice || found.price,
+              description: sp?.description || found.description,
+              imageUrl: sp?.imageUrl || found.imageUrl,
+              cookedImageUrl: sp?.imageUrl || found.cookedImageUrl
+            };
+          }
+          return {
+            id: sp?.id || `SEA-${Math.random()}`,
+            name: sp?.title || "Promosi Bermusim",
+            category: "PROMOSI BERMUSIM",
+            price: sp?.promoPrice || sp?.originalPrice || 0,
+            originalPrice: sp?.originalPrice,
+            promoPrice: sp?.promoPrice,
+            unit: sp?.unit || "1 pek",
+            description: sp?.description || "Promosi musiman istimewa FrozenBergerak.",
+            imageUrl: sp?.imageUrl,
+            cookedImageUrl: sp?.imageUrl,
+            isPopular: true,
+            isNew: false,
+            inStock: !String(sp?.status || "").toLowerCase().includes("habis") && !String(sp?.status || "").toLowerCase().includes("tidak"),
+            halalCertified: true,
+            storageInfo: "Simpan pada suhu sejuk beku (-18°C)."
+          };
+        });
+      }
+
+      // Check if any product in main sheet is explicitly categorized as Seasonal
+      return safeProducts.filter((p) => {
+        const catLower = String(p?.category || "").toLowerCase();
+        return catLower.includes("seasonal") || catLower.includes("musiman");
+      });
+    } catch (e) {
+      console.warn("Error calculating displaySeasonalItems:", e);
+      return [];
+    }
   }, [seasonalPromos, products]);
 
   const containerVariants = {
@@ -438,55 +454,58 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
               // Check if promo matches any product in the catalog or create a valid product representation
               const matchingProduct: Product = (() => {
-                const byId = products.find((p) => p.id.toLowerCase() === promo.id.toLowerCase());
+                const pList = Array.isArray(products) ? products : [];
+                const promoIdLower = String(promo?.id || "").toLowerCase();
+                const promoTitleLower = String(promo?.title || "").trim().toLowerCase();
+
+                const byId = pList.find((p) => p?.id && promoIdLower && String(p.id).toLowerCase() === promoIdLower);
                 if (byId) {
                   return {
                     ...byId,
-                    price: promo.promoPrice || byId.promoPrice || byId.price,
-                    originalPrice: promo.originalPrice || byId.originalPrice || byId.price,
-                    promoPrice: promo.promoPrice || byId.promoPrice
+                    price: promo?.promoPrice || byId.promoPrice || byId.price,
+                    originalPrice: promo?.originalPrice || byId.originalPrice || byId.price,
+                    promoPrice: promo?.promoPrice || byId.promoPrice
                   };
                 }
 
-                const promoTitleLower = promo.title.trim().toLowerCase();
-                const byName = products.find((p) => p.name.trim().toLowerCase() === promoTitleLower);
+                const byName = pList.find((p) => p?.name && promoTitleLower && String(p.name).trim().toLowerCase() === promoTitleLower);
                 if (byName) {
                   return {
                     ...byName,
-                    price: promo.promoPrice || byName.promoPrice || byName.price,
-                    originalPrice: promo.originalPrice || byName.originalPrice || byName.price,
-                    promoPrice: promo.promoPrice || byName.promoPrice
+                    price: promo?.promoPrice || byName.promoPrice || byName.price,
+                    originalPrice: promo?.originalPrice || byName.originalPrice || byName.price,
+                    promoPrice: promo?.promoPrice || byName.promoPrice
                   };
                 }
 
-                const byPartial = products.find((p) => {
-                  const pNameLower = p.name.trim().toLowerCase();
-                  return pNameLower.includes(promoTitleLower) || promoTitleLower.includes(pNameLower);
+                const byPartial = pList.find((p) => {
+                  const pNameLower = String(p?.name || "").trim().toLowerCase();
+                  return pNameLower && promoTitleLower && (pNameLower.includes(promoTitleLower) || promoTitleLower.includes(pNameLower));
                 });
                 if (byPartial) {
                   return {
                     ...byPartial,
-                    price: promo.promoPrice || byPartial.promoPrice || byPartial.price,
-                    originalPrice: promo.originalPrice || byPartial.originalPrice || byPartial.price,
-                    promoPrice: promo.promoPrice || byPartial.promoPrice
+                    price: promo?.promoPrice || byPartial.promoPrice || byPartial.price,
+                    originalPrice: promo?.originalPrice || byPartial.originalPrice || byPartial.price,
+                    promoPrice: promo?.promoPrice || byPartial.promoPrice
                   };
                 }
 
                 return {
-                  id: promo.id,
-                  name: promo.title,
+                  id: promo?.id || `PROMO-${Math.random()}`,
+                  name: promo?.title || "Promosi",
                   category: "All Time Promo",
-                  price: promo.promoPrice || promo.originalPrice || 0,
-                  originalPrice: promo.originalPrice,
-                  promoPrice: promo.promoPrice,
-                  unit: promo.unit || "1 pek",
-                  description: promo.description || "Promosi makanan sejuk beku istimewa berkualiti tinggi dari FrozenBergerak.",
-                  imageUrl: promo.imageUrl,
-                  cookedImageUrl: promo.imageUrl,
+                  price: promo?.promoPrice || promo?.originalPrice || 0,
+                  originalPrice: promo?.originalPrice,
+                  promoPrice: promo?.promoPrice,
+                  unit: promo?.unit || "1 pek",
+                  description: promo?.description || "Promosi makanan sejuk beku istimewa berkualiti tinggi dari FrozenBergerak.",
+                  imageUrl: promo?.imageUrl,
+                  cookedImageUrl: promo?.imageUrl,
                   packagingImageUrl: undefined,
                   isPopular: true,
                   isNew: false,
-                  inStock: !promo.status?.toLowerCase().includes("habis") && !promo.status?.toLowerCase().includes("tidak"),
+                  inStock: !String(promo?.status || "").toLowerCase().includes("habis") && !String(promo?.status || "").toLowerCase().includes("tidak"),
                   halalCertified: true,
                   storageInfo: "Simpan pada suhu sejuk beku (-18°C)."
                 };
@@ -735,24 +754,25 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-            {displaySeasonalItems.map((product) => {
+            {displaySeasonalItems?.map((product) => {
+              if (!product) return null;
               const hasPromoPrice = Boolean(
-                product.promoPrice && product.originalPrice && product.promoPrice < product.originalPrice
+                product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice
               );
 
               return (
                 <div
-                  key={`seasonal-${product.id}`}
+                  key={`seasonal-${product?.id || Math.random()}`}
                   className="bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group"
                 >
                   <div className="relative aspect-4/3 bg-slate-100 overflow-hidden">
                     <img
-                      src={formatImageUrl(product.imageUrl, product.category, product.name)}
-                      alt={product.name}
+                      src={formatImageUrl(product?.imageUrl, product?.category, product?.name)}
+                      alt={product?.name || "Produk Musim"}
                       referrerPolicy="no-referrer"
                       loading="lazy"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = getCategoryFallbackImage(product.category, product.name);
+                        (e.target as HTMLImageElement).src = getCategoryFallbackImage(product?.category, product?.name);
                       }}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
@@ -765,13 +785,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
                     <div>
                       <span className="text-[10px] uppercase font-bold text-blue-600 tracking-wider block">
-                        {product.category}
+                        {product?.category || "Promosi"}
                       </span>
                       <h4 className="font-bold text-slate-900 text-sm line-clamp-1 group-hover:text-blue-600 transition-colors">
-                        {product.name}
+                        {product?.name || "Produk"}
                       </h4>
                       <p className="text-[11px] text-slate-500 line-clamp-2 mt-1">
-                        {product.description || "Kualiti terbaik sedia dimasak untuk hidangan keluarga."}
+                        {product?.description || "Kualiti terbaik sedia dimasak untuk hidangan keluarga."}
                       </p>
                     </div>
 
@@ -780,19 +800,19 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                         {hasPromoPrice ? (
                           <div className="flex items-baseline gap-1">
                             <span className="text-base font-extrabold text-rose-600">
-                              {formatCurrency(product.promoPrice!)}
+                              {formatCurrency(product?.promoPrice)}
                             </span>
                             <span className="text-[11px] text-slate-400 line-through">
-                              {formatCurrency(product.originalPrice!)}
+                              {formatCurrency(product?.originalPrice)}
                             </span>
                           </div>
                         ) : (
                           <span className="text-base font-extrabold text-slate-900">
-                            {formatCurrency(product.price)}
+                            {formatCurrency(product?.price)}
                           </span>
                         )}
                         <span className="text-[10px] text-slate-400 block -mt-0.5">
-                          {product.unit}
+                          {product?.unit || "1 pek"}
                         </span>
                       </div>
 

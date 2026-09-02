@@ -49,14 +49,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   if (!isOpen) return null;
 
-  const totalAmount = items.reduce(
-    (acc, item) => acc + item.product.price * item.quantity,
+  const safeItems = Array.isArray(items) ? items : [];
+  const totalAmount = safeItems.reduce(
+    (acc, item) => acc + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1),
     0
   );
-  const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
+  const totalItemCount = safeItems.reduce((acc, item) => acc + (Number(item?.quantity) || 0), 0);
 
   const handleWhatsAppSend = () => {
-    const url = generateCartWhatsAppUrl(items, customer, whatsappNumber);
+    const url = generateCartWhatsAppUrl(safeItems, customer, whatsappNumber);
     window.open(url, "_blank");
   };
 
@@ -130,60 +131,68 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     </button>
                   </div>
 
-                  {items.map((item) => (
-                    <div
-                      key={item.product.id}
-                      className="flex gap-3 p-3 rounded-xl bg-white border border-slate-200/80 items-center justify-between shadow-2xs"
-                    >
-                      <img
-                        src={formatImageUrl(item.product.cookedImageUrl || item.product.imageUrl || item.product.packagingImageUrl, item.product.category, item.product.name)}
-                        alt={item.product.name}
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = getCategoryFallbackImage(item.product.category, item.product.name);
-                        }}
-                        className="w-14 h-14 rounded-lg object-cover border border-slate-100 flex-shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
-                          {item.product.name}
-                        </h4>
-                        <p className="text-[11px] text-slate-500">
-                          {formatCurrency(item.product.price)} / {item.product.unit}
-                        </p>
-                        <p className="text-xs font-bold text-blue-600 mt-0.5">
-                          Jumlah: {formatCurrency(item.product.price * item.quantity)}
-                        </p>
-                      </div>
+                  {safeItems?.map((item) => {
+                    if (!item || !item.product) return null;
+                    const p = item.product;
+                    const pId = p?.id || Math.random().toString();
+                    const itemQty = Number(item?.quantity) || 1;
+                    const itemPrice = Number(p?.price) || 0;
 
-                      {/* Quantity Controls */}
-                      <div className="flex items-center border border-slate-200 rounded-lg bg-slate-50 p-0.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (item.quantity > 1) {
-                              onUpdateQuantity(item.product.id, item.quantity - 1);
-                            } else {
-                              onRemoveItem(item.product.id);
-                            }
+                    return (
+                      <div
+                        key={pId}
+                        className="flex gap-3 p-3 rounded-xl bg-white border border-slate-200/80 items-center justify-between shadow-2xs"
+                      >
+                        <img
+                          src={formatImageUrl(p?.cookedImageUrl || p?.imageUrl || p?.packagingImageUrl, p?.category, p?.name)}
+                          alt={p?.name || "Produk"}
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = getCategoryFallbackImage(p?.category, p?.name);
                           }}
-                          className="w-6 h-6 rounded bg-white hover:bg-slate-100 flex items-center justify-center text-slate-700 text-xs font-bold shadow-2xs"
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        <span className="w-7 text-center text-xs font-bold text-slate-900">
-                          {item.quantity}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
-                          className="w-6 h-6 rounded bg-white hover:bg-slate-100 flex items-center justify-center text-slate-700 text-xs font-bold shadow-2xs"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
+                          className="w-14 h-14 rounded-lg object-cover border border-slate-100 flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
+                            {p?.name || "Produk"}
+                          </h4>
+                          <p className="text-[11px] text-slate-500">
+                            {formatCurrency(itemPrice)} / {p?.unit || "1 pek"}
+                          </p>
+                          <p className="text-xs font-bold text-blue-600 mt-0.5">
+                            Jumlah: {formatCurrency(itemPrice * itemQty)}
+                          </p>
+                        </div>
+
+                        {/* Quantity Controls */}
+                        <div className="flex items-center border border-slate-200 rounded-lg bg-slate-50 p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (itemQty > 1) {
+                                onUpdateQuantity(pId, itemQty - 1);
+                              } else {
+                                onRemoveItem(pId);
+                              }
+                            }}
+                            className="w-6 h-6 rounded bg-white hover:bg-slate-100 flex items-center justify-center text-slate-700 text-xs font-bold shadow-2xs"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="w-7 text-center text-xs font-bold text-slate-900">
+                            {itemQty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onUpdateQuantity(pId, itemQty + 1)}
+                            className="w-6 h-6 rounded bg-white hover:bg-slate-100 flex items-center justify-center text-slate-700 text-xs font-bold shadow-2xs"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Optional Customer Information for Faster WhatsApp processing */}

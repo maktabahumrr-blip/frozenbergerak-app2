@@ -250,10 +250,10 @@ export default function App() {
         showToast(`✓ Data produk berjaya dikemaskini (${catalogProducts.length} produk)!`);
       }
     } catch (err: any) {
-      console.error("Error fetching data from Google Sheet:", err);
-      // Fallback to empty array so the app doesn't crash with a blank white screen
-      setProducts([]);
-      setCategories([]);
+      console.warn("Issue encountered during catalog fetch, falling back gracefully:", err);
+      // Ensure catalog state ALWAYS defaults to an empty array [] if fetching fails
+      setProducts((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
+      setCategories((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -277,132 +277,142 @@ export default function App() {
 
   // Merge products with any promo items from Alltimepromo and Seasonalpromo sheet tabs
   const allMergedProducts = useMemo(() => {
-    const safeProducts = Array.isArray(products) ? products : [];
-    const safePromos = Array.isArray(promos) ? promos : [];
-    const safeSeasonalPromos = Array.isArray(seasonalPromos) ? seasonalPromos : [];
+    try {
+      const safeProducts = Array.isArray(products) ? products : [];
+      const safePromos = Array.isArray(promos) ? promos : [];
+      const safeSeasonalPromos = Array.isArray(seasonalPromos) ? seasonalPromos : [];
 
-    const extraPromoProducts: Product[] = [];
-    const allPromos = [...safePromos, ...safeSeasonalPromos];
+      const extraPromoProducts: Product[] = [];
+      const allPromos = [...safePromos, ...safeSeasonalPromos];
 
-    allPromos.forEach((pr) => {
-      if (!pr || !pr.id) return;
-      const promoTitle = (pr.title || "").trim().toLowerCase();
-      const promoId = (pr.id || "").toLowerCase();
+      allPromos.forEach((pr) => {
+        if (!pr || !pr.id) return;
+        const promoTitle = String(pr.title || "").trim().toLowerCase();
+        const promoId = String(pr.id || "").toLowerCase();
 
-      const exists = safeProducts.some(
-        (p) =>
-          (p.id && p.id.toLowerCase() === promoId) ||
-          (p.name && promoTitle && p.name.trim().toLowerCase() === promoTitle)
-      );
-      const isAlreadyInExtra = extraPromoProducts.some(
-        (p) =>
-          (p.id && p.id.toLowerCase() === promoId) ||
-          (p.name && promoTitle && p.name.trim().toLowerCase() === promoTitle)
-      );
-      if (!exists && !isAlreadyInExtra) {
-        const isSeasonal = safeSeasonalPromos.some((sp) => sp.id === pr.id);
-        extraPromoProducts.push({
-          id: pr.id,
-          name: pr.title || "Promosi Istimewa",
-          category: isSeasonal ? "PROMOSI BERMUSIM" : "All Time Promo",
-          price: pr.promoPrice || pr.originalPrice || 0,
-          originalPrice: pr.originalPrice,
-          promoPrice: pr.promoPrice,
-          unit: pr.unit || "1 pek",
-          description: pr.description || "Tawaran promosi istimewa daripada Google Sheets.",
-          imageUrl: pr.imageUrl,
-          cookedImageUrl: pr.imageUrl,
-          isPopular: true,
-          isNew: false,
-          inStock: !pr.status?.toLowerCase().includes("habis") && !pr.status?.toLowerCase().includes("tidak"),
-          halalCertified: true,
-          storageInfo: "Simpan pada suhu sejuk beku (-18°C)."
-        });
-      }
-    });
+        const exists = safeProducts.some(
+          (p) =>
+            (p?.id && String(p.id).toLowerCase() === promoId) ||
+            (p?.name && promoTitle && String(p.name).trim().toLowerCase() === promoTitle)
+        );
+        const isAlreadyInExtra = extraPromoProducts.some(
+          (p) =>
+            (p?.id && String(p.id).toLowerCase() === promoId) ||
+            (p?.name && promoTitle && String(p.name).trim().toLowerCase() === promoTitle)
+        );
+        if (!exists && !isAlreadyInExtra) {
+          const isSeasonal = safeSeasonalPromos.some((sp) => sp?.id === pr.id);
+          extraPromoProducts.push({
+            id: pr.id,
+            name: pr.title || "Promosi Istimewa",
+            category: isSeasonal ? "PROMOSI BERMUSIM" : "All Time Promo",
+            price: pr.promoPrice || pr.originalPrice || 0,
+            originalPrice: pr.originalPrice,
+            promoPrice: pr.promoPrice,
+            unit: pr.unit || "1 pek",
+            description: pr.description || "Tawaran promosi istimewa daripada Google Sheets.",
+            imageUrl: pr.imageUrl,
+            cookedImageUrl: pr.imageUrl,
+            isPopular: true,
+            isNew: false,
+            inStock: !String(pr.status || "").toLowerCase().includes("habis") && !String(pr.status || "").toLowerCase().includes("tidak"),
+            halalCertified: true,
+            storageInfo: "Simpan pada suhu sejuk beku (-18°C)."
+          });
+        }
+      });
 
-    return [...safeProducts, ...extraPromoProducts];
+      return [...safeProducts, ...extraPromoProducts];
+    } catch (e) {
+      console.warn("Error calculating allMergedProducts:", e);
+      return Array.isArray(products) ? products : [];
+    }
   }, [products, promos, seasonalPromos]);
 
   // Filtered products calculation for Catalog
   const filteredProducts = useMemo(() => {
-    const safeMerged = Array.isArray(allMergedProducts) ? allMergedProducts : [];
-    const safePromos = Array.isArray(promos) ? promos : [];
-    const safeSeasonal = Array.isArray(seasonalPromos) ? seasonalPromos : [];
+    try {
+      const safeMerged = Array.isArray(allMergedProducts) ? allMergedProducts : [];
+      const safePromos = Array.isArray(promos) ? promos : [];
+      const safeSeasonal = Array.isArray(seasonalPromos) ? seasonalPromos : [];
 
-    return safeMerged.filter((item) => {
-      if (!item) return false;
-      const itemName = (item.name || "").toLowerCase();
-      const itemCategory = (item.category || "").toLowerCase();
-      const itemId = (item.id || "").toLowerCase();
+      return safeMerged.filter((item) => {
+        if (!item) return false;
+        const itemName = String(item?.name || "").toLowerCase();
+        const itemCategory = String(item?.category || "").toLowerCase();
+        const itemId = String(item?.id || "").toLowerCase();
 
-      // Promo filter (All Time Promo or Seasonal Promo)
-      if (activePromoFilter === "alltime") {
-        const isDisc = Boolean(
-          (item.promoPrice && item.originalPrice && item.promoPrice < item.originalPrice) ||
-          (item.promoPrice && item.promoPrice > 0)
-        );
-        const matchesPromoTab = safePromos.some(
-          (pr) => {
-            const prTitle = (pr.title || "").trim().toLowerCase();
-            const prId = (pr.id || "").toLowerCase();
-            return (
-              prTitle === itemName ||
-              prId === itemId ||
-              (prTitle && itemName.includes(prTitle)) ||
-              (itemName && prTitle.includes(itemName))
-            );
+        // Promo filter (All Time Promo or Seasonal Promo)
+        if (activePromoFilter === "alltime") {
+          const isDisc = Boolean(
+            (item.promoPrice && item.originalPrice && item.promoPrice < item.originalPrice) ||
+            (item.promoPrice && item.promoPrice > 0)
+          );
+          const matchesPromoTab = safePromos.some(
+            (pr) => {
+              const prTitle = String(pr?.title || "").trim().toLowerCase();
+              const prId = String(pr?.id || "").toLowerCase();
+              return (
+                prTitle === itemName ||
+                prId === itemId ||
+                (prTitle && itemName.includes(prTitle)) ||
+                (itemName && prTitle.includes(itemName))
+              );
+            }
+          );
+          if (!isDisc && !matchesPromoTab && !item.isPopular) {
+            return false;
           }
-        );
-        if (!isDisc && !matchesPromoTab && !item.isPopular) {
-          return false;
         }
-      }
 
-      if (activePromoFilter === "seasonal") {
-        const matchesSeasonalPromoTab = safeSeasonal.some(
-          (sp) => {
-            const spTitle = (sp.title || "").trim().toLowerCase();
-            const spId = (sp.id || "").toLowerCase();
-            return (
-              spTitle === itemName ||
-              spId === itemId ||
-              (spTitle && itemName.includes(spTitle)) ||
-              (itemName && spTitle.includes(itemName))
-            );
+        if (activePromoFilter === "seasonal") {
+          const matchesSeasonalPromoTab = safeSeasonal.some(
+            (sp) => {
+              const spTitle = String(sp?.title || "").trim().toLowerCase();
+              const spId = String(sp?.id || "").toLowerCase();
+              return (
+                spTitle === itemName ||
+                spId === itemId ||
+                (spTitle && itemName.includes(spTitle)) ||
+                (itemName && spTitle.includes(itemName))
+              );
+            }
+          );
+          const isSeasonalCategory = itemCategory.includes("seasonal") || itemCategory.includes("musiman");
+
+          if (!matchesSeasonalPromoTab && !isSeasonalCategory) {
+            return false;
           }
-        );
-        const isSeasonalCategory = itemCategory.includes("seasonal") || itemCategory.includes("musiman");
+        }
 
-        if (!matchesSeasonalPromoTab && !isSeasonalCategory) {
+        // Category filter (if not filtered by special promo mode or if specific cat is chosen)
+        if (activeCategoryId !== "all" && itemCategory !== String(activeCategoryId || "").toLowerCase()) {
           return false;
         }
-      }
 
-      // Category filter (if not filtered by special promo mode or if specific cat is chosen)
-      if (activeCategoryId !== "all" && itemCategory !== (activeCategoryId || "").toLowerCase()) {
-        return false;
-      }
-
-      // Popular filter
-      if (showPopularOnly && !item.isPopular && !(item.promoPrice && item.originalPrice && item.promoPrice < item.originalPrice)) {
-        return false;
-      }
-
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesName = itemName.includes(q);
-        const matchesDesc = (item.description || "").toLowerCase().includes(q);
-        const matchesCat = itemCategory.includes(q);
-        const matchesId = itemId.includes(q);
-        if (!matchesName && !matchesDesc && !matchesCat && !matchesId) {
+        // Popular filter
+        if (showPopularOnly && !item.isPopular && !(item.promoPrice && item.originalPrice && item.promoPrice < item.originalPrice)) {
           return false;
         }
-      }
 
-      return true;
-    });
+        // Search query
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim();
+          const matchesName = itemName.includes(q);
+          const matchesDesc = String(item.description || "").toLowerCase().includes(q);
+          const matchesCat = itemCategory.includes(q);
+          const matchesId = itemId.includes(q);
+          if (!matchesName && !matchesDesc && !matchesCat && !matchesId) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+    } catch (e) {
+      console.warn("Error calculating filteredProducts:", e);
+      return [];
+    }
   }, [allMergedProducts, promos, seasonalPromos, activePromoFilter, activeCategoryId, showPopularOnly, searchQuery]);
 
   // Navigation Handlers
@@ -436,17 +446,20 @@ export default function App() {
 
   // Cart operations
   const handleAddToCart = (product: Product, quantityToAdd: number = 1) => {
+    if (!product || !product.id) return;
+    const prodId = product.id;
     setCart((prevCart) => {
-      const existingIndex = prevCart.findIndex((i) => i.product.id === product.id);
+      const safeCart = Array.isArray(prevCart) ? prevCart : [];
+      const existingIndex = safeCart.findIndex((i) => i?.product?.id === prodId);
       if (existingIndex > -1) {
-        const updated = [...prevCart];
-        updated[existingIndex].quantity += quantityToAdd;
+        const updated = [...safeCart];
+        updated[existingIndex].quantity = (Number(updated[existingIndex].quantity) || 0) + quantityToAdd;
         return updated;
       } else {
-        return [...prevCart, { product, quantity: quantityToAdd }];
+        return [...safeCart, { product, quantity: quantityToAdd }];
       }
     });
-    showToast(`✓ ${product.name} dimasukkan ke senarai pesanan!`);
+    showToast(`✓ ${product.name || "Produk"} dimasukkan ke senarai pesanan!`);
   };
 
   const handleUpdateQuantity = (productId: string, newQuantity: number) => {
@@ -454,15 +467,19 @@ export default function App() {
       handleRemoveFromCart(productId);
       return;
     }
-    setCart((prev) =>
-      prev.map((item) =>
-        item.product.id === productId ? { ...item, quantity: newQuantity } : item
-      )
-    );
+    setCart((prev) => {
+      const safeCart = Array.isArray(prev) ? prev : [];
+      return safeCart.map((item) =>
+        item?.product?.id === productId ? { ...item, quantity: newQuantity } : item
+      );
+    });
   };
 
   const handleRemoveFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
+    setCart((prev) => {
+      const safeCart = Array.isArray(prev) ? prev : [];
+      return safeCart.filter((item) => item?.product?.id !== productId);
+    });
     showToast("Produk dikeluarkan dari senarai pesanan.");
   };
 
@@ -472,12 +489,12 @@ export default function App() {
   };
 
   const totalCartCount = useMemo(
-    () => cart.reduce((sum, item) => sum + item.quantity, 0),
+    () => (Array.isArray(cart) ? cart : []).reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0),
     [cart]
   );
 
   const totalCartValue = useMemo(
-    () => cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
+    () => (Array.isArray(cart) ? cart : []).reduce((sum, item) => sum + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1), 0),
     [cart]
   );
 
@@ -803,17 +820,18 @@ export default function App() {
               {/* Product Grid */}
               {!loading && !error && filteredProducts.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {filteredProducts.map((product) => {
-                    const cartItem = cart.find((i) => i.product.id === product.id);
+                  {(filteredProducts || []).map((product) => {
+                    if (!product) return null;
+                    const cartItem = (Array.isArray(cart) ? cart : []).find((i) => i?.product?.id === product?.id);
                     return (
                       <ProductCard
-                        key={product.id}
+                        key={product?.id || Math.random().toString()}
                         product={product}
                         whatsappNumber={whatsappNumber}
                         onViewDetails={(p) => setSelectedProduct(p)}
                         onAddToCart={(p) => handleAddToCart(p, 1)}
                         isInCart={Boolean(cartItem)}
-                        cartQuantity={cartItem ? cartItem.quantity : 0}
+                        cartQuantity={cartItem ? (Number(cartItem?.quantity) || 0) : 0}
                       />
                     );
                   })}

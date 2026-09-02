@@ -62,9 +62,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   const hasBothImages = Boolean(product.cookedImageUrl && product.packagingImageUrl);
 
-  const total = product.price * quantity;
+  const total = (Number(product?.price) || 0) * (Number(quantity) || 1);
   const whatsappUrl = generateSingleProductWhatsAppUrl(product, quantity, whatsappNumber);
-  const hasPromo = Boolean(product.promoPrice && product.originalPrice && product.promoPrice < product.originalPrice);
+  const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice);
 
   const handleAdd = () => {
     onAddToCart(product, quantity);
@@ -81,7 +81,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
       {/* Modal Container */}
       <div
-        id={`modal-product-${product.id}`}
+        id={`modal-product-${product?.id || "item"}`}
         className="relative bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl z-10 max-h-[92vh] flex flex-col md:flex-row border border-slate-200"
       >
         {/* Close Button */}
@@ -128,7 +128,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           ) : (
             <div className="self-start z-10">
               <span className="inline-flex items-center gap-1 bg-white/90 backdrop-blur-xs text-slate-700 text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-2xs border border-slate-200">
-                {product.cookedImageUrl ? (
+                {product?.cookedImageUrl ? (
                   <>
                     <UtensilsCrossed className="w-3 h-3 text-blue-600" />
                     <span>Gambar Siap Masak</span>
@@ -152,7 +152,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             <img
               key={displayedImage}
               src={displayedImage}
-              alt={`${product.name} - ${activeImageType === "cooked" ? "Siap Masak" : "Packaging"}`}
+              alt={`${product?.name || "Produk"} - ${activeImageType === "cooked" ? "Siap Masak" : "Packaging"}`}
               referrerPolicy="no-referrer"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = fallbackSrc;
@@ -166,7 +166,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               <span className="hidden sm:inline">Besarkan</span>
             </div>
 
-            {product.halalCertified && (
+            {product?.halalCertified && (
               <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-xl text-slate-800 text-xs font-bold shadow-xs flex items-center gap-1.5 border border-slate-200">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
                 <span>100% Halal</span>
@@ -226,7 +226,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             <div>
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg uppercase">
-                  {product.category}
+                  {product?.category || "Umum"}
                 </span>
                 {hasPromo && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-red-600 px-2 py-0.5 rounded-lg">
@@ -234,7 +234,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     Harga Promosi
                   </span>
                 )}
-                {product.isPopular && !hasPromo && (
+                {product?.isPopular && !hasPromo && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-lg">
                     <Sparkles className="w-3 h-3 text-amber-600" />
                     Paling Laris
@@ -242,32 +242,32 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 )}
               </div>
               <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-snug">
-                {product.name}
+                {product?.name || "Produk"}
               </h2>
             </div>
 
             {/* Price & Unit */}
             <div className="flex items-baseline gap-2 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
-              {hasPromo && product.originalPrice ? (
+              {hasPromo && product?.originalPrice ? (
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl font-extrabold text-red-600">
-                    {formatCurrency(product.price)}
+                    {formatCurrency(product?.price)}
                   </span>
                   <span className="text-sm text-slate-400 line-through font-semibold">
-                    {formatCurrency(product.originalPrice)}
+                    {formatCurrency(product?.originalPrice)}
                   </span>
                 </div>
               ) : (
                 <span className="text-2xl font-extrabold text-blue-600">
-                  {formatCurrency(product.price)}
+                  {formatCurrency(product?.price)}
                 </span>
               )}
               <span className="text-xs text-slate-500 font-medium">
-                / {product.unit}
+                / {product?.unit || "1 pek"}
               </span>
-              {product.weight && (
+              {product?.weight && (
                 <span className="ml-auto text-xs bg-white px-2 py-0.5 rounded-lg border border-slate-200 text-slate-600 font-semibold">
-                  {product.weight}
+                  {product?.weight}
                 </span>
               )}
             </div>
@@ -277,16 +277,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
                 Penerangan Produk
               </h4>
-              <FormattedDescription description={product.description} />
+              <FormattedDescription description={product?.description} />
             </div>
 
             {/* Storage / Cooking note */}
-            {product.storageInfo && (
+            {product?.storageInfo && (
               <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
                 <ThermometerSnowflake className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold block mb-0.5 text-slate-900">Panduan Simpanan:</span>
-                  <span>{product.storageInfo}</span>
+                  <span>{product?.storageInfo}</span>
                 </div>
               </div>
             )}
@@ -320,7 +320,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   </button>
                 </div>
                 <span className="text-xs text-slate-500">
-                  pek ({product.unit})
+                  pek ({product?.unit || "1 pek"})
                 </span>
               </div>
             </div>
@@ -351,7 +351,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </button>
 
             <a
-              id={`modal-whatsapp-btn-${product.id}`}
+              id={`modal-whatsapp-btn-${product?.id || "item"}`}
               href={whatsappUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -368,10 +368,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       <ImageLightbox
         isOpen={isLightboxOpen}
         onClose={() => setIsLightboxOpen(false)}
-        productName={product.name}
-        category={product.category}
-        cookedImageUrl={product.cookedImageUrl || product.imageUrl}
-        packagingImageUrl={product.packagingImageUrl}
+        productName={product?.name || ""}
+        category={product?.category}
+        cookedImageUrl={product?.cookedImageUrl || product?.imageUrl}
+        packagingImageUrl={product?.packagingImageUrl}
         activeType={activeImageType}
         onSelectType={(type) => setActiveImageType(type)}
       />

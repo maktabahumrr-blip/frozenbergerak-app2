@@ -97,17 +97,20 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
         )}
 
         {/* Normal Categories */}
-        {(categories || []).map((cat) => {
-          const isActive = activeCategoryId === cat.id && !showPopularOnly && !activePromoFilter;
+        {(categories || [])?.map((cat) => {
+          if (!cat) return null;
+          const catId = cat?.id || "";
+          const catName = cat?.name || "Kategori";
+          const isActive = activeCategoryId === catId && !showPopularOnly && !activePromoFilter;
 
           return (
             <button
-              key={cat.id}
+              key={catId || Math.random()}
               type="button"
               onClick={() => {
                 if (showPopularOnly) onTogglePopularOnly();
                 if (onSelectPromoFilter) onSelectPromoFilter(null);
-                onSelectCategory(cat.id);
+                onSelectCategory(catId);
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors flex-shrink-0 cursor-pointer ${
                 isActive
@@ -115,15 +118,15 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
-              <span>{getCategoryIcon(cat.icon)}</span>
-              <span>{cat.name}</span>
-              {typeof cat.count === "number" && (
+              <span>{getCategoryIcon(cat?.icon || "Grid")}</span>
+              <span>{catName}</span>
+              {typeof cat?.count === "number" && (
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     isActive ? "bg-blue-800 text-white" : "bg-slate-200 text-slate-700"
                   }`}
                 >
-                  {cat.count}
+                  {cat?.count}
                 </span>
               )}
             </button>

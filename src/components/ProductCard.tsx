@@ -36,24 +36,26 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   isInCart,
   cartQuantity,
 }) => {
-  const hasBothImages = Boolean(product.cookedImageUrl && product.packagingImageUrl);
+  if (!product) return null;
+
+  const hasBothImages = Boolean(product?.cookedImageUrl && product?.packagingImageUrl);
   const [showPackaging, setShowPackaging] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
   const activeImageType = showPackaging ? "packaging" : "cooked";
 
-  const currentImageSrc = showPackaging && product.packagingImageUrl
-    ? formatImageUrl(product.packagingImageUrl, product.category, product.name)
-    : formatImageUrl(product.cookedImageUrl || product.imageUrl || product.packagingImageUrl, product.category, product.name);
+  const currentImageSrc = showPackaging && product?.packagingImageUrl
+    ? formatImageUrl(product?.packagingImageUrl, product?.category, product?.name)
+    : formatImageUrl(product?.cookedImageUrl || product?.imageUrl || product?.packagingImageUrl, product?.category, product?.name);
 
-  const fallbackSrc = getCategoryFallbackImage(product.category, product.name);
+  const fallbackSrc = getCategoryFallbackImage(product?.category, product?.name);
   const singleWhatsAppUrl = generateSingleProductWhatsAppUrl(product, 1, whatsappNumber);
-  const badgeColor = getCategoryBadgeClass(product.category);
-  const hasPromo = Boolean(product.promoPrice && product.originalPrice && product.promoPrice < product.originalPrice);
+  const badgeColor = getCategoryBadgeClass(product?.category);
+  const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product?.promoPrice < product?.originalPrice);
 
   return (
     <div
-      id={`product-card-${product.id}`}
+      id={`product-card-${product?.id || "item"}`}
       className="bg-white rounded-2xl shadow-xs hover:shadow-md border border-slate-100 overflow-hidden flex flex-col transition-all duration-200 group"
     >
       {/* Product Image Box */}
@@ -64,7 +66,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       >
         <img
           src={currentImageSrc}
-          alt={product.name}
+          alt={product?.name || "Produk Frozen"}
           referrerPolicy="no-referrer"
           loading="lazy"
           onError={(e) => {
@@ -75,7 +77,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Category Pill Tag */}
         <span className={`absolute top-3 left-3 text-[10px] font-bold px-2.5 py-0.5 rounded uppercase tracking-wide shadow-xs ${badgeColor}`}>
-          {product.category}
+          {product?.category || "Umum"}
         </span>
 
         {/* Popular / Promo / Halal Badges */}
@@ -86,13 +88,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               PROMO
             </span>
           )}
-          {product.isPopular && !hasPromo && (
+          {product?.isPopular && !hasPromo && (
             <span className="bg-amber-400 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5" />
               Laris
             </span>
           )}
-          {product.halalCertified && (
+          {product?.halalCertified && (
             <span className="bg-white/90 backdrop-blur-xs text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
               <ShieldCheck className="w-3 h-3 text-emerald-600" />
               Halal
@@ -163,37 +165,37 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             <h4 
               onClick={() => onViewDetails(product)}
               className="font-bold text-base sm:text-lg text-slate-800 leading-tight group-hover:text-blue-600 transition-colors cursor-pointer line-clamp-1"
-              title={product.name}
+              title={product?.name || ""}
             >
-              {product.name}
+              {product?.name || "Produk"}
             </h4>
 
             {/* Price section with Promo Price support */}
             <div className="text-right whitespace-nowrap">
-              {hasPromo && product.originalPrice ? (
+              {hasPromo && product?.originalPrice ? (
                 <div className="flex flex-col items-end">
                   <span className="text-xs text-slate-400 line-through font-semibold">
-                    {formatCurrency(product.originalPrice)}
+                    {formatCurrency(product?.originalPrice)}
                   </span>
                   <span className="text-red-600 font-black text-base">
-                    {formatCurrency(product.price)}
+                    {formatCurrency(product?.price)}
                   </span>
                 </div>
               ) : (
                 <span className="text-blue-600 font-extrabold text-base">
-                  {formatCurrency(product.price)}
+                  {formatCurrency(product?.price)}
                 </span>
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
-            <span>{product.unit}</span>
-            {product.weight && <span>• {product.weight}</span>}
+            <span>{product?.unit || "1 pek"}</span>
+            {product?.weight && <span>• {product?.weight}</span>}
           </div>
 
           <p className="text-slate-500 text-xs sm:text-sm mb-4 line-clamp-2 leading-relaxed">
-            {product.description}
+            {product?.description || ""}
           </p>
         </div>
 
@@ -202,7 +204,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              id={`add-btn-${product.id}`}
+              id={`add-btn-${product?.id || "item"}`}
               onClick={() => onAddToCart(product)}
               className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
                 isInCart
@@ -224,7 +226,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </button>
 
             <a
-              id={`wa-btn-${product.id}`}
+              id={`wa-btn-${product?.id || "item"}`}
               href={singleWhatsAppUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -249,10 +251,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       <ImageLightbox
         isOpen={isLightboxOpen}
         onClose={() => setIsLightboxOpen(false)}
-        productName={product.name}
-        category={product.category}
-        cookedImageUrl={product.cookedImageUrl || product.imageUrl}
-        packagingImageUrl={product.packagingImageUrl}
+        productName={product?.name || ""}
+        category={product?.category}
+        cookedImageUrl={product?.cookedImageUrl || product?.imageUrl}
+        packagingImageUrl={product?.packagingImageUrl}
         activeType={activeImageType}
         onSelectType={(type) => setShowPackaging(type === "packaging")}
       />
