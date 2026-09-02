@@ -18,6 +18,8 @@ import {
   Sun
 } from "lucide-react";
 import { Product, Category, CartItem, StoreConfig, PromoItem } from "./types";
+import { fetchLiveCatalog, DEFAULT_CATALOG_PRODUCTS } from "./data/catalogData";
+import { GoogleSheetSyncModal } from "./components/GoogleSheetSyncModal";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { CategoryBar } from "./components/CategoryBar";
@@ -45,6 +47,8 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [catalogSource, setCatalogSource] = useState<string>("google_sheet");
+  const [isSheetSyncModalOpen, setIsSheetSyncModalOpen] = useState<boolean>(false);
 
   // Team Approvals Live Sync State across all devices
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
@@ -188,7 +192,7 @@ export default function App() {
     };
   }, []);
 
-  // Fetch product data from server (which reads directly from Google Sheet with PWA offline fallback)
+  // Fetch product data directly from Google Sheet (CSV export format) with fallback
   const fetchData = async (forceRefresh = false) => {
     try {
       if (forceRefresh) {
@@ -198,45 +202,39 @@ export default function App() {
       }
       setError(null);
 
+      // 1. Fetch live product catalog directly from Google Sheet CSV or server proxy
+      const customSheet = localStorage.getItem("custom_google_sheet_url") || "";
+      const catalogResult = await fetchLiveCatalog(customSheet, forceRefresh);
+      
+      setProducts(catalogResult.products);
+      setCategories(catalogResult.categories);
+      setCatalogSource(catalogResult.source);
+
+      // 2. Concurrently fetch extra configurations, promos and seasonal promos
       const urlParams = forceRefresh ? "?refresh=true" : "";
-      const [prodRes, catRes, confRes, promoRes, seasonalRes] = await Promise.all([
-        fetch(`/api/products${urlParams}`),
-        fetch(`/api/categories${urlParams}`),
-        fetch("/api/config"),
+      const [confRes, promoRes, seasonalRes] = await Promise.all([
+        fetch("/api/config").catch(() => null),
         fetch(`/api/promos${urlParams}`).catch(() => null),
         fetch(`/api/seasonal-promos${urlParams}`).catch(() => null),
       ]);
 
-      const prodData = await prodRes.json().catch(() => ({}));
-      const catData = await catRes.json().catch(() => ([]));
-      const confData = await confRes.json().catch(() => ({}));
+      const confData = confRes ? await confRes.json().catch(() => ({})) : {};
       const promoData = promoRes ? await promoRes.json().catch(() => ({})) : {};
       const seasonalData = seasonalRes ? await seasonalRes.json().catch(() => ({})) : {};
 
-      if (!prodRes.ok) {
-        throw new Error(
-          prodData.error || `Ralat pelayan (Kod: ${prodRes.status}) semasa membaca Google Sheet.`
-        );
-      }
-
-      setProducts(prodData.products || []);
-      setCategories(Array.isArray(catData) ? catData : []);
       setPromos(Array.isArray(promoData?.promos) ? promoData.promos : []);
       setSeasonalPromos(Array.isArray(seasonalData?.promos) ? seasonalData.promos : []);
       setStoreConfig(confData || null);
 
       if (forceRefresh) {
-        showToast("✓ Data berjaya disegerakkan daripada Google Sheet!");
+        showToast(`✓ Data produk berjaya dikemaskini daripada Google Sheet (${catalogResult.products.length} produk)!`);
       }
     } catch (err: any) {
       console.error("Error fetching data from Google Sheet:", err);
       if (!navigator.onLine && products.length > 0) {
         showToast("Mod Luar Talian: Memaparkan data produk yang disimpan.");
-      } else {
-        setProducts([]);
-        setCategories([]);
-        setPromos([]);
-        setSeasonalPromos([]);
+      } else if (products.length === 0) {
+        setProducts(DEFAULT_CATALOG_PRODUCTS);
         setError(err?.message || "Gagal menyambung dan membaca Google Sheet.");
       }
     } finally {
@@ -616,10 +614,16 @@ export default function App() {
                         </span>
                       )}
 
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsSheetSyncModalOpen(true)}
+                        className="text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                        title="Klik untuk lihat atau ubah pautan Google Sheet"
+                      >
                         <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
-                        Google Sheets Live
-                      </span>
+                        <span>Google Sheets Live</span>
+                        <span className="text-[9px] bg-emerald-200/90 text-emerald-900 px-1 py-0.2 rounded font-mono">Pautan Sheet</span>
+                      </button>
                     </div>
 
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
@@ -925,6 +929,17 @@ export default function App() {
         }}
         onScheduleUpdated={() => {
           fetchData(true);
+        }}
+      />
+
+      {/* Google Sheet Live Sync & Link Settings Modal */}
+      <GoogleSheetSyncModal
+        isOpen={isSheetSyncModalOpen}
+        onClose={() => setIsSheetSyncModalOpen(false)}
+        currentSource={catalogSource}
+        totalProducts={products.length}
+        onSyncComplete={async () => {
+          await fetchData(true);
         }}
       />
 

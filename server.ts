@@ -1271,24 +1271,161 @@ function parseOptionalImageUrl(url: string | undefined): string | undefined {
   return undefined;
 }
 
-async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ products: ParsedProduct[]; source: string }> {
-  const sheetIdRaw = process.env.GOOGLE_SHEET_ID;
+export const DEFAULT_SERVER_CATALOG_CSV = `ID,PRODUK,KATEGORI,HARGA,HARGA PROMO,GAMBAR SIAP MASAK,GAMBAR PACKAGING,PENERANGAN,STATUS
+FB001,Pau Mini Kacang Merah,Pau,RM 15,,https://drive.google.com/file/d/15bXjrNxiC5quFRZVPPjdbLAUhPdOcJH5/view?usp=drivesdk,https://drive.google.com/file/d/1naFQ3aOaPHVSeY-xmFtkveQ1yyShvilI/view?usp=drivesdk,1 pek 12 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB002,Pau Mini Kaya,Pau,RM 15,,https://drive.google.com/file/d/1Qzkfw0Sa1vjD6mIqVCwiQko2aDXK9Mch/view?usp=drivesdk,https://drive.google.com/file/d/1naFQ3aOaPHVSeY-xmFtkveQ1yyShvilI/view?usp=drivesdk,1 pek 12 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB003,Pau Mini Coklat,Pau,RM 15,,https://drive.google.com/file/d/1vmYXwTk_o-zwuRr5dYAo-5GY5MdQ0dgx/view?usp=drivesdk,https://drive.google.com/file/d/1naFQ3aOaPHVSeY-xmFtkveQ1yyShvilI/view?usp=drivesdk,1 pek 12 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB004,Pau Mini Kelapa,Pau,RM 15,,https://drive.google.com/file/d/1fSnQTTzTrQHe9XU8TVThN8klUnknn1Yj/view?usp=drivesdk,https://drive.google.com/file/d/1naFQ3aOaPHVSeY-xmFtkveQ1yyShvilI/view?usp=drivesdk,1 pek 12 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB005,Pau Gebu Kacang Merah,Pau,RM 15,,https://drive.google.com/file/d/1dX3KeHkBtiEfcClz2KaLDu8PqkyuYjkb/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB006,Pau Gebu Kaya,Pau,RM 15,,https://drive.google.com/file/d/1HH8mmv-EZ6mIyIOj6uELHRtoDE8s-0gD/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB007,Pau Gebu Coklat,Pau,RM 15,,https://drive.google.com/file/d/1hg5Utg_cfohG8tJCp2SyZGPTXTjgIAI2/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB008,Pau Gebu Kelapa,Pau,RM 15,,https://drive.google.com/file/d/1dII4pym0Gm017I_twUZENew_vmyivK9c/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB009,Pau Gebu Kari Ayam,Pau,RM 17,,https://drive.google.com/file/d/1rvl0v1E2HzGtjRQyeWS2a3eGkGRlsnmM/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB010,Pau Gebu Rendang Ayam,Pau,RM 17,,https://drive.google.com/file/d/169W5_jJf8ngZaYfeTd9s9ycDh5Dw1MHo/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB011,Pau Gebu Rendang Daging,Pau,RM 17,,https://drive.google.com/file/d/1BVK70wnykWdOQ19rWw1vRLHc7kCWeTTe/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB012,Pau Gebu BBQ Ayam,Pau,RM 17,,https://drive.google.com/file/d/1YZICZN3b1JwWoym8qt-DXnHCyOOQ67xZ/view?usp=drivesdk,https://drive.google.com/file/d/1Pxhk3uHHwTO8DhUb5PC-M6U1fvCyk3bk/view?usp=drivesdk,1 pek 6 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB013,Dimsum Ayam Original,Dimsum,RM 20,,https://drive.google.com/file/d/1opmwCQgnhPjWw6_P8Wbolt3bjT654qZE/view?usp=drivesdk,https://drive.google.com/file/d/1P4ZHD0HfexyYGV79mUXMdP9SEMQQIDLB/view?usp=drivesdk,1 pek 15 biji. Hanya perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB014,Dimsum Ayam Lada Hitam,Dimsum,RM 20,,https://drive.google.com/file/d/1opmwCQgnhPjWw6_P8Wbolt3bjT654qZE/view?usp=drivesdk,https://drive.google.com/file/d/1mVcbBSKKAeCPidfluG70NrSG6k5JM84Q/view?usp=drivesdk,1 pek 15 biji. Hanya perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB015,Dimsum Ayam Jejari Ketam,Dimsum,RM 20,,https://drive.google.com/file/d/1opmwCQgnhPjWw6_P8Wbolt3bjT654qZE/view?usp=drivesdk,https://drive.google.com/file/d/16h3GGf3Km9dUmfyDwrV7TXdfL_FLUKqu/view?usp=drivesdk,1 pek 15 biji. Hanya perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB016,Dimsum Ayam Telur Asin,Dimsum,RM 20,,https://drive.google.com/file/d/1opmwCQgnhPjWw6_P8Wbolt3bjT654qZE/view?usp=drivesdk ,https://drive.google.com/file/d/1PBvffZ6AHpLt_YPZ4WMFqKlEri5Qdfrn/view?usp=drivesdk,1 pek 15 biji. Hanya perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB017,Dimsum Ayam Cendawan Shitake,Dimsum,RM 20,,https://drive.google.com/file/d/1opmwCQgnhPjWw6_P8Wbolt3bjT654qZE/view?usp=drivesdk,https://drive.google.com/file/d/1viA_97_1-saqh0zcSzovbivGcvN0bfqT/view?usp=drivesdk,1 pek 15 biji. Hanya perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB018,Dimsum Ayam Tomyam,Dimsum,RM 20,,https://drive.google.com/file/d/1opmwCQgnhPjWw6_P8Wbolt3bjT654qZE/view?usp=drivesdk,https://drive.google.com/file/d/1jSL9YyDLYrp7YgJJcgpZ0hTzgQvf_QQZ/view?usp=drivesdk,1 pek 15 biji. Hanya perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB019,Dimsum Ayam Sosej,Dimsum,RM 20,,https://drive.google.com/file/d/1opmwCQgnhPjWw6_P8Wbolt3bjT654qZE/view?usp=drivesdk,https://drive.google.com/file/d/1DZSLR1ZWpAnGc68qvu_Op77QtIxv9zag/view?usp=drivesdk,1 pek 15 biji. Hanya perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB020,Muffin Coklat,Muffin,RM 20,,https://drive.google.com/file/d/1aZkfeUFapfXwHv6DUQUC-XF5kUgdr8sg/view?usp=drivesdk,https://drive.google.com/file/d/1L8-3rnbvgcbBbsBUYsO23aX1r8x6a7VJ/view?usp=drivesdk,1 pek 12 biji. Boleh dinyahbekukan pada suhu bilik selama 20 minit atau dikukus selama 15–20 minit selepas air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB021,Muffin Oren,Muffin,RM 20,,https://drive.google.com/file/d/1JC8hpi2aXIB5RFzOpfCdgKWpeLa3hHop/view?usp=drivesdk,https://drive.google.com/file/d/1NGp0OwtcJieJQpHWkQnLWOS-iHPwK061/view?usp=drivesdk,1 pek 12 biji. Boleh dinyahbekukan pada suhu bilik selama 20 minit atau dikukus selama 15–20 minit selepas air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB022,Muffin Vanila,Muffin,RM 20,,https://drive.google.com/file/d/17t6qZPEAY2z4mi9LliV-tc1kf6B4FKwx/view?usp=drivesdk,https://drive.google.com/file/d/1hs73RkEOju4iuNrhv8RhyTIFkjOcprdG/view?usp=drivesdk,1 pek 12 biji. Boleh dinyahbekukan pada suhu bilik selama 20 minit atau dikukus selama 15–20 minit selepas air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB023,Muffin Pandan,Muffin,RM 20,,https://drive.google.com/file/d/1_gjaE57Ak5_hwaxLjfdDHRuOIsO0CK9n/view?usp=drivesdk,https://drive.google.com/file/d/1SfCfmyRuL6797A7hT9i_3ae3hCVexPCv/view?usp=drivesdk,1 pek 12 biji. Boleh dinyahbekukan pada suhu bilik selama 20 minit atau dikukus selama 15–20 minit selepas air mendidih. Sedia untuk dihidang.,AVAILABLE
+FB024,Corndough Jumbo Sosej Cheese,Corndough,RM 30,,https://drive.google.com/file/d/1S9KB9wajjeZufveDwI6C-QeclWqpeWik/view?usp=drivesdk,https://drive.google.com/file/d/1s73EWSXCvgydBHkvReihglcKN82rYPH5/view?usp=drivesdk,"1 pek 5 batang. Penyediaan Corndough Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB025,Corndough Jumbo Fully Cheese,Corndough,RM 32,,https://drive.google.com/file/d/1Pum-oNtiOFoYSwzmgM1KrFzO4uEbFA20/view?usp=drivesdk,https://drive.google.com/file/d/1s73EWSXCvgydBHkvReihglcKN82rYPH5/view?usp=drivesdk,"1 pek 5 batang. Penyediaan Corndough Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB026,Baby Corndough,Corndough,RM 25,,https://drive.google.com/file/d/1eYMcKE8S8n6SNz28gR--LjuVpnVOaCIC/view?usp=drivesdk,https://drive.google.com/file/d/1Z3BouSVMkQ7vVbvxQS_Il7HXHtxcVKD9/view?usp=drivesdk,"1 pek 12 batang. Penyediaan Corndough Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB027,Karipap Pusing Kentang Ayam,Kuih,RM 14,,https://drive.google.com/file/d/1ruoQZ_aVgGZ-1KgJH4FY02wP2df39CcP/view?usp=drivesdk,https://drive.google.com/file/d/1C0fXAL3Uk4QqDBL-TwNVsi9Fj9FCFyRG/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Karipap Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB028,Karipap Pusing Kentang Daging,Kuih,RM 14,,https://drive.google.com/file/d/1z-Oj2BVmS_7tX9BelF9w-L2M3z7a_zQf/view?usp=drivesdk,https://drive.google.com/file/d/1C0fXAL3Uk4QqDBL-TwNVsi9Fj9FCFyRG/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Karipap Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB029,Karipap Pusing Sardin,Kuih,RM 14,,https://drive.google.com/file/d/1LhhDm5eUCtobu2LNcGCRdIvqx60koanN/view?usp=drivesdk,https://drive.google.com/file/d/1C0fXAL3Uk4QqDBL-TwNVsi9Fj9FCFyRG/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Karipap Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB030,Kuih Cucur Badak,Kuih,RM 13,,https://drive.google.com/file/d/1j8mpHVB8dQn6nd39lDi7tJTRLrPNUJ92/view?usp=drivesdk,https://drive.google.com/file/d/10PMcIrtnQbg0I1iXRofdbHKpFJKmpfAL/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Karipap Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB031,Kuih Kasturi / Kuih Kacang Hijau,Kuih,RM 13,,https://drive.google.com/file/d/1xN-eW4HBn47RcaULlja2bdMslJMZHbEW/view?usp=drivesdk,https://drive.google.com/file/d/1OH_Jp15HzuBkv3-Acs4XJ3qmRdYF1eeN/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Karipap Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB032,Kuih Koci (Inti Kelapa),Kuih,RM 13,,https://drive.google.com/file/d/169Cig8bzvDqS-NfvE-IA6jGI1djUfBWJ/view?usp=drivesdk,https://drive.google.com/file/d/1N4embzG0ShaRc6YSl06p2uHXDEVvJu57/view?usp=drivesdk,1 pek 9 biji. Hanya perlu dikukus selamat 10 minit setelah air mendidih. Sedia untuk dihidang,AVAILABLE
+FB033,Kuih Vadai / Masalodeh,Kuih,RM 13,,https://drive.google.com/file/d/1ePUUSRLer-rH4WnI6gYuFUak1wFXlzkY/view?usp=drivesdk,https://drive.google.com/file/d/1sNbAn6-YZ8MVGyB7LGsTGPppMzvVSSNZ/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Karipap Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB034,Pulut Panggang (Inti Kelapa),Kuih,RM 17,,https://drive.google.com/file/d/1jjXW2YLgbSM6coTBOt1-xS2E-31kJnQb/view?usp=drivesdk,https://drive.google.com/file/d/1sNbAn6-YZ8MVGyB7LGsTGPppMzvVSSNZ/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Pulut Panggang Frozen
+
+Pan/ Goreng: Nyah beku dahulu, kemudian panaskan di atas kuali dengan api sederhana tanpa minyak/sedikit minyak sehingga panas sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB035,Kuih Samosa Kentang Daging,Kuih,RM 17,,https://drive.google.com/file/d/1TnCM6FrCEappMSBj5WTmkbva1b76V7zi/view?usp=drivesdk,https://drive.google.com/file/d/1VJIdKuVjFrQf1fEbxM-J97Yquqi56vTw/view?usp=drivesdk,"1 pek 10 biji. Penyediaan Samosa Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB036,Mini Murtabak Ayam,Kuih,RM 21,,https://drive.google.com/file/d/1ZeQP80NWkVoJZzlseXy_Tym3VbVOFQIQ/view?usp=drivesdk,https://drive.google.com/file/d/1Fkjx7HkOUyw-O10Hd-uUxWY_AWrjgGbP/view?usp=drivesdk,"1 pek 12 biji. Penyediaan Murtabak Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB037,Mini Murtabak Daging,Kuih,RM 21,,https://drive.google.com/file/d/1Op5ZaU9qFVq_OEXrut06QrHqd_t6HfEe/view?usp=drivesdk,https://drive.google.com/file/d/1Fkjx7HkOUyw-O10Hd-uUxWY_AWrjgGbP/view?usp=drivesdk,"1 pek 12 biji. Penyediaan Murtabak Frozen
+
+Goreng: Nyah beku dahulu, kemudian goreng dalam minyak yang telah dipanaskan sehingga keemasan dan masak sekata.
+
+Air Fryer: Masak terus daripada keadaan beku pada suhu 180°C selama 10–15 minit atau sehingga keemasan. Masa mungkin berbeza mengikut jenis air fryer.
+
+Sedia untuk dihidang.",AVAILABLE
+FB038,Popia Carbonara Original,Popia,RM 17,,https://drive.google.com/file/d/1F9-a4hktsn_si-Ov_5dyEa0js8-R6Bga/view?usp=drivesdk,https://drive.google.com/file/d/13gSZMEOnHaCR8uZriO9Ia6zrhHkglEnq/view?usp=drivesdk,"1 pek 8 keping. Tidak perlu nyahbeku, terus goreng dalam minyak masak yang telah dipanaskan sehingga keemasan dan masak sekata.",AVAILABLE
+FB039,Popia Carbonara Daging,Popia,RM 17,,https://drive.google.com/file/d/1q8m4Bec_TklsArrb3GBOVGrRQru873m8/view?usp=drivesdk,https://drive.google.com/file/d/13gSZMEOnHaCR8uZriO9Ia6zrhHkglEnq/view?usp=drivesdk,"1 pek 8 keping. Tidak perlu nyahbeku, terus goreng dalam minyak masak yang telah dipanaskan sehingga keemasan dan masak sekata.",AVAILABLE
+FB040,Popia Jejari Ketam Berkeju,Popia,RM 17,,https://drive.google.com/file/d/1r_czEBs9wnhkEPo9QSPm_Osyj3LXawEJ/view?usp=drivesdk,https://drive.google.com/file/d/13gSZMEOnHaCR8uZriO9Ia6zrhHkglEnq/view?usp=drivesdk,"1 pek 8 keping. Tidak perlu nyahbeku, terus goreng dalam minyak masak yang telah dipanaskan sehingga keemasan dan masak sekata.",AVAILABLE
+FB041,Popia Sayuran Berkeju,Popia,RM 17,,https://drive.google.com/file/d/1_Vwy1AAFkJSctgtnupjTNIINi4WkRDlq/view?usp=drivesdk,https://drive.google.com/file/d/13gSZMEOnHaCR8uZriO9Ia6zrhHkglEnq/view?usp=drivesdk,"1 pek 8 keping. Tidak perlu nyahbeku, terus goreng dalam minyak masak yang telah dipanaskan sehingga keemasan dan masak sekata.",AVAILABLE`;
+
+async function fetchProductsFromGoogleSheet(
+  forceRefresh = false,
+  customSheetIdOrUrl?: string
+): Promise<{ products: ParsedProduct[]; source: string }> {
+  const sheetIdRaw = customSheetIdOrUrl || process.env.GOOGLE_SHEET_ID;
+  const now = Date.now();
+
+  // If no sheet ID is provided, load the default parsed products
   if (!sheetIdRaw || !sheetIdRaw.trim()) {
-    throw new Error("GOOGLE_SHEET_ID tidak ditemui dalam environment variable. Sila tetapkan GOOGLE_SHEET_ID dalam tetapan / secrets.");
+    if (!cachedProducts || forceRefresh) {
+      const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
+      cachedProducts = parseProductsFromRows(defaultRows);
+      lastFetchTime = now;
+    }
+    return { products: cachedProducts, source: "default_catalog" };
   }
 
   const sheetId = extractSheetId(sheetIdRaw);
-  const now = Date.now();
 
   if (!forceRefresh && cachedProducts && (now - lastFetchTime < CACHE_TTL_MS)) {
     return { products: cachedProducts, source: "cache" };
   }
 
-  const endpoints = [
-    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`,
-    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`,
-    `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`
-  ];
+  // Handle direct CSV url or standard Google Sheet export endpoints
+  const endpoints: string[] = [];
+  if (sheetIdRaw.includes("output=csv") || sheetIdRaw.includes("export?format=csv") || sheetIdRaw.includes("tqx=out:csv")) {
+    endpoints.push(sheetIdRaw);
+  } else {
+    endpoints.push(
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`,
+      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`
+    );
+  }
 
   let csvData: string | null = null;
   let lastError: string | null = null;
@@ -1304,7 +1441,7 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
 
       if (response.ok) {
         const text = await response.text();
-        if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html")) {
+        if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html") && text.includes("PRODUK")) {
           csvData = text;
           break;
         }
@@ -1317,26 +1454,48 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
   }
 
   if (!csvData) {
-    throw new Error(
-      `Gagal membaca kandungan Google Sheet (${sheetId}). Sila pastikan Google Sheet dikongsi kepada 'Anyone with the link can view' (Sesiapa yang mempunyai pautan boleh melihat). ${lastError ? `[${lastError}]` : ''}`
-    );
+    // If fetching custom sheet fails, fallback to default catalog to avoid crashing the whole app
+    console.warn(`Gagal membaca Google Sheet (${sheetId}): ${lastError}. Menggunakan katalog piawai.`);
+    if (!cachedProducts) {
+      const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
+      cachedProducts = parseProductsFromRows(defaultRows);
+      lastFetchTime = now;
+    }
+    return { products: cachedProducts, source: "default_catalog_fallback" };
   }
 
   const rows = parseCSV(csvData);
   if (rows.length < 2) {
-    throw new Error("Google Sheet tidak mengandungi data produk yang mencukupi.");
+    const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
+    cachedProducts = parseProductsFromRows(defaultRows);
+    lastFetchTime = now;
+    return { products: cachedProducts, source: "default_catalog_fallback" };
   }
 
-  // Header row normalization
+  const products = parseProductsFromRows(rows);
+
+  if (products.length === 0) {
+    const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
+    cachedProducts = parseProductsFromRows(defaultRows);
+    lastFetchTime = now;
+    return { products: cachedProducts, source: "default_catalog_fallback" };
+  }
+
+  cachedProducts = products;
+  lastFetchTime = now;
+
+  return { products, source: "google_sheet" };
+}
+
+function parseProductsFromRows(rows: string[][]): ParsedProduct[] {
+  if (rows.length < 2) return [];
   const headerRow = rows[0].map(h => h.trim().toUpperCase());
 
   const findExactOrIncludes = (possibleNames: string[], excludeWords: string[] = []): number => {
-    // 1. Exact match pass
     for (const name of possibleNames) {
       const idx = headerRow.findIndex(h => h === name.toUpperCase());
       if (idx !== -1) return idx;
     }
-    // 2. Substring match pass excluding forbidden words
     for (const name of possibleNames) {
       const idx = headerRow.findIndex(h => {
         const matches = h.includes(name.toUpperCase());
@@ -1352,7 +1511,6 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
   const nameIdx = findExactOrIncludes(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "ITEM", "PRODUCT NAME"]);
   const catIdx = findExactOrIncludes(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN"]);
   
-  // Specific image columns for GAMBAR SIAP MASAK and GAMBAR PACKAGING
   const cookedImageIdx = findExactOrIncludes([
     "GAMBAR SIAP MASAK",
     "GAMBAR MASAK",
@@ -1376,13 +1534,11 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
     "GAMBAR_2"
   ]);
 
-  // General image fallback column
   const generalImageIdx = findExactOrIncludes(
     ["GAMBAR", "IMAGE", "FOTO", "LINK GAMBAR", "PICTURE", "URL GAMBAR", "PHOTO"],
     ["SIAP", "MASAK", "PACK", "PEK", "BUNGKUS"]
   );
 
-  // Price columns
   const priceIdx = findExactOrIncludes(
     ["HARGA", "HARGA ASAL", "HARGA BIASA", "PRICE", "HARGA JUALAN", "HARGA (RM)", "HARGA RM", "PRICE (RM)"],
     ["PROMO", "DISKAUN", "GAMBAR", "PACKAGING", "MASAK"]
@@ -1391,7 +1547,6 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
     ["HARGA PROMO", "HARGA PROMOSI", "PROMO", "DISKAUN", "PROMO PRICE", "HARGA DISKAUN", "PROMOTION PRICE"]
   );
   
-  // Optional extra columns
   const descIdx = findExactOrIncludes(
     ["PENERANGAN", "DESCRIPTION", "DESKRIPSI", "NOTA", "MAKLUMAT", "DETAILS"],
     ["GAMBAR", "IMAGE", "HARGA", "PRICE"]
@@ -1401,12 +1556,10 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
     ["GAMBAR", "IMAGE"]
   );
   const weightIdx = findExactOrIncludes(["BERAT", "WEIGHT", "BERAT BERSIH", "NET WEIGHT"]);
-  const statusIdx = findExactOrIncludes(["STATUS", "STOK", "STOCK", "IN STOCK", "STATUS STOK"]);
+  const statusIdx = findExactOrIncludes(["STATUS", "STOK", "STOCK", "IN STOCK", "STATUS STOK", "AVAILABILITY"]);
 
   if (nameIdx === -1) {
-    throw new Error(
-      `Kolum 'PRODUK' tidak ditemui dalam Google Sheet. Header yang dikesan: ${headerRow.join(", ")}`
-    );
+    return [];
   }
 
   const products: ParsedProduct[] = [];
@@ -1425,22 +1578,24 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
     const rawPrice = (priceIdx !== -1 && row[priceIdx]) ? formatPriceNumber(row[priceIdx]) : 0;
     const rawPromoPrice = (promoPriceIdx !== -1 && row[promoPriceIdx]) ? formatPriceNumber(row[promoPriceIdx]) : 0;
     
-    // Parse cooked and packaging images from respective columns
     const rawCookedImage = cookedImageIdx !== -1 ? parseOptionalImageUrl(row[cookedImageIdx]) : undefined;
     const rawPackagingImage = packagingImageIdx !== -1 ? parseOptionalImageUrl(row[packagingImageIdx]) : undefined;
     const rawGeneralImage = generalImageIdx !== -1 ? parseOptionalImageUrl(row[generalImageIdx]) : undefined;
 
-    // Primary image logic: prefer cookedImage, then generalImage, then packagingImage, then category fallback
     const primaryImage = rawCookedImage || rawGeneralImage || rawPackagingImage || getFallbackImageByCategory(rawCategory, rawName);
 
     const rawDesc = (descIdx !== -1 && row[descIdx]?.trim()) ? sanitizeText(row[descIdx]) : "";
     const rawUnit = (unitIdx !== -1 && row[unitIdx]?.trim()) ? sanitizeText(row[unitIdx]) : "1 pek";
     const rawWeight = (weightIdx !== -1 && row[weightIdx]?.trim()) ? sanitizeText(row[weightIdx]) : undefined;
-    const rawStatus = (statusIdx !== -1 && row[statusIdx]?.trim()) ? row[statusIdx].trim().toLowerCase() : "ada";
+    const rawStatus = (statusIdx !== -1 && row[statusIdx]?.trim()) ? row[statusIdx].trim().toLowerCase() : "available";
 
-    const inStock = !rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak");
+    const inStock =
+      rawStatus === "" ||
+      rawStatus.includes("avail") ||
+      rawStatus.includes("ada") ||
+      rawStatus.includes("ready") ||
+      (!rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak"));
     
-    // If HARGA PROMO is empty, 0, or higher/equal to regular price, use regular price
     const hasValidPromo = rawPromoPrice > 0 && rawPromoPrice < rawPrice;
     const finalPrice = hasValidPromo ? rawPromoPrice : rawPrice;
 
@@ -1456,7 +1611,7 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
       imageUrl: primaryImage,
       cookedImageUrl: rawCookedImage,
       packagingImageUrl: rawPackagingImage,
-      isPopular: hasValidPromo || r <= 3,
+      isPopular: hasValidPromo || r <= 4,
       isNew: r === 1,
       inStock,
       halalCertified: true,
@@ -1465,14 +1620,7 @@ async function fetchProductsFromGoogleSheet(forceRefresh = false): Promise<{ pro
     });
   }
 
-  if (products.length === 0) {
-    throw new Error("Tiada produk sah dijumpai dalam baris Google Sheet.");
-  }
-
-  cachedProducts = products;
-  lastFetchTime = now;
-
-  return { products, source: "google_sheet" };
+  return products;
 }
 
 async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promos: ParsedPromo[]; source: string }> {
@@ -2069,7 +2217,9 @@ app.get("/api/seasonal-promos", async (req: Request, res: Response) => {
 // Dynamic Categories endpoint derived directly from Google Sheet products
 app.get("/api/categories", async (req: Request, res: Response) => {
   try {
-    const { products } = await fetchProductsFromGoogleSheet(req.query.refresh === "true");
+    const { refresh, sheetUrl, sheetId } = req.query;
+    const targetSheet = (typeof sheetUrl === "string" && sheetUrl) || (typeof sheetId === "string" && sheetId) || undefined;
+    const { products } = await fetchProductsFromGoogleSheet(refresh === "true", targetSheet);
 
     const categoryMap = new Map<string, number>();
     products.forEach(p => {
@@ -2108,8 +2258,9 @@ app.get("/api/categories", async (req: Request, res: Response) => {
 // Products endpoint strictly from Google Sheet
 app.get("/api/products", async (req: Request, res: Response) => {
   try {
-    const { category, search, popularOnly, refresh } = req.query;
-    const { products, source } = await fetchProductsFromGoogleSheet(refresh === "true");
+    const { category, search, popularOnly, refresh, sheetUrl, sheetId } = req.query;
+    const targetSheet = (typeof sheetUrl === "string" && sheetUrl) || (typeof sheetId === "string" && sheetId) || undefined;
+    const { products, source } = await fetchProductsFromGoogleSheet(refresh === "true", targetSheet);
 
     let filtered = [...products];
 
