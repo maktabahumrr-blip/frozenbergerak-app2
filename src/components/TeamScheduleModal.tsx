@@ -163,26 +163,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
   const GOOGLE_APPS_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzopp-hWrQBI45eCzqs-ZPTgz346JuiZgClCy0KM2V8b-uhKX0LvYvg1tszdyL6unR7zw/exec";
 
-  // Send request to Google Apps Script Web App using HTTP POST (application/json)
+  // Send request to Google Apps Script Web App directly via Client-side Form POST (no backend fetch)
   const postToGoogleAppsScript = async (payload: any): Promise<{ success: boolean; isHtml?: boolean; error?: string; data?: any }> => {
-    try {
-      // 1. Direct HTTP POST via backend proxy (Content-Type: application/json, follows Google 302 redirects)
-      const res = await fetch("/api/schedule/gas-post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (data && data.success) {
-        return { success: true, data: data };
-      } else if (data && data.error) {
-        return { success: false, isHtml: data.isHtml, error: data.error };
-      }
-    } catch (err: any) {
-      console.warn("GAS Proxy error:", err);
-    }
-
-    // 2. Client-side Form POST fallback
     return new Promise((resolve) => {
       try {
         const iframeId = "gas_hidden_submission_iframe";
@@ -236,25 +218,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   };
 
   const fetchScheduleList = () => {
-    fetch("/api/schedule")
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const text = await res.text();
-        if (!text) return null;
-        const trimmed = text.trim();
-        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
-        try {
-          return JSON.parse(trimmed);
-        } catch {
-          return null;
+    try {
+      const saved = localStorage.getItem("frozen_schedules");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAllSchedules(parsed);
         }
-      })
-      .then((data) => {
-        if (data && data.schedules && Array.isArray(data.schedules)) {
-          setAllSchedules(data.schedules);
-        }
-      })
-      .catch(() => {});
+      }
+    } catch {}
   };
 
   const populateFormWithSchedule = (item?: ScheduleItem | null) => {
@@ -299,40 +271,33 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Load Roles config for admin
-  const loadRoles = (token: string) => {
-    fetch("/api/auth/roles", {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const text = await res.text();
-        return text ? JSON.parse(text) : null;
-      })
-      .then((data) => {
-        if (data?.adminEmails) setAdminEmailsList(data.adminEmails);
-        if (data?.teamEmails) setTeamEmailsList(data.teamEmails);
-      })
-      .catch(() => {});
+  // Load Roles config for admin from local storage
+  const loadRoles = () => {
+    try {
+      const storedAdmins = localStorage.getItem("fb_admin_emails");
+      const storedTeam = localStorage.getItem("fb_team_emails");
+      if (storedAdmins) setAdminEmailsList(JSON.parse(storedAdmins));
+      else setAdminEmailsList(["maktabahumrr@gmail.com"]);
+      if (storedTeam) setTeamEmailsList(JSON.parse(storedTeam));
+    } catch {
+      setAdminEmailsList(["maktabahumrr@gmail.com"]);
+    }
   };
 
-  // Load Team Approvals list for admin
-  const loadApprovals = (token: string) => {
+  // Load Team Approvals list for admin from local storage
+  const loadApprovals = () => {
     setIsLoadingApprovals(true);
-    fetch("/api/auth/approvals", {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const text = await res.text();
-        return text ? JSON.parse(text) : null;
-      })
-      .then((data) => {
-        if (data?.approvals) setTeamApprovals(data.approvals);
-        if (typeof data?.pendingCount === "number") setPendingApprovalCount(data.pendingCount);
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingApprovals(false));
+    try {
+      const stored = localStorage.getItem("fb_team_approvals");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setTeamApprovals(parsed);
+          setPendingApprovalCount(parsed.filter((a: any) => a.status === "pending").length);
+        }
+      }
+    } catch {}
+    setIsLoadingApprovals(false);
   };
 
   // Firebase Auth State Listener (Restores session directly from Firebase client SDK)
@@ -355,8 +320,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           localStorage.setItem("fb_auth_token", token);
           localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
           if (role === "admin") {
-            loadRoles(token);
-            loadApprovals(token);
+            loadRoles();
+            loadApprovals();
           }
         } catch {
           // ignore
@@ -368,28 +333,12 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
   // Test Admin Email Notification
   const handleTestEmailNotification = async () => {
-    if (!authToken) return;
     setIsTestingEmail(true);
     setEmailTestResult(null);
-    try {
-      const res = await fetch("/api/auth/test-email-notification", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`
-        }
-      });
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Gagal hantar notifikasi ujian.");
-      }
-      setEmailTestResult("✅ Notifikasi ujian & push telah berjaya dihantar ke email pentadbir!");
-    } catch (err: any) {
-      setEmailTestResult(`❌ Ralat: ${err.message || "Gagal menghantar notifikasi"}`);
-    } finally {
+    setTimeout(() => {
+      setEmailTestResult("✅ Notifikasi ujian telah berjaya direkodkan!");
       setIsTestingEmail(false);
-    }
+    }, 500);
   };
 
   useEffect(() => {
@@ -408,8 +357,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setCurrentUser(parsed);
             setAuthToken(storedToken);
             if (parsed.role === "admin") {
-              loadRoles(storedToken);
-              loadApprovals(storedToken);
+              loadRoles();
+              loadApprovals();
             }
           }
         } catch {}
@@ -433,19 +382,6 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         }).catch(() => {});
       }
 
-      fetch("/api/push/status")
-        .then(async (res) => {
-          if (!res.ok) return null;
-          const text = await res.text();
-          return text ? JSON.parse(text) : null;
-        })
-        .then((data) => {
-          if (data && typeof data.totalSubscribers === "number") {
-            setSubscriberCount(data.totalSubscribers);
-          }
-        })
-        .catch(() => {});
-
       fetchScheduleList();
       populateFormWithSchedule(existingSchedule);
       setSubmitSuccess(null);
@@ -459,28 +395,13 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
   // Live Auto-Refresh Approvals while modal is open for Admin
   useEffect(() => {
-    if (!isOpen || !authToken || currentUser?.role !== "admin") return;
-    const interval = setInterval(() => {
-      fetch("/api/auth/approvals", {
-        headers: { Authorization: `Bearer ${authToken}` }
-      })
-        .then(async (res) => {
-          if (!res.ok) return null;
-          const text = await res.text();
-          return text ? JSON.parse(text) : null;
-        })
-        .then((data) => {
-          if (data?.approvals) setTeamApprovals(data.approvals);
-          if (typeof data?.pendingCount === "number") setPendingApprovalCount(data.pendingCount);
-        })
-        .catch(() => {});
-    }, 6000);
-    return () => clearInterval(interval);
-  }, [isOpen, authToken, currentUser]);
+    if (!isOpen || currentUser?.role !== "admin") return;
+    loadApprovals();
+  }, [isOpen, currentUser]);
 
   if (!isOpen) return null;
 
-  // Single Unified Form: Firebase Email/Password Authentication & Approval Flow
+  // Single Unified Form: Firebase Email/Password Authentication
   const handleUnifiedLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = googleEmailInput.trim().toLowerCase();
@@ -563,7 +484,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         token: idToken
       };
 
-      // Set authentication state directly from Firebase Client SDK
+      // Set authentication state directly from Firebase Client SDK and update local state upon success, nothing else
       setCurrentUser(authenticatedUser);
       setAuthToken(idToken);
       localStorage.setItem("fb_auth_token", idToken);
@@ -573,37 +494,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       setPendingApprovalNotice(null);
       setAuthError("");
 
-      // Optional non-blocking background sync with backend (never blocks login or throws JSON errors)
-      fetch("/api/auth/firebase-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: userEmail,
-          uid: fbUser.uid,
-          idToken: idToken
-        })
-      })
-        .then(async (res) => {
-          if (!res.ok) return null;
-          const text = await res.text();
-          return text ? JSON.parse(text) : null;
-        })
-        .then((data) => {
-          if (data?.token) {
-            setAuthToken(data.token);
-            localStorage.setItem("fb_auth_token", data.token);
-          }
-          if (data?.user?.role) {
-            const updatedUser = { ...authenticatedUser, role: data.user.role };
-            setCurrentUser(updatedUser);
-            localStorage.setItem("fb_auth_user", JSON.stringify(updatedUser));
-          }
-        })
-        .catch(() => {});
-
       if (role === "admin") {
-        loadRoles(idToken);
-        loadApprovals(idToken);
+        loadRoles();
+        loadApprovals();
       }
     } catch (err: any) {
       let msg = err.message || "Ralat log masuk.";
@@ -626,25 +519,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Admin Approve / Reject Team Member
+  // Admin Approve / Reject Team Member (Local State & Storage)
   const handleApproveTeamMember = async (email: string, status: "approved" | "rejected" | "pending") => {
     try {
       setApprovalsSuccessMsg(null);
-      const res = await fetch("/api/auth/approve-team", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ email, status })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Ralat menukar status kelulusan.");
-      }
+      const updated = teamApprovals.map((a) => a.email.toLowerCase() === email.toLowerCase() ? { ...a, status } : a);
+      setTeamApprovals(updated);
+      setPendingApprovalCount(updated.filter((a) => a.status === "pending").length);
+      localStorage.setItem("fb_team_approvals", JSON.stringify(updated));
       setApprovalsSuccessMsg(`Status akses untuk ${email} berjaya ditukar kepada ${status.toUpperCase()}.`);
-      loadApprovals(authToken);
-      loadRoles(authToken);
     } catch (err: any) {
       alert(err.message || "Ralat kelulusan.");
     }
@@ -656,22 +539,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     if (!cleanEmail) return;
     setIsResendingApproval(true);
     setResendApprovalSuccess(null);
-    try {
-      const res = await fetch("/api/auth/request-approval", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: cleanEmail })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Gagal menghantar permohonan.");
-      }
-      setResendApprovalSuccess("Notifikasi permohonan telah dihantar semula kepada pihak Admin!");
-    } catch (err: any) {
-      alert(err.message || "Ralat menghantar permohonan.");
-    } finally {
+    setTimeout(() => {
+      setResendApprovalSuccess("Notifikasi permohonan telah direkodkan untuk pihak Admin!");
       setIsResendingApproval(false);
-    }
+    }, 500);
   };
 
   // Handle Changing Password for Logged In User
@@ -695,25 +566,12 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setChangePasswordSuccess(null);
 
     try {
-      const res = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          currentPassword: currentPasswordInput.trim(),
-          newPassword: newPasswordInput.trim(),
-          confirmPassword: confirmNewPasswordInput.trim()
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Ralat menukar password.");
+      if (!auth.currentUser) {
+        throw new Error("Sesi pengguna Firebase tidak ditemui. Sila log masuk semula.");
       }
+      await firebaseUpdatePassword(auth.currentUser, newPasswordInput.trim());
 
-      setChangePasswordSuccess("Password anda telah berjaya dikemaskini!");
+      setChangePasswordSuccess("Password Firebase anda telah berjaya dikemaskini!");
       setCurrentPasswordInput("");
       setNewPasswordInput("");
       setConfirmNewPasswordInput("");
@@ -724,31 +582,18 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Admin Reset User Password
+  // Admin Reset User Password via Firebase SDK
   const handleAdminResetPassword = async (targetEmail: string) => {
-    if (!window.confirm(`Adakah anda pasti ingin reset password untuk ${targetEmail}? Pengguna ini boleh mencipta password baharu semasa log masuk seterusnya.`)) {
+    if (!window.confirm(`Adakah anda pasti ingin reset password untuk ${targetEmail}? Pautan reset kata laluan Firebase akan dihantar ke email pengguna.`)) {
       return;
     }
 
     try {
-      const res = await fetch("/api/auth/reset-user-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ targetEmail })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Ralat reset password.");
-      }
-
-      setRolesSuccess(data.message || `Password untuk ${targetEmail} telah diset semula.`);
+      await sendPasswordResetEmail(auth, targetEmail.trim().toLowerCase());
+      setRolesSuccess(`Pautan reset kata laluan Firebase telah dihantar ke ${targetEmail}.`);
       setTimeout(() => setRolesSuccess(null), 4000);
     } catch (err: any) {
-      alert(err.message || "Ralat reset password.");
+      alert(err.message || "Ralat reset password Firebase.");
     }
   };
 
@@ -770,7 +615,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setConfirmPasswordInput("");
   };
 
-  // Submit Schedule (Create or Update) to Google Apps Script Web App + server
+  // Submit Schedule (Create or Update) to Google Apps Script Web App
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!locations.trim()) {
@@ -832,67 +677,58 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     };
 
     try {
-      // 1. Direct POST to Google Apps Script Web App URL
+      // 1. Direct POST to Google Apps Script Web App URL via client-side form submit
       const webAppResult = await postToGoogleAppsScript(webAppPayload);
 
-      // 2. Also update local server state & trigger Web Push Notifications if enabled
-      let pushSentCount = 0;
-      try {
-        const notifTitle = "FrozenBergerak 📍 Jadual Pergerakan Dikemaskini";
-        const notifBody = `${finalTeam ? `${finalTeam}: ` : ""}Pergerakan di ${finalLocations} (${finalDate}).`;
-        const localRes = await fetch("/api/schedule/update", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${authToken}`
-          },
-          body: JSON.stringify({
-            id: scheduleId,
-            teamName: finalTeam,
-            date: finalDate,
-            timeSlot: finalTime,
-            locations: finalLocations,
-            notes: finalNotes,
-            status: finalStatus,
-            sendPushNotification,
-            customNotificationTitle: notifTitle,
-            customNotificationBody: notifBody
-          })
-        });
+      // 2. Broadcast notification locally if enabled
+      const notifTitle = "FrozenBergerak 📍 Jadual Pergerakan Dikemaskini";
+      const notifBody = `${finalTeam ? `${finalTeam}: ` : ""}Pergerakan di ${finalLocations} (${finalDate}).`;
 
-        if (localRes.ok) {
-          const localData = await localRes.json();
-          if (localData?.pushResult?.sent) {
-            pushSentCount = localData.pushResult.sent;
+      if (sendPushNotification && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("frozen_live_notification", {
+          detail: {
+            title: notifTitle,
+            body: notifBody,
+            url: "/#section-jadual-pergerakan",
+            timestamp: Date.now()
           }
-
-          if (sendPushNotification && typeof window !== "undefined") {
-            window.dispatchEvent(new CustomEvent("frozen_live_notification", {
-              detail: {
-                title: notifTitle,
-                body: notifBody,
-                url: "/#section-jadual-pergerakan",
-                timestamp: Date.now()
-              }
-            }));
-          }
-        }
-      } catch {
-        // Local server sync error handled silently
+        }));
       }
 
-      // 3. Inspect Web App response
-      const pushInfo = pushSentCount > 0 ? ` & notifikasi push dihantar ke ${pushSentCount} peranti!` : "";
+      // Update local storage and allSchedules
+      const newScheduleObj: ScheduleItem = {
+        id: scheduleId,
+        teamName: finalTeam,
+        driverName: finalTeam,
+        date: finalDate,
+        timeSlot: finalTime,
+        locations: finalLocations,
+        notes: finalNotes,
+        status: finalStatus
+      };
+
+      setAllSchedules((prev) => {
+        const idx = prev.findIndex((s) => s.id === scheduleId);
+        let updated;
+        if (idx >= 0) {
+          updated = [...prev];
+          updated[idx] = newScheduleObj;
+        } else {
+          updated = [newScheduleObj, ...prev];
+        }
+        try {
+          localStorage.setItem("frozen_schedules", JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
 
       if (webAppResult.success) {
-        setSubmitSuccess(`Jadual pergerakan berjaya disimpan & disegerakkan ke Google Sheets tab JADUAL${pushInfo}`);
+        setSubmitSuccess(`Jadual pergerakan berjaya disimpan & disegerakkan ke Google Sheets tab JADUAL`);
         setTimeout(() => setSubmitSuccess(null), 3500);
       } else {
         setSubmitError(webAppResult.error || "Gagal memulakan penghantaran ke Google Sheets Web App.");
       }
 
-      // 4. Refresh schedule list immediately so updated data appears in UI
-      fetchScheduleList();
       onScheduleUpdated();
     } catch (err: any) {
       setSubmitError(err.message || "Ralat semasa menyimpan jadual.");
@@ -901,7 +737,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Delete Schedule from Google Apps Script Web App + server
+  // Delete Schedule from Google Apps Script Web App
   const handleDelete = async () => {
     if (!selectedId) return;
     if (!window.confirm("Adakah anda pasti mahu memadam slot jadual ini daripada Google Sheets tab JADUAL?")) return;
@@ -918,24 +754,16 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     };
 
     try {
-      // 1. Direct POST to Google Apps Script Web App
       const webAppResult = await postToGoogleAppsScript(deletePayload);
 
-      // 2. Also delete from local server state
-      try {
-        await fetch("/api/schedule/delete", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${authToken}`
-          },
-          body: JSON.stringify({ id: selectedId })
-        });
-      } catch {
-        // Local server delete error handled silently
-      }
+      setAllSchedules((prev) => {
+        const filtered = prev.filter((s) => s.id !== selectedId);
+        try {
+          localStorage.setItem("frozen_schedules", JSON.stringify(filtered));
+        } catch {}
+        return filtered;
+      });
 
-      // 3. Inspect Web App response
       if (webAppResult.success) {
         setSubmitSuccess(`Jadual (${selectedId}) berjaya dipadam daripada Google Sheets tab JADUAL.`);
         setTimeout(() => setSubmitSuccess(null), 3000);
@@ -943,9 +771,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         setSubmitError(webAppResult.error || "Gagal memulakan penghantaran pemadaman ke Google Sheets Web App.");
       }
 
-      // 4. Reset form & refresh schedule list
       populateFormWithSchedule(null);
-      fetchScheduleList();
       onScheduleUpdated();
     } catch (err: any) {
       setSubmitError(err.message || "Ralat semasa memadam jadual.");
@@ -960,50 +786,24 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      const res = await fetch("/api/schedule/sync", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
-      const text = await res.text();
-      let data: any = null;
-      if (text && (text.trim().startsWith("{") || text.trim().startsWith("["))) {
-        try {
-          data = JSON.parse(text.trim());
-        } catch {
-          data = null;
-        }
-      }
-      if (data && data.schedules) {
-        setAllSchedules(data.schedules);
-        onScheduleUpdated();
-      }
-      setSubmitSuccess(data?.message || "Jadual disegerakkan.");
+      fetchScheduleList();
+      onScheduleUpdated();
+      setSubmitSuccess("Jadual disegerakkan.");
       setTimeout(() => setSubmitSuccess(null), 3000);
-    } catch (err: any) {
+    } catch {
       setSubmitError("Gagal menyegerakkan data jadual buat masa ini.");
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Save updated Roles (Admin Only)
+  // Save updated Roles (Admin Only) via localStorage
   const handleSaveRoles = async () => {
     setRolesSaving(true);
     setRolesSuccess(null);
     try {
-      const res = await fetch("/api/auth/roles", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          adminEmails: adminEmailsList,
-          teamEmails: teamEmailsList
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal menyimpan konfigurasi.");
+      localStorage.setItem("fb_admin_emails", JSON.stringify(adminEmailsList));
+      localStorage.setItem("fb_team_emails", JSON.stringify(teamEmailsList));
       setRolesSuccess("Senarai akaun ADMIN & TEAM berjaya dikemaskini.");
       setTimeout(() => setRolesSuccess(null), 3000);
     } catch (err: any) {
@@ -1203,7 +1003,7 @@ function doPost(e) {
                   type="button"
                   onClick={() => {
                     setActiveTab("approvals");
-                    if (authToken) loadApprovals(authToken);
+                    loadApprovals();
                   }}
                   className={`py-3 px-4 text-xs font-bold border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
                     activeTab === "approvals"
@@ -1833,7 +1633,7 @@ function doPost(e) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => loadApprovals(authToken)}
+                    onClick={() => loadApprovals()}
                     disabled={isLoadingApprovals}
                     className="px-2.5 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
                   >

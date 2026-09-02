@@ -161,22 +161,20 @@ export default function App() {
     }
   }, [cart]);
 
-  // Live polling for pending team access approvals (Synchronized across all devices)
+  // Live polling for pending team access approvals from local storage
   useEffect(() => {
     const fetchApprovalsStatus = () => {
-      fetch("/api/auth/approvals-status")
-        .then(async (res) => {
-          if (!res.ok) return null;
-          const text = await res.text();
-          return text ? JSON.parse(text) : null;
-        })
-        .then((data) => {
-          if (data && data.success && typeof data.pendingCount === "number") {
-            setPendingApprovalsCount(data.pendingCount);
-            setPendingApprovalsList(data.pendingList || []);
+      try {
+        const stored = localStorage.getItem("fb_team_approvals");
+        if (stored) {
+          const list = JSON.parse(stored);
+          if (Array.isArray(list)) {
+            const pending = list.filter((a: any) => a.status === "pending");
+            setPendingApprovalsCount(pending.length);
+            setPendingApprovalsList(pending);
           }
-        })
-        .catch(() => {});
+        }
+      } catch {}
     };
 
     fetchApprovalsStatus();
@@ -913,20 +911,17 @@ export default function App() {
         initialTab={adminTeamModalTab}
         onClose={() => {
           setIsAdminTeamModalOpen(false);
-          // Refetch approvals status immediately after closing
-          fetch("/api/auth/approvals-status")
-            .then(async (res) => {
-              if (!res.ok) return null;
-              const text = await res.text();
-              return text ? JSON.parse(text) : null;
-            })
-            .then((data) => {
-              if (data && data.success && typeof data.pendingCount === "number") {
-                setPendingApprovalsCount(data.pendingCount);
-                setPendingApprovalsList(data.pendingList || []);
+          try {
+            const stored = localStorage.getItem("fb_team_approvals");
+            if (stored) {
+              const list = JSON.parse(stored);
+              if (Array.isArray(list)) {
+                const pending = list.filter((a: any) => a.status === "pending");
+                setPendingApprovalsCount(pending.length);
+                setPendingApprovalsList(pending);
               }
-            })
-            .catch(() => {});
+            }
+          } catch {}
         }}
         onScheduleUpdated={() => {
           fetchData(true);
