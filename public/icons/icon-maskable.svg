@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="512" height="512">
+  <defs>
+    <path id="bottomTextCurveMask" d="M 230,550 A 240,240 0 0,0 570,550" fill="none"/>
+  </defs>
+
+  <!-- Full background bleed for maskable PWA -->
+  <rect width="800" height="800" fill="#2584ff"/>
+
+  <!-- Logo centered in safe area -->
+  <g transform="scale(0.85) translate(70, 45)">
+    <circle cx="400" cy="430" r="280" fill="#475569" stroke="#334155" stroke-width="4"/>
+    <circle cx="400" cy="430" r="242" fill="#2584ff"/>
+    <circle cx="400" cy="430" r="261" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-dasharray="20 22"/>
+    <circle cx="400" cy="430" r="240" fill="#2584ff"/>
+
+    <!-- Truck -->
+    <g>
+      <g fill="#e11d48">
+        <rect x="220" y="210" width="85" height="14" rx="7" />
+        <rect x="235" y="234" width="70" height="14" rx="7" />
+        <rect x="215" y="258" width="90" height="14" rx="7" />
+        <rect x="228" y="282" width="77" height="14" rx="7" />
+      </g>
+
+      <path d="M 270,305 L 530,305 L 500,320 L 290,320 Z" fill="#0f172a" opacity="0.6"/>
+      <path d="M 290,195 L 485,178 L 475,295 L 290,295 Z" fill="#e11d48"/>
+      <path d="M 485,198 L 545,218 C 555,223 558,232 555,245 L 545,295 L 475,295 Z" fill="#e11d48"/>
+      <path d="M 290,195 L 485,178 L 545,218 C 555,223 558,232 555,245 L 545,295 L 290,295 Z" 
+            fill="none" stroke="#000000" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M 495,208 L 535,224 C 540,226 542,232 540,240 L 535,260 L 490,260 Z" fill="#ffffff" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+
+      <g transform="translate(345, 298)">
+        <ellipse cx="0" cy="0" rx="22" ry="18" fill="#000000"/>
+        <ellipse cx="0" cy="0" rx="14" ry="11" fill="#e11d48"/>
+        <ellipse cx="0" cy="0" rx="6" ry="5" fill="#000000"/>
+      </g>
+
+      <g transform="translate(505, 290)">
+        <ellipse cx="0" cy="0" rx="22" ry="18" fill="#000000"/>
+        <ellipse cx="0" cy="0" rx="14" ry="11" fill="#e11d48"/>
+        <ellipse cx="0" cy="0" rx="6" ry="5" fill="#000000"/>
+      </g>
+    </g>
+
+    <g transform="rotate(-6, 400, 395)">
+      <text x="400" y="420" text-anchor="middle" fill="#ffffff" font-family="'Plus Jakarta Sans', sans-serif" font-size="94" font-weight="900" letter-spacing="-1">
+        Frozen
+      </text>
+    </g>
+
+    <g transform="rotate(-4, 400, 495)">
+      <text x="400" y="525" text-anchor="middle" fill="#ffffff" font-family="'Plus Jakarta Sans', sans-serif" font-size="110" font-weight="900" letter-spacing="-2">
+        Bergerak
+      </text>
+    </g>
+
+    <text fill="#ffffff" font-family="'Plus Jakarta Sans', sans-serif" font-size="28" font-weight="800" letter-spacing="3">
+      <textPath href="#bottomTextCurveMask" startOffset="50%" text-anchor="middle">
+        delivertoyourdoorstep
+      </textPath>
+    </text>
+  </g>
+</svg>

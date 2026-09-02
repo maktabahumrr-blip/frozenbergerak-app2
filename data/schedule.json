@@ -1,0 +1,24 @@
+[
+  {
+    "id": "JAD-01",
+    "teamName": "Team Frozen 1",
+    "driverName": "Team Frozen 1",
+    "date": "Hari Ini (Sabtu, 22 Ogos 2026)",
+    "timeSlot": "Sesi Pagi (9:00 PG - 1:00 PTG)",
+    "locations": "Seremban 2 • Rasah Kemayan • Sendayan • Mambau",
+    "status": "Sedang Bergerak",
+    "notes": "Team kini sedang bergerak di sekitar Seremban 2! Boleh WhatsApp untuk buat pesanan terus ke rumah.",
+    "lastUpdated": "2026-08-22T02:04:42.088Z"
+  },
+  {
+    "id": "JAD-02",
+    "teamName": "Team Frozen 2",
+    "driverName": "Team Frozen 2",
+    "date": "Hari Ini (Sabtu, 22 Ogos 2026)",
+    "timeSlot": "Sesi Petang (3:00 PTG - 7:00 MLM)",
+    "locations": "Senawang • Lavender Heights • Taman Tuanku Jaafar • Rahang",
+    "status": "Akan Datang",
+    "notes": "Slot petang dibuka untuk pesanan awal. Stok Kambing Perap & Karipap Pusing tersedia!",
+    "lastUpdated": "2026-08-22T02:04:42.088Z"
+  }
+]

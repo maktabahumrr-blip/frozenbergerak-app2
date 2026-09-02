@@ -1,0 +1,6 @@
+{
+  "name": "FrozenBergerak",
+  "description": "Katalog makanan frozen berkualiti FrozenBergerak dengan pilihan kategori lengkap dan pesanan pantas melalui WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
