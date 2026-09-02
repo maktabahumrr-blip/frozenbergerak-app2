@@ -212,13 +212,42 @@ export function parseGoogleDriveDirectUrl(rawUrl: string | undefined): string | 
 }
 
 export function parseCatalogCSV(csvText: string): Product[] {
+  return parseTabCsvSafely(csvText, "produk");
+}
+
+export function parseTabCsvSafely(
+  csvText: string,
+  tabType: "produk" | "alltimepromo" | "seasonal"
+): Product[] {
   try {
     if (!csvText || typeof csvText !== "string") return [];
     const rows = parseCSVLines(csvText);
-    if (rows.length < 2) return [];
+    if (rows.length === 0) return [];
+    return parseTabRowsSafely(rows, tabType);
+  } catch (error) {
+    console.error(`Error in parseTabCsvSafely (${tabType}), falling back to empty array:`, error);
+    return [];
+  }
+}
 
-    const headerRow = rows[0].map((h) => h.trim().toUpperCase());
+/**
+ * Safely parses rows from any tab using flexible column matching with index fallback:
+ * Column A (index 0) = ID / Code
+ * Column B (index 1) = Name / Title
+ * Column C (index 2) = Category / Promo
+ * Column D (index 3) = Price
+ * Column E (index 4) = Image
+ */
+export function parseTabRowsSafely(
+  rows: string[][],
+  tabType: "produk" | "alltimepromo" | "seasonal"
+): Product[] {
+  try {
+    if (!rows || rows.length === 0) return [];
 
+    const headerRow = rows[0].map((h) => (h || "").trim().toUpperCase());
+
+    // Helper for flexible header matching
     const findIdx = (possibleNames: string[]): number => {
       for (const name of possibleNames) {
         const idx = headerRow.findIndex((h) => h === name.toUpperCase());
@@ -231,69 +260,139 @@ export function parseCatalogCSV(csvText: string): Product[] {
       return -1;
     };
 
-    const idIdx = findIdx(["ID", "KOD", "NO", "CODE"]);
-    const nameIdx = findIdx(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "PRODUCT NAME", "ITEM"]);
-    const catIdx = findIdx(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN"]);
-    const priceIdx = findIdx(["HARGA", "PRICE", "HARGA ASAL", "HARGA BIASA", "HARGA (RM)"]);
-    const promoPriceIdx = findIdx(["HARGA PROMO", "PROMO PRICE", "PROMO", "DISKAUN", "HARGA DISKAUN"]);
-    const cookedImgIdx = findIdx(["GAMBAR SIAP MASAK", "GAMBAR MASAK", "COOKED IMAGE", "GAMBAR 1", "IMAGE"]);
-    const packImgIdx = findIdx(["GAMBAR PACKAGING", "GAMBAR PACK", "PACKAGING IMAGE", "GAMBAR 2"]);
-    const descIdx = findIdx(["PENERANGAN", "DESCRIPTION", "DESKRIPSI", "NOTA", "CARA MASAK", "MAKLUMAT"]);
-    const statusIdx = findIdx(["STATUS", "AVAILABILITY", "STOK", "STOCK"]);
+    // Check if row 0 looks like a header row
+    const isHeaderRow = headerRow.some((h) =>
+      /^(id|kod|code|no|produk|nama|name|item|tajuk|title|kategori|category|jenis|harga|price|gambar|image|foto|photo|status|stok|promo)/i.test(h)
+    );
 
-    if (nameIdx === -1) {
-      console.warn("Kolum 'PRODUK' tidak dijumpai dalam baris tajuk Google Sheet. Mengembalikan senarai kosong.");
-      return [];
-    }
+    const startRow = isHeaderRow ? 1 : 0;
+
+    // Flexible column matching with Column Index Fallback:
+    // Column A = ID/Code, Column B = Name, Column C = Category/Promo, Column D = Price, Column E = Image
+    let idIdx = isHeaderRow ? findIdx(["ID", "KOD", "CODE", "NO", "ITEM ID", "PROMO ID", "ID PRODUK", "KOD PRODUK", "SKU"]) : -1;
+    if (idIdx === -1) idIdx = 0; // Fallback to Column A
+
+    let nameIdx = isHeaderRow ? findIdx(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "PRODUCT NAME", "ITEM", "ITEM NAME", "TAJUK", "TITLE", "TAJUK PROMO", "NAMA PROMO"]) : -1;
+    if (nameIdx === -1) nameIdx = 1; // Fallback to Column B
+
+    let catIdx = isHeaderRow ? findIdx(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN", "SEGMEN", "PROMO", "PROMOSI", "TYPE", "TAG", "SEASONAL"]) : -1;
+    if (catIdx === -1) catIdx = 2; // Fallback to Column C
+
+    let priceIdx = isHeaderRow ? findIdx(["HARGA", "PRICE", "HARGA ASAL", "HARGA BIASA", "HARGA (RM)", "HARGA RM", "RATE"]) : -1;
+    if (priceIdx === -1) priceIdx = 3; // Fallback to Column D
+
+    const promoPriceIdx = isHeaderRow ? findIdx(["HARGA PROMO", "PROMO PRICE", "HARGA DISKAUN", "DISKAUN", "HARGA TAWARAN"]) : -1;
+
+    let imageIdx = isHeaderRow ? findIdx(["GAMBAR", "IMAGE", "GAMBAR SIAP MASAK", "GAMBAR PACKAGING", "GAMBAR MASAK", "COOKED IMAGE", "PACKAGING IMAGE", "FOTO", "PHOTO", "PICTURE", "URL", "LINK", "LINK GAMBAR", "URL GAMBAR"]) : -1;
+    if (imageIdx === -1) imageIdx = 4; // Fallback to Column E
+
+    const cookedImgIdx = isHeaderRow ? findIdx(["GAMBAR SIAP MASAK", "GAMBAR MASAK", "COOKED IMAGE", "GAMBAR 1"]) : -1;
+    const packImgIdx = isHeaderRow ? findIdx(["GAMBAR PACKAGING", "GAMBAR PACK", "PACKAGING IMAGE", "GAMBAR 2"]) : -1;
+
+    let descIdx = isHeaderRow ? findIdx(["PENERANGAN", "DESCRIPTION", "DESKRIPSI", "NOTA", "CARA MASAK", "MAKLUMAT", "INFO", "DETAILS"]) : -1;
+    if (descIdx === -1 && headerRow.length > 5) descIdx = 5; // Column F fallback if available
+
+    let statusIdx = isHeaderRow ? findIdx(["STATUS", "AVAILABILITY", "STOK", "STOCK", "STATE", "KEADAAN"]) : -1;
+    if (statusIdx === -1 && headerRow.length > 6) statusIdx = 6; // Column G fallback if available
 
     const products: Product[] = [];
 
-    for (let r = 1; r < rows.length; r++) {
+    for (let r = startRow; r < rows.length; r++) {
       const row = rows[r];
       if (!row || row.length === 0 || row.every((c) => !c.trim())) continue;
 
-      const rawName = row[nameIdx]?.trim() || "";
+      // Extract rawName
+      let rawName = (nameIdx !== -1 && row[nameIdx]?.trim()) ? row[nameIdx].trim() : "";
+      if (!rawName && row[1]?.trim()) {
+        rawName = row[1].trim();
+      }
       if (!rawName) continue;
 
-      const rawId = idIdx !== -1 && row[idIdx]?.trim() ? row[idIdx].trim() : `FB-${String(r).padStart(3, "0")}`;
-      const rawCategory = catIdx !== -1 && row[catIdx]?.trim() ? row[catIdx].trim() : "Lain-lain";
-      const rawPrice = priceIdx !== -1 && row[priceIdx] ? parsePrice(row[priceIdx]) : 0;
-      const rawPromoPrice = promoPriceIdx !== -1 && row[promoPriceIdx] ? parsePrice(row[promoPriceIdx]) : 0;
+      // Skip repeated header words
+      if (["PRODUK", "PRODUCT", "NAMA", "NAME", "TAJUK", "TITLE", "ITEM"].includes(rawName.toUpperCase())) {
+        continue;
+      }
 
+      // Extract ID
+      let rawId = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : (row[0]?.trim() || "");
+      if (!rawId || ["ID", "KOD", "CODE", "NO"].includes(rawId.toUpperCase())) {
+        const prefix = tabType === "seasonal" ? "SEA" : tabType === "alltimepromo" ? "ATP" : "FB";
+        rawId = `${prefix}-${String(r).padStart(3, "0")}`;
+      }
+
+      // Extract Category
+      let rawCategory = (catIdx !== -1 && row[catIdx]?.trim()) ? row[catIdx].trim() : (row[2]?.trim() || "");
+      if (!rawCategory || ["KATEGORI", "CATEGORY", "JENIS"].includes(rawCategory.toUpperCase())) {
+        if (tabType === "alltimepromo") {
+          rawCategory = "All Time Promo";
+        } else if (tabType === "seasonal") {
+          rawCategory = "PROMOSI BERMUSIM";
+        } else {
+          rawCategory = "Lain-lain";
+        }
+      }
+
+      // Extract Prices
+      const rawPriceVal = (priceIdx !== -1 && row[priceIdx]) ? parsePrice(row[priceIdx]) : (row[3] ? parsePrice(row[3]) : 0);
+      const rawPromoPriceVal = (promoPriceIdx !== -1 && row[promoPriceIdx]) ? parsePrice(row[promoPriceIdx]) : 0;
+
+      let finalPrice = rawPriceVal;
+      let origPrice: number | undefined = undefined;
+      let promPrice: number | undefined = undefined;
+
+      if (rawPromoPriceVal > 0 && rawPriceVal > 0 && rawPromoPriceVal < rawPriceVal) {
+        finalPrice = rawPromoPriceVal;
+        origPrice = rawPriceVal;
+        promPrice = rawPromoPriceVal;
+      } else if (tabType === "alltimepromo" || tabType === "seasonal") {
+        finalPrice = rawPriceVal;
+        promPrice = rawPriceVal;
+      }
+
+      // Extract Images
       const rawCookedImage = cookedImgIdx !== -1 ? parseGoogleDriveDirectUrl(row[cookedImgIdx]) : undefined;
       const rawPackagingImage = packImgIdx !== -1 ? parseGoogleDriveDirectUrl(row[packImgIdx]) : undefined;
+      const rawGeneralImage = imageIdx !== -1 ? parseGoogleDriveDirectUrl(row[imageIdx]) : (row[4] ? parseGoogleDriveDirectUrl(row[4]) : undefined);
+
       const fallbackImage = getCategoryFallbackImage(rawCategory, rawName);
-      const primaryImage = rawCookedImage || rawPackagingImage || fallbackImage;
+      const primaryImage = rawCookedImage || rawGeneralImage || rawPackagingImage || fallbackImage;
 
-      const rawDesc = descIdx !== -1 && row[descIdx]?.trim() ? row[descIdx].trim() : "";
-      const rawStatus = statusIdx !== -1 && row[statusIdx]?.trim() ? row[statusIdx].trim().toLowerCase() : "available";
+      // Description
+      const rawDesc = (descIdx !== -1 && row[descIdx]?.trim()) ? row[descIdx].trim() : (row[5]?.trim() || "");
+      const defaultDesc = tabType === "seasonal"
+        ? "Promosi bermusim istimewa daripada FrozenBergerak. Sedia ditempah terus ke WhatsApp!"
+        : tabType === "alltimepromo"
+        ? "Tawaran harga istimewa All Time Promo berkualiti tinggi daripada FrozenBergerak."
+        : "Makanan sejuk beku berkualiti tinggi daripada FrozenBergerak. Sedia untuk dimasak panas dan dinikmati bersama seisi keluarga.";
 
+      // Status / In Stock
+      const rawStatus = (statusIdx !== -1 && row[statusIdx]?.trim()) ? row[statusIdx].trim().toLowerCase() : (row[6]?.trim().toLowerCase() || "available");
       const inStock =
         rawStatus === "" ||
         rawStatus.includes("avail") ||
         rawStatus.includes("ada") ||
         rawStatus.includes("ready") ||
-        (!rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak"));
-
-      const hasValidPromo = rawPromoPrice > 0 && rawPromoPrice < rawPrice;
-      const finalPrice = hasValidPromo ? rawPromoPrice : rawPrice;
+        rawStatus.includes("aktif") ||
+        rawStatus.includes("active") ||
+        rawStatus === "1" ||
+        rawStatus === "ya" ||
+        rawStatus === "yes" ||
+        (!rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak") && !rawStatus.includes("inactive") && !rawStatus.includes("tamat") && !rawStatus.includes("batal"));
 
       products.push({
         id: rawId,
         name: rawName,
         category: rawCategory,
         price: finalPrice,
-        originalPrice: hasValidPromo ? rawPrice : undefined,
-        promoPrice: hasValidPromo ? rawPromoPrice : undefined,
+        originalPrice: origPrice,
+        promoPrice: promPrice,
         unit: rawName.toLowerCase().includes("pek") ? "" : "1 pek",
-        description:
-          rawDesc ||
-          "Makanan sejuk beku berkualiti tinggi daripada FrozenBergerak. Sedia untuk dimasak panas dan dinikmati bersama seisi keluarga.",
+        description: rawDesc || defaultDesc,
         imageUrl: primaryImage,
         cookedImageUrl: rawCookedImage,
         packagingImageUrl: rawPackagingImage,
-        isPopular: hasValidPromo || r <= 4,
-        isNew: r === 1,
+        isPopular: tabType !== "produk" || promPrice !== undefined || r <= 4,
+        isNew: tabType === "seasonal" || r === 1,
         inStock,
         halalCertified: true,
         storageInfo: "Simpan pada suhu sejuk beku (-18°C). Nyahbeku sebelum memasak mengikut arahan penyediaan."
@@ -302,9 +401,55 @@ export function parseCatalogCSV(csvText: string): Product[] {
 
     return products;
   } catch (error) {
-    console.error("Error in parseCatalogCSV, falling back to empty array:", error);
+    console.error(`Error in parseTabRowsSafely (${tabType}):`, error);
     return [];
   }
+}
+
+/**
+ * Merges products from Produk, Alltimepromo, and Seasonal tabs safely into a unified catalog
+ */
+export function mergeTabProducts(
+  produkList: Product[],
+  alltimeList: Product[],
+  seasonalList: Product[]
+): Product[] {
+  const merged: Product[] = [...produkList];
+
+  const addOrUpdate = (item: Product, defaultCategory: string) => {
+    const existingIdx = merged.findIndex(
+      (m) =>
+        (m.id && item.id && m.id.toLowerCase() === item.id.toLowerCase()) ||
+        (m.name && item.name && m.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+    );
+
+    if (existingIdx !== -1) {
+      // Update existing item with promo pricing/tags
+      const current = merged[existingIdx];
+      merged[existingIdx] = {
+        ...current,
+        promoPrice: item.promoPrice || current.promoPrice || item.price,
+        originalPrice: current.originalPrice || current.price,
+        price: item.promoPrice || item.price || current.price,
+        isPopular: true,
+        imageUrl: current.imageUrl || item.imageUrl,
+        cookedImageUrl: current.cookedImageUrl || item.cookedImageUrl,
+        packagingImageUrl: current.packagingImageUrl || item.packagingImageUrl
+      };
+    } else {
+      // Add as new catalog product
+      merged.push({
+        ...item,
+        category: item.category || defaultCategory,
+        isPopular: true
+      });
+    }
+  };
+
+  alltimeList.forEach((it) => addOrUpdate(it, "All Time Promo"));
+  seasonalList.forEach((it) => addOrUpdate(it, "PROMOSI BERMUSIM"));
+
+  return merged;
 }
 
 export function buildCategoriesFromProducts(products: Product[]): Category[] {
@@ -382,9 +527,55 @@ export function getSheetCsvEndpoints(sheetUrlOrId: string): string[] {
   }
 }
 
+export async function fetchSheetTabCsv(
+  sheetId: string,
+  tabAliases: string[],
+  allowDefaultSheet = false
+): Promise<string | null> {
+  const urls: string[] = [];
+
+  for (const alias of tabAliases) {
+    const enc = encodeURIComponent(alias);
+    urls.push(
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${enc}`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${enc}`,
+      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&sheet=${enc}`
+    );
+  }
+
+  if (allowDefaultSheet) {
+    urls.push(
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`,
+      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`
+    );
+  }
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          Accept: "text/csv, text/plain, */*"
+        }
+      });
+      if (res.ok) {
+        const text = await res.text();
+        if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html") && text.trim().length > 10) {
+          return text;
+        }
+      }
+    } catch {
+      // Continue to next endpoint URL
+    }
+  }
+
+  return null;
+}
+
 /**
  * Fetches and parses live product catalog data directly from Google Sheet CSV export link
- * Wrapped in try-catch blocks with safe empty array fallback so the app never crashes.
+ * Independently fetches Produk, Alltimepromo, and Seasonal tabs with flexible column matching
+ * and column index fallback (A=ID, B=Name, C=Category, D=Price, E=Image), merging them safely.
  */
 export async function fetchLiveCatalog(
   sheetUrlOrId?: string,
@@ -398,35 +589,89 @@ export async function fetchLiveCatalog(
       targetSheet = sheetUrlOrId?.trim() || "";
     }
 
-    // 1. If custom sheet URL/ID is provided, attempt client-side direct CSV fetch
+    // 1. If custom sheet URL/ID is provided, attempt client-side independent multi-tab fetch
     if (targetSheet) {
-      const endpoints = getSheetCsvEndpoints(targetSheet);
-      for (const url of endpoints) {
+      const sheetId = extractSheetId(targetSheet);
+      if (sheetId) {
+        let produkItems: Product[] = [];
+        let alltimeItems: Product[] = [];
+        let seasonalItems: Product[] = [];
+
+        // Fetch Produk tab independently
         try {
-          const res = await fetch(url, {
-            headers: {
-              Accept: "text/csv, text/plain, */*"
-            }
-          });
-          if (res.ok) {
-            const csvText = await res.text();
-            if (csvText && !csvText.includes("<!DOCTYPE html") && !csvText.includes("<html") && csvText.includes("PRODUK")) {
-              const parsed = parseCatalogCSV(csvText);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                const cats = buildCategoriesFromProducts(parsed);
-                try {
-                  if (typeof window !== "undefined" && window.localStorage) {
-                    localStorage.setItem("cached_catalog_products", JSON.stringify(parsed));
-                    localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
-                  }
-                } catch {}
-                return { products: parsed, categories: cats, source: "google_sheet_direct_csv" };
-              }
-            }
+          const csvText = await fetchSheetTabCsv(
+            sheetId,
+            ["Produk", "PRODUK", "produk", "Products", "Sheet1", "Catalog", "Katalog"],
+            true
+          );
+          if (csvText) {
+            produkItems = parseTabCsvSafely(csvText, "produk");
           }
-        } catch (e) {
-          // Direct fetch may fail due to CORS in some browser configurations, fallback to backend proxy
-          console.warn("Direct Google Sheet CSV fetch attempt failed, trying server proxy:", e);
+        } catch (err) {
+          console.warn("Client fetch Produk tab error (handled safely):", err);
+          produkItems = [];
+        }
+
+        // Fetch Alltimepromo tab independently
+        try {
+          const csvText = await fetchSheetTabCsv(sheetId, [
+            "Alltimepromo",
+            "All Time Promo",
+            "ALL TIME PROMO",
+            "alltimepromo",
+            "ALLTIMEPROMO",
+            "AllTimePromo",
+            "Alltime Promo",
+            "All-Time Promo",
+            "All_Time_Promo",
+            "Promo",
+            "PROMO",
+            "Promosi"
+          ]);
+          if (csvText) {
+            alltimeItems = parseTabCsvSafely(csvText, "alltimepromo");
+          }
+        } catch (err) {
+          console.warn("Client fetch Alltimepromo tab error (handled safely):", err);
+          alltimeItems = [];
+        }
+
+        // Fetch Seasonal tab independently
+        try {
+          const csvText = await fetchSheetTabCsv(sheetId, [
+            "Seasonal",
+            "SEASONAL",
+            "seasonal",
+            "Seasonalpromo",
+            "Seasonal Promo",
+            "SEASONAL PROMO",
+            "seasonalpromo",
+            "SEASONALPROMO",
+            "SeasonalPromo",
+            "Promosi Musiman",
+            "PROMOSI MUSIMAN",
+            "Musiman",
+            "MUSIMAN"
+          ]);
+          if (csvText) {
+            seasonalItems = parseTabCsvSafely(csvText, "seasonal");
+          }
+        } catch (err) {
+          console.warn("Client fetch Seasonal tab error (handled safely):", err);
+          seasonalItems = [];
+        }
+
+        // Merge all valid items from all tabs into the main catalog display
+        const merged = mergeTabProducts(produkItems, alltimeItems, seasonalItems);
+        if (merged.length > 0) {
+          const cats = buildCategoriesFromProducts(merged);
+          try {
+            if (typeof window !== "undefined" && window.localStorage) {
+              localStorage.setItem("cached_catalog_products", JSON.stringify(merged));
+              localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
+            }
+          } catch {}
+          return { products: merged, categories: cats, source: "google_sheet_direct_csv" };
         }
       }
     }

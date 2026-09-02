@@ -1392,43 +1392,25 @@ FB039,Popia Carbonara Daging,Popia,RM 17,,https://drive.google.com/file/d/1q8m4B
 FB040,Popia Jejari Ketam Berkeju,Popia,RM 17,,https://drive.google.com/file/d/1r_czEBs9wnhkEPo9QSPm_Osyj3LXawEJ/view?usp=drivesdk,https://drive.google.com/file/d/13gSZMEOnHaCR8uZriO9Ia6zrhHkglEnq/view?usp=drivesdk,"1 pek 8 keping. Tidak perlu nyahbeku, terus goreng dalam minyak masak yang telah dipanaskan sehingga keemasan dan masak sekata.",AVAILABLE
 FB041,Popia Sayuran Berkeju,Popia,RM 17,,https://drive.google.com/file/d/1_Vwy1AAFkJSctgtnupjTNIINi4WkRDlq/view?usp=drivesdk,https://drive.google.com/file/d/13gSZMEOnHaCR8uZriO9Ia6zrhHkglEnq/view?usp=drivesdk,"1 pek 8 keping. Tidak perlu nyahbeku, terus goreng dalam minyak masak yang telah dipanaskan sehingga keemasan dan masak sekata.",AVAILABLE`;
 
-async function fetchProductsFromGoogleSheet(
-  forceRefresh = false,
-  customSheetIdOrUrl?: string
-): Promise<{ products: ParsedProduct[]; source: string }> {
-  const sheetIdRaw = customSheetIdOrUrl || process.env.GOOGLE_SHEET_ID;
-  const now = Date.now();
-
-  // If no sheet ID is provided, load the default parsed products
-  if (!sheetIdRaw || !sheetIdRaw.trim()) {
-    if (!cachedProducts || forceRefresh) {
-      const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
-      cachedProducts = parseProductsFromRows(defaultRows);
-      lastFetchTime = now;
-    }
-    return { products: cachedProducts, source: "default_catalog" };
-  }
-
-  const sheetId = extractSheetId(sheetIdRaw);
-
-  if (!forceRefresh && cachedProducts && (now - lastFetchTime < CACHE_TTL_MS)) {
-    return { products: cachedProducts, source: "cache" };
-  }
-
-  // Handle direct CSV url or standard Google Sheet export endpoints
+async function fetchServerTabCsv(sheetId: string, tabAliases: string[], allowDefaultSheet = false): Promise<string | null> {
   const endpoints: string[] = [];
-  if (sheetIdRaw.includes("output=csv") || sheetIdRaw.includes("export?format=csv") || sheetIdRaw.includes("tqx=out:csv")) {
-    endpoints.push(sheetIdRaw);
-  } else {
+
+  for (const tab of tabAliases) {
+    const encodedTab = encodeURIComponent(tab);
+    endpoints.push(
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodedTab}`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${encodedTab}`,
+      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&sheet=${encodedTab}`
+    );
+  }
+
+  if (allowDefaultSheet) {
     endpoints.push(
       `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`,
       `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`,
       `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`
     );
   }
-
-  let csvData: string | null = null;
-  let lastError: string | null = null;
 
   for (const endpoint of endpoints) {
     try {
@@ -1441,55 +1423,24 @@ async function fetchProductsFromGoogleSheet(
 
       if (response.ok) {
         const text = await response.text();
-        if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html") && text.includes("PRODUK")) {
-          csvData = text;
-          break;
+        if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html") && text.trim().length > 10) {
+          return text;
         }
-      } else {
-        lastError = `HTTP ${response.status}: ${response.statusText}`;
       }
-    } catch (e: any) {
-      lastError = e?.message || "Ralat sambungan rangkaian";
+    } catch {
+      // try next endpoint
     }
   }
 
-  if (!csvData) {
-    // If fetching custom sheet fails, fallback to default catalog to avoid crashing the whole app
-    console.warn(`Gagal membaca Google Sheet (${sheetId}): ${lastError}. Menggunakan katalog piawai.`);
-    if (!cachedProducts) {
-      const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
-      cachedProducts = parseProductsFromRows(defaultRows);
-      lastFetchTime = now;
-    }
-    return { products: cachedProducts, source: "default_catalog_fallback" };
-  }
-
-  const rows = parseCSV(csvData);
-  if (rows.length < 2) {
-    const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
-    cachedProducts = parseProductsFromRows(defaultRows);
-    lastFetchTime = now;
-    return { products: cachedProducts, source: "default_catalog_fallback" };
-  }
-
-  const products = parseProductsFromRows(rows);
-
-  if (products.length === 0) {
-    const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
-    cachedProducts = parseProductsFromRows(defaultRows);
-    lastFetchTime = now;
-    return { products: cachedProducts, source: "default_catalog_fallback" };
-  }
-
-  cachedProducts = products;
-  lastFetchTime = now;
-
-  return { products, source: "google_sheet" };
+  return null;
 }
 
-function parseProductsFromRows(rows: string[][]): ParsedProduct[] {
-  if (rows.length < 2) return [];
-  const headerRow = rows[0].map(h => h.trim().toUpperCase());
+function parseServerTabRows(
+  rows: string[][],
+  tabType: "produk" | "alltimepromo" | "seasonal"
+): ParsedProduct[] {
+  if (!rows || rows.length === 0) return [];
+  const headerRow = rows[0].map(h => (h || "").trim().toUpperCase());
 
   const findExactOrIncludes = (possibleNames: string[], excludeWords: string[] = []): number => {
     for (const name of possibleNames) {
@@ -1507,120 +1458,286 @@ function parseProductsFromRows(rows: string[][]): ParsedProduct[] {
     return -1;
   };
 
-  const idIdx = findExactOrIncludes(["ID", "KOD", "NO", "CODE"]);
-  const nameIdx = findExactOrIncludes(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "ITEM", "PRODUCT NAME"]);
-  const catIdx = findExactOrIncludes(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN"]);
-  
-  const cookedImageIdx = findExactOrIncludes([
-    "GAMBAR SIAP MASAK",
-    "GAMBAR MASAK",
-    "GAMBAR SIAP",
-    "GAMBAR_SIAP_MASAK",
-    "SIAP MASAK",
-    "COOKED IMAGE",
-    "GAMBAR 1",
-    "GAMBAR_1"
-  ]);
-
-  const packagingImageIdx = findExactOrIncludes([
-    "GAMBAR PACKAGING",
-    "GAMBAR PACK",
-    "GAMBAR PEK",
-    "GAMBAR BUNGKUSAN",
-    "GAMBAR_PACKAGING",
-    "PACKAGING",
-    "PACKAGING IMAGE",
-    "GAMBAR 2",
-    "GAMBAR_2"
-  ]);
-
-  const generalImageIdx = findExactOrIncludes(
-    ["GAMBAR", "IMAGE", "FOTO", "LINK GAMBAR", "PICTURE", "URL GAMBAR", "PHOTO"],
-    ["SIAP", "MASAK", "PACK", "PEK", "BUNGKUS"]
+  const isHeaderRow = headerRow.some(h =>
+    /^(id|kod|code|no|produk|nama|name|item|tajuk|title|kategori|category|jenis|harga|price|gambar|image|foto|photo|status|stok|promo)/i.test(h)
   );
 
-  const priceIdx = findExactOrIncludes(
-    ["HARGA", "HARGA ASAL", "HARGA BIASA", "PRICE", "HARGA JUALAN", "HARGA (RM)", "HARGA RM", "PRICE (RM)"],
-    ["PROMO", "DISKAUN", "GAMBAR", "PACKAGING", "MASAK"]
-  );
-  const promoPriceIdx = findExactOrIncludes(
-    ["HARGA PROMO", "HARGA PROMOSI", "PROMO", "DISKAUN", "PROMO PRICE", "HARGA DISKAUN", "PROMOTION PRICE"]
-  );
-  
-  const descIdx = findExactOrIncludes(
-    ["PENERANGAN", "DESCRIPTION", "DESKRIPSI", "NOTA", "MAKLUMAT", "DETAILS"],
-    ["GAMBAR", "IMAGE", "HARGA", "PRICE"]
-  );
-  const unitIdx = findExactOrIncludes(
-    ["UNIT", "KUANTITI", "PEK", "PACK", "KUANTITI/PEK"],
-    ["GAMBAR", "IMAGE"]
-  );
-  const weightIdx = findExactOrIncludes(["BERAT", "WEIGHT", "BERAT BERSIH", "NET WEIGHT"]);
-  const statusIdx = findExactOrIncludes(["STATUS", "STOK", "STOCK", "IN STOCK", "STATUS STOK", "AVAILABILITY"]);
+  const startRow = isHeaderRow ? 1 : 0;
 
-  if (nameIdx === -1) {
-    return [];
-  }
+  // Flexible column matching with Column Index Fallback
+  // Column A = ID/Code, Column B = Name, Column C = Category/Promo, Column D = Price, Column E = Image
+  let idIdx = isHeaderRow ? findExactOrIncludes(["ID", "KOD", "CODE", "NO", "ITEM ID", "PROMO ID", "ID PRODUK", "KOD PRODUK", "SKU"]) : -1;
+  if (idIdx === -1) idIdx = 0; // Fallback to Column A
+
+  let nameIdx = isHeaderRow ? findExactOrIncludes(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "PRODUCT NAME", "ITEM", "ITEM NAME", "TAJUK", "TITLE", "TAJUK PROMO", "NAMA PROMO"]) : -1;
+  if (nameIdx === -1) nameIdx = 1; // Fallback to Column B
+
+  let catIdx = isHeaderRow ? findExactOrIncludes(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN", "SEGMEN", "PROMO", "PROMOSI", "TYPE", "TAG", "SEASONAL"]) : -1;
+  if (catIdx === -1) catIdx = 2; // Fallback to Column C
+
+  let priceIdx = isHeaderRow ? findExactOrIncludes(["HARGA", "PRICE", "HARGA ASAL", "HARGA BIASA", "HARGA (RM)", "HARGA RM", "RATE"], ["PROMO", "DISKAUN"]) : -1;
+  if (priceIdx === -1) priceIdx = 3; // Fallback to Column D
+
+  const promoPriceIdx = isHeaderRow ? findExactOrIncludes(["HARGA PROMO", "PROMO PRICE", "HARGA DISKAUN", "DISKAUN", "HARGA TAWARAN", "HARGA PROMOSI"]) : -1;
+
+  let imageIdx = isHeaderRow ? findExactOrIncludes(["GAMBAR", "IMAGE", "FOTO", "PHOTO", "PICTURE", "URL", "LINK", "LINK GAMBAR", "URL GAMBAR"]) : -1;
+  if (imageIdx === -1) imageIdx = 4; // Fallback to Column E
+
+  const cookedImageIdx = isHeaderRow ? findExactOrIncludes(["GAMBAR SIAP MASAK", "GAMBAR MASAK", "COOKED IMAGE", "GAMBAR 1"]) : -1;
+  const packagingImageIdx = isHeaderRow ? findExactOrIncludes(["GAMBAR PACKAGING", "GAMBAR PACK", "PACKAGING IMAGE", "GAMBAR 2"]) : -1;
+
+  let descIdx = isHeaderRow ? findExactOrIncludes(["PENERANGAN", "DESCRIPTION", "DESKRIPSI", "NOTA", "MAKLUMAT", "DETAILS", "INFO", "CARA MASAK"]) : -1;
+  if (descIdx === -1 && headerRow.length > 5) descIdx = 5; // Column F fallback
+
+  let statusIdx = isHeaderRow ? findExactOrIncludes(["STATUS", "AVAILABILITY", "STOK", "STOCK", "STATE", "KEADAAN"]) : -1;
+  if (statusIdx === -1 && headerRow.length > 6) statusIdx = 6; // Column G fallback
 
   const products: ParsedProduct[] = [];
 
-  for (let r = 1; r < rows.length; r++) {
+  for (let r = startRow; r < rows.length; r++) {
     const row = rows[r];
-    if (!row || row.length === 0 || row.every(cell => !cell.trim())) {
+    if (!row || row.length === 0 || row.every(cell => !cell.trim())) continue;
+
+    let rawName = (nameIdx !== -1 && row[nameIdx]?.trim()) ? row[nameIdx].trim() : "";
+    if (!rawName && row[1]?.trim()) {
+      rawName = row[1].trim();
+    }
+    if (!rawName) continue;
+
+    if (["PRODUK", "PRODUCT", "NAMA", "NAME", "TAJUK", "TITLE", "ITEM"].includes(rawName.toUpperCase())) {
       continue;
     }
 
-    const rawName = row[nameIdx]?.trim() || "";
-    if (!rawName) continue;
+    let rawId = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : (row[0]?.trim() || "");
+    if (!rawId || ["ID", "KOD", "CODE", "NO"].includes(rawId.toUpperCase())) {
+      const prefix = tabType === "seasonal" ? "SEA" : tabType === "alltimepromo" ? "ATP" : "FB";
+      rawId = `${prefix}-${String(r).padStart(3, "0")}`;
+    }
 
-    const rawId = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : `FB-${String(r).padStart(3, '0')}`;
-    const rawCategory = (catIdx !== -1 && row[catIdx]?.trim()) ? row[catIdx].trim() : "Lain-lain";
-    const rawPrice = (priceIdx !== -1 && row[priceIdx]) ? formatPriceNumber(row[priceIdx]) : 0;
-    const rawPromoPrice = (promoPriceIdx !== -1 && row[promoPriceIdx]) ? formatPriceNumber(row[promoPriceIdx]) : 0;
-    
+    let rawCategory = (catIdx !== -1 && row[catIdx]?.trim()) ? row[catIdx].trim() : (row[2]?.trim() || "");
+    if (!rawCategory || ["KATEGORI", "CATEGORY", "JENIS"].includes(rawCategory.toUpperCase())) {
+      if (tabType === "alltimepromo") {
+        rawCategory = "All Time Promo";
+      } else if (tabType === "seasonal") {
+        rawCategory = "PROMOSI BERMUSIM";
+      } else {
+        rawCategory = "Lain-lain";
+      }
+    }
+
+    const rawPriceVal = (priceIdx !== -1 && row[priceIdx]) ? formatPriceNumber(row[priceIdx]) : (row[3] ? formatPriceNumber(row[3]) : 0);
+    const rawPromoPriceVal = (promoPriceIdx !== -1 && row[promoPriceIdx]) ? formatPriceNumber(row[promoPriceIdx]) : 0;
+
+    let finalPrice = rawPriceVal;
+    let origPrice: number | undefined = undefined;
+    let promPrice: number | undefined = undefined;
+
+    if (rawPromoPriceVal > 0 && rawPriceVal > 0 && rawPromoPriceVal < rawPriceVal) {
+      finalPrice = rawPromoPriceVal;
+      origPrice = rawPriceVal;
+      promPrice = rawPromoPriceVal;
+    } else if (tabType === "alltimepromo" || tabType === "seasonal") {
+      finalPrice = rawPriceVal;
+      promPrice = rawPriceVal;
+    }
+
     const rawCookedImage = cookedImageIdx !== -1 ? parseOptionalImageUrl(row[cookedImageIdx]) : undefined;
     const rawPackagingImage = packagingImageIdx !== -1 ? parseOptionalImageUrl(row[packagingImageIdx]) : undefined;
-    const rawGeneralImage = generalImageIdx !== -1 ? parseOptionalImageUrl(row[generalImageIdx]) : undefined;
+    const rawGeneralImage = imageIdx !== -1 ? parseOptionalImageUrl(row[imageIdx]) : (row[4] ? parseOptionalImageUrl(row[4]) : undefined);
 
     const primaryImage = rawCookedImage || rawGeneralImage || rawPackagingImage || getFallbackImageByCategory(rawCategory, rawName);
 
-    const rawDesc = (descIdx !== -1 && row[descIdx]?.trim()) ? sanitizeText(row[descIdx]) : "";
-    const rawUnit = (unitIdx !== -1 && row[unitIdx]?.trim()) ? sanitizeText(row[unitIdx]) : "1 pek";
-    const rawWeight = (weightIdx !== -1 && row[weightIdx]?.trim()) ? sanitizeText(row[weightIdx]) : undefined;
-    const rawStatus = (statusIdx !== -1 && row[statusIdx]?.trim()) ? row[statusIdx].trim().toLowerCase() : "available";
+    const rawDesc = (descIdx !== -1 && row[descIdx]?.trim()) ? sanitizeText(row[descIdx]) : (row[5]?.trim() ? sanitizeText(row[5]) : "");
+    const rawStatus = (statusIdx !== -1 && row[statusIdx]?.trim()) ? row[statusIdx].trim().toLowerCase() : (row[6]?.trim().toLowerCase() || "available");
 
     const inStock =
       rawStatus === "" ||
       rawStatus.includes("avail") ||
       rawStatus.includes("ada") ||
       rawStatus.includes("ready") ||
-      (!rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak"));
-    
-    const hasValidPromo = rawPromoPrice > 0 && rawPromoPrice < rawPrice;
-    const finalPrice = hasValidPromo ? rawPromoPrice : rawPrice;
+      rawStatus.includes("aktif") ||
+      rawStatus.includes("active") ||
+      rawStatus === "1" ||
+      rawStatus === "ya" ||
+      rawStatus === "yes" ||
+      (!rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak") && !rawStatus.includes("inactive") && !rawStatus.includes("tamat") && !rawStatus.includes("batal"));
 
     products.push({
       id: rawId,
       name: rawName,
       category: rawCategory,
       price: finalPrice,
-      originalPrice: hasValidPromo ? rawPrice : undefined,
-      promoPrice: hasValidPromo ? rawPromoPrice : undefined,
-      unit: rawUnit || "1 pek",
-      description: rawDesc || `Makanan beku berkualiti tinggi dari FrozenBergerak. Sedia untuk dimasak panas dan dinikmati seisi keluarga.`,
+      originalPrice: origPrice,
+      promoPrice: promPrice,
+      unit: rawName.toLowerCase().includes("pek") ? "" : "1 pek",
+      description: rawDesc || (tabType === "seasonal" ? "Promosi bermusim istimewa FrozenBergerak." : tabType === "alltimepromo" ? "Tawaran All Time Promo FrozenBergerak." : "Makanan sejuk beku berkualiti tinggi dari FrozenBergerak."),
       imageUrl: primaryImage,
       cookedImageUrl: rawCookedImage,
       packagingImageUrl: rawPackagingImage,
-      isPopular: hasValidPromo || r <= 4,
-      isNew: r === 1,
+      isPopular: tabType !== "produk" || promPrice !== undefined || r <= 4,
+      isNew: tabType === "seasonal" || r === 1,
       inStock,
       halalCertified: true,
-      weight: rawWeight,
       storageInfo: "Simpan pada suhu sejuk beku (-18°C). Nyahbeku sebelum memasak."
     });
   }
 
   return products;
+}
+
+function mergeServerProducts(
+  produkList: ParsedProduct[],
+  alltimeList: ParsedProduct[],
+  seasonalList: ParsedProduct[]
+): ParsedProduct[] {
+  const merged: ParsedProduct[] = [...produkList];
+
+  const addOrUpdate = (item: ParsedProduct, defaultCategory: string) => {
+    const existingIdx = merged.findIndex(
+      (m) =>
+        (m.id && item.id && m.id.toLowerCase() === item.id.toLowerCase()) ||
+        (m.name && item.name && m.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+    );
+
+    if (existingIdx !== -1) {
+      const current = merged[existingIdx];
+      merged[existingIdx] = {
+        ...current,
+        promoPrice: item.promoPrice || current.promoPrice || item.price,
+        originalPrice: current.originalPrice || current.price,
+        price: item.promoPrice || item.price || current.price,
+        isPopular: true,
+        imageUrl: current.imageUrl || item.imageUrl,
+        cookedImageUrl: current.cookedImageUrl || item.cookedImageUrl,
+        packagingImageUrl: current.packagingImageUrl || item.packagingImageUrl
+      };
+    } else {
+      merged.push({
+        ...item,
+        category: item.category || defaultCategory,
+        isPopular: true
+      });
+    }
+  };
+
+  alltimeList.forEach(it => addOrUpdate(it, "All Time Promo"));
+  seasonalList.forEach(it => addOrUpdate(it, "PROMOSI BERMUSIM"));
+
+  return merged;
+}
+
+async function fetchProductsFromGoogleSheet(
+  forceRefresh = false,
+  customSheetIdOrUrl?: string
+): Promise<{ products: ParsedProduct[]; source: string }> {
+  const sheetIdRaw = customSheetIdOrUrl || process.env.GOOGLE_SHEET_ID;
+  const now = Date.now();
+
+  // If no sheet ID is provided, load the default parsed products
+  if (!sheetIdRaw || !sheetIdRaw.trim()) {
+    if (!cachedProducts || forceRefresh) {
+      const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
+      cachedProducts = parseServerTabRows(defaultRows, "produk");
+      lastFetchTime = now;
+    }
+    return { products: cachedProducts, source: "default_catalog" };
+  }
+
+  const sheetId = extractSheetId(sheetIdRaw);
+
+  if (!forceRefresh && cachedProducts && (now - lastFetchTime < CACHE_TTL_MS)) {
+    return { products: cachedProducts, source: "cache" };
+  }
+
+  let produkItems: ParsedProduct[] = [];
+  let alltimeItems: ParsedProduct[] = [];
+  let seasonalItems: ParsedProduct[] = [];
+
+  // Tab 1: Fetch Produk tab independently
+  try {
+    const csv = await fetchServerTabCsv(
+      sheetId,
+      ["Produk", "PRODUK", "produk", "Products", "Sheet1", "Catalog", "Katalog"],
+      true
+    );
+    if (csv) {
+      const rows = parseCSV(csv);
+      produkItems = parseServerTabRows(rows, "produk");
+    }
+  } catch (e: any) {
+    console.warn("Server error fetching Produk tab (handled safely):", e?.message || e);
+    produkItems = [];
+  }
+
+  // Tab 2: Fetch Alltimepromo tab independently
+  try {
+    const csv = await fetchServerTabCsv(sheetId, [
+      "Alltimepromo",
+      "All Time Promo",
+      "ALL TIME PROMO",
+      "alltimepromo",
+      "ALLTIMEPROMO",
+      "AllTimePromo",
+      "Alltime Promo",
+      "All-Time Promo",
+      "All_Time_Promo",
+      "Promo",
+      "PROMO",
+      "Promosi"
+    ]);
+    if (csv) {
+      const rows = parseCSV(csv);
+      alltimeItems = parseServerTabRows(rows, "alltimepromo");
+    }
+  } catch (e: any) {
+    console.warn("Server error fetching Alltimepromo tab (handled safely):", e?.message || e);
+    alltimeItems = [];
+  }
+
+  // Tab 3: Fetch Seasonal tab independently
+  try {
+    const csv = await fetchServerTabCsv(sheetId, [
+      "Seasonal",
+      "SEASONAL",
+      "seasonal",
+      "Seasonalpromo",
+      "Seasonal Promo",
+      "SEASONAL PROMO",
+      "seasonalpromo",
+      "SEASONALPROMO",
+      "SeasonalPromo",
+      "Promosi Musiman",
+      "PROMOSI MUSIMAN",
+      "Musiman",
+      "MUSIMAN"
+    ]);
+    if (csv) {
+      const rows = parseCSV(csv);
+      seasonalItems = parseServerTabRows(rows, "seasonal");
+    }
+  } catch (e: any) {
+    console.warn("Server error fetching Seasonal tab (handled safely):", e?.message || e);
+    seasonalItems = [];
+  }
+
+  // Merge all valid items into the main catalog display
+  let mergedProducts = mergeServerProducts(produkItems, alltimeItems, seasonalItems);
+
+  if (mergedProducts.length === 0) {
+    // If all tabs returned empty or failed, fallback to default catalog to avoid crashing the app
+    console.warn(`Tiada produk ditemui dalam Google Sheet (${sheetId}). Menggunakan katalog lalai.`);
+    if (!cachedProducts) {
+      const defaultRows = parseCSV(DEFAULT_SERVER_CATALOG_CSV);
+      cachedProducts = parseServerTabRows(defaultRows, "produk");
+      lastFetchTime = now;
+    }
+    return { products: cachedProducts, source: "default_catalog_fallback" };
+  }
+
+  cachedProducts = mergedProducts;
+  lastFetchTime = now;
+
+  return { products: mergedProducts, source: "google_sheet" };
 }
 
 async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promos: ParsedPromo[]; source: string }> {
