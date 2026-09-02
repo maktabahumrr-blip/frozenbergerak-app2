@@ -97,7 +97,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
         )}
 
         {/* Normal Categories */}
-        {categories.map((cat) => {
+        {(categories || []).map((cat) => {
           const isActive = activeCategoryId === cat.id && !showPopularOnly && !activePromoFilter;
 
           return (

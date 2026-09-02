@@ -125,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </h3>
         
         <div className="flex flex-col gap-1.5">
-          {categories.map((cat) => {
+          {(categories || []).map((cat) => {
             const isActive = activeCategoryId === cat.id && !showPopularOnly && !activePromoFilter;
 
             return (

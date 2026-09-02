@@ -212,92 +212,99 @@ export function parseGoogleDriveDirectUrl(rawUrl: string | undefined): string | 
 }
 
 export function parseCatalogCSV(csvText: string): Product[] {
-  const rows = parseCSVLines(csvText);
-  if (rows.length < 2) return [];
+  try {
+    if (!csvText || typeof csvText !== "string") return [];
+    const rows = parseCSVLines(csvText);
+    if (rows.length < 2) return [];
 
-  const headerRow = rows[0].map((h) => h.trim().toUpperCase());
+    const headerRow = rows[0].map((h) => h.trim().toUpperCase());
 
-  const findIdx = (possibleNames: string[]): number => {
-    for (const name of possibleNames) {
-      const idx = headerRow.findIndex((h) => h === name.toUpperCase());
-      if (idx !== -1) return idx;
+    const findIdx = (possibleNames: string[]): number => {
+      for (const name of possibleNames) {
+        const idx = headerRow.findIndex((h) => h === name.toUpperCase());
+        if (idx !== -1) return idx;
+      }
+      for (const name of possibleNames) {
+        const idx = headerRow.findIndex((h) => h.includes(name.toUpperCase()));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
+
+    const idIdx = findIdx(["ID", "KOD", "NO", "CODE"]);
+    const nameIdx = findIdx(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "PRODUCT NAME", "ITEM"]);
+    const catIdx = findIdx(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN"]);
+    const priceIdx = findIdx(["HARGA", "PRICE", "HARGA ASAL", "HARGA BIASA", "HARGA (RM)"]);
+    const promoPriceIdx = findIdx(["HARGA PROMO", "PROMO PRICE", "PROMO", "DISKAUN", "HARGA DISKAUN"]);
+    const cookedImgIdx = findIdx(["GAMBAR SIAP MASAK", "GAMBAR MASAK", "COOKED IMAGE", "GAMBAR 1", "IMAGE"]);
+    const packImgIdx = findIdx(["GAMBAR PACKAGING", "GAMBAR PACK", "PACKAGING IMAGE", "GAMBAR 2"]);
+    const descIdx = findIdx(["PENERANGAN", "DESCRIPTION", "DESKRIPSI", "NOTA", "CARA MASAK", "MAKLUMAT"]);
+    const statusIdx = findIdx(["STATUS", "AVAILABILITY", "STOK", "STOCK"]);
+
+    if (nameIdx === -1) {
+      console.warn("Kolum 'PRODUK' tidak dijumpai dalam baris tajuk Google Sheet. Mengembalikan senarai kosong.");
+      return [];
     }
-    for (const name of possibleNames) {
-      const idx = headerRow.findIndex((h) => h.includes(name.toUpperCase()));
-      if (idx !== -1) return idx;
+
+    const products: Product[] = [];
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.length === 0 || row.every((c) => !c.trim())) continue;
+
+      const rawName = row[nameIdx]?.trim() || "";
+      if (!rawName) continue;
+
+      const rawId = idIdx !== -1 && row[idIdx]?.trim() ? row[idIdx].trim() : `FB-${String(r).padStart(3, "0")}`;
+      const rawCategory = catIdx !== -1 && row[catIdx]?.trim() ? row[catIdx].trim() : "Lain-lain";
+      const rawPrice = priceIdx !== -1 && row[priceIdx] ? parsePrice(row[priceIdx]) : 0;
+      const rawPromoPrice = promoPriceIdx !== -1 && row[promoPriceIdx] ? parsePrice(row[promoPriceIdx]) : 0;
+
+      const rawCookedImage = cookedImgIdx !== -1 ? parseGoogleDriveDirectUrl(row[cookedImgIdx]) : undefined;
+      const rawPackagingImage = packImgIdx !== -1 ? parseGoogleDriveDirectUrl(row[packImgIdx]) : undefined;
+      const fallbackImage = getCategoryFallbackImage(rawCategory, rawName);
+      const primaryImage = rawCookedImage || rawPackagingImage || fallbackImage;
+
+      const rawDesc = descIdx !== -1 && row[descIdx]?.trim() ? row[descIdx].trim() : "";
+      const rawStatus = statusIdx !== -1 && row[statusIdx]?.trim() ? row[statusIdx].trim().toLowerCase() : "available";
+
+      const inStock =
+        rawStatus === "" ||
+        rawStatus.includes("avail") ||
+        rawStatus.includes("ada") ||
+        rawStatus.includes("ready") ||
+        (!rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak"));
+
+      const hasValidPromo = rawPromoPrice > 0 && rawPromoPrice < rawPrice;
+      const finalPrice = hasValidPromo ? rawPromoPrice : rawPrice;
+
+      products.push({
+        id: rawId,
+        name: rawName,
+        category: rawCategory,
+        price: finalPrice,
+        originalPrice: hasValidPromo ? rawPrice : undefined,
+        promoPrice: hasValidPromo ? rawPromoPrice : undefined,
+        unit: rawName.toLowerCase().includes("pek") ? "" : "1 pek",
+        description:
+          rawDesc ||
+          "Makanan sejuk beku berkualiti tinggi daripada FrozenBergerak. Sedia untuk dimasak panas dan dinikmati bersama seisi keluarga.",
+        imageUrl: primaryImage,
+        cookedImageUrl: rawCookedImage,
+        packagingImageUrl: rawPackagingImage,
+        isPopular: hasValidPromo || r <= 4,
+        isNew: r === 1,
+        inStock,
+        halalCertified: true,
+        storageInfo: "Simpan pada suhu sejuk beku (-18°C). Nyahbeku sebelum memasak mengikut arahan penyediaan."
+      });
     }
-    return -1;
-  };
 
-  const idIdx = findIdx(["ID", "KOD", "NO", "CODE"]);
-  const nameIdx = findIdx(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "PRODUCT NAME", "ITEM"]);
-  const catIdx = findIdx(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN"]);
-  const priceIdx = findIdx(["HARGA", "PRICE", "HARGA ASAL", "HARGA BIASA", "HARGA (RM)"]);
-  const promoPriceIdx = findIdx(["HARGA PROMO", "PROMO PRICE", "PROMO", "DISKAUN", "HARGA DISKAUN"]);
-  const cookedImgIdx = findIdx(["GAMBAR SIAP MASAK", "GAMBAR MASAK", "COOKED IMAGE", "GAMBAR 1", "IMAGE"]);
-  const packImgIdx = findIdx(["GAMBAR PACKAGING", "GAMBAR PACK", "PACKAGING IMAGE", "GAMBAR 2"]);
-  const descIdx = findIdx(["PENERANGAN", "DESCRIPTION", "DESKRIPSI", "NOTA", "CARA MASAK", "MAKLUMAT"]);
-  const statusIdx = findIdx(["STATUS", "AVAILABILITY", "STOK", "STOCK"]);
-
-  if (nameIdx === -1) {
-    throw new Error("Kolum 'PRODUK' tidak dijumpai dalam baris tajuk Google Sheet.");
+    return products;
+  } catch (error) {
+    console.error("Error in parseCatalogCSV, falling back to empty array:", error);
+    return [];
   }
-
-  const products: Product[] = [];
-
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
-    if (!row || row.length === 0 || row.every((c) => !c.trim())) continue;
-
-    const rawName = row[nameIdx]?.trim() || "";
-    if (!rawName) continue;
-
-    const rawId = idIdx !== -1 && row[idIdx]?.trim() ? row[idIdx].trim() : `FB-${String(r).padStart(3, "0")}`;
-    const rawCategory = catIdx !== -1 && row[catIdx]?.trim() ? row[catIdx].trim() : "Lain-lain";
-    const rawPrice = priceIdx !== -1 && row[priceIdx] ? parsePrice(row[priceIdx]) : 0;
-    const rawPromoPrice = promoPriceIdx !== -1 && row[promoPriceIdx] ? parsePrice(row[promoPriceIdx]) : 0;
-
-    const rawCookedImage = cookedImgIdx !== -1 ? parseGoogleDriveDirectUrl(row[cookedImgIdx]) : undefined;
-    const rawPackagingImage = packImgIdx !== -1 ? parseGoogleDriveDirectUrl(row[packImgIdx]) : undefined;
-    const fallbackImage = getCategoryFallbackImage(rawCategory, rawName);
-    const primaryImage = rawCookedImage || rawPackagingImage || fallbackImage;
-
-    const rawDesc = descIdx !== -1 && row[descIdx]?.trim() ? row[descIdx].trim() : "";
-    const rawStatus = statusIdx !== -1 && row[statusIdx]?.trim() ? row[statusIdx].trim().toLowerCase() : "available";
-
-    const inStock =
-      rawStatus === "" ||
-      rawStatus.includes("avail") ||
-      rawStatus.includes("ada") ||
-      rawStatus.includes("ready") ||
-      (!rawStatus.includes("habis") && !rawStatus.includes("out") && !rawStatus.includes("tidak"));
-
-    const hasValidPromo = rawPromoPrice > 0 && rawPromoPrice < rawPrice;
-    const finalPrice = hasValidPromo ? rawPromoPrice : rawPrice;
-
-    products.push({
-      id: rawId,
-      name: rawName,
-      category: rawCategory,
-      price: finalPrice,
-      originalPrice: hasValidPromo ? rawPrice : undefined,
-      promoPrice: hasValidPromo ? rawPromoPrice : undefined,
-      unit: rawName.toLowerCase().includes("pek") ? "" : "1 pek",
-      description:
-        rawDesc ||
-        "Makanan sejuk beku berkualiti tinggi daripada FrozenBergerak. Sedia untuk dimasak panas dan dinikmati bersama seisi keluarga.",
-      imageUrl: primaryImage,
-      cookedImageUrl: rawCookedImage,
-      packagingImageUrl: rawPackagingImage,
-      isPopular: hasValidPromo || r <= 4,
-      isNew: r === 1,
-      inStock,
-      halalCertified: true,
-      storageInfo: "Simpan pada suhu sejuk beku (-18°C). Nyahbeku sebelum memasak mengikut arahan penyediaan."
-    });
-  }
-
-  return products;
 }
 
 export function buildCategoriesFromProducts(products: Product[]): Category[] {
@@ -331,103 +338,152 @@ export function buildCategoriesFromProducts(products: Product[]): Category[] {
 }
 
 // Generate the 41 pre-parsed products
-export const DEFAULT_CATALOG_PRODUCTS: Product[] = parseCatalogCSV(RAW_CATALOG_CSV);
-export const DEFAULT_CATALOG_CATEGORIES: Category[] = buildCategoriesFromProducts(DEFAULT_CATALOG_PRODUCTS);
+export const DEFAULT_CATALOG_PRODUCTS: Product[] = (() => {
+  try {
+    const prods = parseCatalogCSV(RAW_CATALOG_CSV);
+    return Array.isArray(prods) ? prods : [];
+  } catch (err) {
+    console.error("Error parsing default catalog products:", err);
+    return [];
+  }
+})();
+
+export const DEFAULT_CATALOG_CATEGORIES: Category[] = (() => {
+  try {
+    return buildCategoriesFromProducts(DEFAULT_CATALOG_PRODUCTS);
+  } catch (err) {
+    console.error("Error building default catalog categories:", err);
+    return [{ id: "all", name: "Semua Produk", icon: "Grid", count: 0 }];
+  }
+})();
 
 export function getSheetCsvEndpoints(sheetUrlOrId: string): string[] {
-  const trimmed = sheetUrlOrId.trim();
-  if (!trimmed) return [];
+  try {
+    if (!sheetUrlOrId || typeof sheetUrlOrId !== "string") return [];
+    const trimmed = sheetUrlOrId.trim();
+    if (!trimmed) return [];
 
-  // If it's already a full CSV url
-  if (trimmed.includes("output=csv") || trimmed.includes("export?format=csv") || trimmed.includes("tqx=out:csv")) {
-    return [trimmed];
+    // If it's already a full CSV url
+    if (trimmed.includes("output=csv") || trimmed.includes("export?format=csv") || trimmed.includes("tqx=out:csv")) {
+      return [trimmed];
+    }
+
+    const sheetId = extractSheetId(trimmed);
+    if (!sheetId) return [];
+
+    return [
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`,
+      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`
+    ];
+  } catch (e) {
+    console.warn("Error getting sheet CSV endpoints:", e);
+    return [];
   }
-
-  const sheetId = extractSheetId(trimmed);
-  if (!sheetId) return [];
-
-  return [
-    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`,
-    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`,
-    `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`
-  ];
 }
 
 /**
  * Fetches and parses live product catalog data directly from Google Sheet CSV export link
+ * Wrapped in try-catch blocks with safe empty array fallback so the app never crashes.
  */
 export async function fetchLiveCatalog(
   sheetUrlOrId?: string,
   forceRefresh = false
 ): Promise<{ products: Product[]; categories: Category[]; source: string }> {
-  const targetSheet = sheetUrlOrId?.trim() || localStorage.getItem("custom_google_sheet_url") || "";
+  try {
+    let targetSheet = "";
+    try {
+      targetSheet = sheetUrlOrId?.trim() || (typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "");
+    } catch {
+      targetSheet = sheetUrlOrId?.trim() || "";
+    }
 
-  // 1. If custom sheet URL/ID is provided, attempt client-side direct CSV fetch
-  if (targetSheet) {
-    const endpoints = getSheetCsvEndpoints(targetSheet);
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          headers: {
-            Accept: "text/csv, text/plain, */*"
-          }
-        });
-        if (res.ok) {
-          const csvText = await res.text();
-          if (csvText && !csvText.includes("<!DOCTYPE html") && !csvText.includes("<html") && csvText.includes("PRODUK")) {
-            const parsed = parseCatalogCSV(csvText);
-            if (parsed.length > 0) {
-              const cats = buildCategoriesFromProducts(parsed);
-              localStorage.setItem("cached_catalog_products", JSON.stringify(parsed));
-              localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
-              return { products: parsed, categories: cats, source: "google_sheet_direct_csv" };
+    // 1. If custom sheet URL/ID is provided, attempt client-side direct CSV fetch
+    if (targetSheet) {
+      const endpoints = getSheetCsvEndpoints(targetSheet);
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url, {
+            headers: {
+              Accept: "text/csv, text/plain, */*"
+            }
+          });
+          if (res.ok) {
+            const csvText = await res.text();
+            if (csvText && !csvText.includes("<!DOCTYPE html") && !csvText.includes("<html") && csvText.includes("PRODUK")) {
+              const parsed = parseCatalogCSV(csvText);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const cats = buildCategoriesFromProducts(parsed);
+                try {
+                  if (typeof window !== "undefined" && window.localStorage) {
+                    localStorage.setItem("cached_catalog_products", JSON.stringify(parsed));
+                    localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
+                  }
+                } catch {}
+                return { products: parsed, categories: cats, source: "google_sheet_direct_csv" };
+              }
             }
           }
+        } catch (e) {
+          // Direct fetch may fail due to CORS in some browser configurations, fallback to backend proxy
+          console.warn("Direct Google Sheet CSV fetch attempt failed, trying server proxy:", e);
         }
-      } catch (e) {
-        // Direct fetch may fail due to CORS in some browser configurations, fallback to backend proxy
-        console.warn("Direct Google Sheet CSV fetch attempt failed, trying server proxy:", e);
       }
     }
+
+    // 2. Try backend /api/products
+    try {
+      const params = new URLSearchParams();
+      if (forceRefresh) params.set("refresh", "true");
+      if (targetSheet) params.set("sheetUrl", targetSheet);
+
+      const apiRes = await fetch(`/api/products${params.toString() ? `?${params.toString()}` : ""}`);
+      if (apiRes.ok) {
+        const data = await apiRes.json();
+        if (data && Array.isArray(data.products) && data.products.length > 0) {
+          const cats = buildCategoriesFromProducts(data.products);
+          return { products: data.products, categories: cats, source: data.source || "server_google_sheet" };
+        }
+      }
+    } catch (err) {
+      console.warn("Server /api/products fetch error:", err);
+    }
+
+    // 3. Fallback to cached products in localStorage
+    try {
+      const cachedStr = typeof window !== "undefined" && window.localStorage ? localStorage.getItem("cached_catalog_products") : null;
+      if (cachedStr) {
+        const parsed = JSON.parse(cachedStr);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return {
+            products: parsed,
+            categories: buildCategoriesFromProducts(parsed),
+            source: "local_cache"
+          };
+        }
+      }
+    } catch {}
+
+    // 4. Fallback to default catalog (the 41 products provided by user) or empty array
+    if (Array.isArray(DEFAULT_CATALOG_PRODUCTS) && DEFAULT_CATALOG_PRODUCTS.length > 0) {
+      return {
+        products: DEFAULT_CATALOG_PRODUCTS,
+        categories: Array.isArray(DEFAULT_CATALOG_CATEGORIES) ? DEFAULT_CATALOG_CATEGORIES : [],
+        source: "default_catalog"
+      };
+    }
+
+    return {
+      products: [],
+      categories: [{ id: "all", name: "Semua Produk", icon: "Grid", count: 0 }],
+      source: "empty_fallback"
+    };
+  } catch (error) {
+    console.error("Error in fetchLiveCatalog Google Sheets CSV fetch logic, falling back to empty array:", error);
+    return {
+      products: [],
+      categories: [{ id: "all", name: "Semua Produk", icon: "Grid", count: 0 }],
+      source: "error_fallback"
+    };
   }
-
-  // 2. Try backend /api/products
-  try {
-    const params = new URLSearchParams();
-    if (forceRefresh) params.set("refresh", "true");
-    if (targetSheet) params.set("sheetUrl", targetSheet);
-
-    const apiRes = await fetch(`/api/products${params.toString() ? `?${params.toString()}` : ""}`);
-    if (apiRes.ok) {
-      const data = await apiRes.json();
-      if (data && Array.isArray(data.products) && data.products.length > 0) {
-        const cats = buildCategoriesFromProducts(data.products);
-        return { products: data.products, categories: cats, source: data.source || "server_google_sheet" };
-      }
-    }
-  } catch (err) {
-    console.warn("Server /api/products fetch error:", err);
-  }
-
-  // 3. Fallback to cached products in localStorage
-  try {
-    const cachedStr = localStorage.getItem("cached_catalog_products");
-    if (cachedStr) {
-      const parsed = JSON.parse(cachedStr);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return {
-          products: parsed,
-          categories: buildCategoriesFromProducts(parsed),
-          source: "local_cache"
-        };
-      }
-    }
-  } catch {}
-
-  // 4. Fallback to default catalog (the 41 products provided by user)
-  return {
-    products: DEFAULT_CATALOG_PRODUCTS,
-    categories: DEFAULT_CATALOG_CATEGORIES,
-    source: "default_catalog"
-  };
 }

@@ -81,6 +81,7 @@ export function getTodayDateInfo(targetDate: Date = new Date()) {
     dayName,
     monthName,
     formattedMalay: `${dayName}, ${day} ${monthName} ${year}`,
+    formattedLong: `${dayName}, ${day} ${monthName} ${year}`,
     formattedShort: `${day} ${monthName} ${year}`,
     formattedHeading: `Hari Ini (${dayName}, ${day} ${monthName} ${year})`
   };

@@ -202,13 +202,33 @@ export default function App() {
       }
       setError(null);
 
-      // 1. Fetch live product catalog directly from Google Sheet CSV or server proxy
-      const customSheet = localStorage.getItem("custom_google_sheet_url") || "";
-      const catalogResult = await fetchLiveCatalog(customSheet, forceRefresh);
-      
-      setProducts(catalogResult.products);
-      setCategories(catalogResult.categories);
-      setCatalogSource(catalogResult.source);
+      // 1. Fetch live product catalog directly from Google Sheet CSV or server proxy wrapped in try-catch
+      let catalogProducts: Product[] = [];
+      let catalogCategories: Category[] = [];
+      let catalogSourceStr = "google_sheet";
+
+      try {
+        let customSheet = "";
+        try {
+          customSheet = typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "";
+        } catch {
+          customSheet = "";
+        }
+
+        const catalogResult = await fetchLiveCatalog(customSheet, forceRefresh);
+        catalogProducts = Array.isArray(catalogResult?.products) ? catalogResult.products : [];
+        catalogCategories = Array.isArray(catalogResult?.categories) ? catalogResult.categories : [];
+        catalogSourceStr = catalogResult?.source || "google_sheet";
+      } catch (sheetError) {
+        console.warn("Catalog Google Sheets CSV fetch failed, falling back to empty array:", sheetError);
+        catalogProducts = [];
+        catalogCategories = [];
+        catalogSourceStr = "fallback_empty";
+      }
+
+      setProducts(catalogProducts);
+      setCategories(catalogCategories);
+      setCatalogSource(catalogSourceStr);
 
       // 2. Concurrently fetch extra configurations, promos and seasonal promos
       const urlParams = forceRefresh ? "?refresh=true" : "";
@@ -227,16 +247,13 @@ export default function App() {
       setStoreConfig(confData || null);
 
       if (forceRefresh) {
-        showToast(`✓ Data produk berjaya dikemaskini daripada Google Sheet (${catalogResult.products.length} produk)!`);
+        showToast(`✓ Data produk berjaya dikemaskini (${catalogProducts.length} produk)!`);
       }
     } catch (err: any) {
       console.error("Error fetching data from Google Sheet:", err);
-      if (!navigator.onLine && products.length > 0) {
-        showToast("Mod Luar Talian: Memaparkan data produk yang disimpan.");
-      } else if (products.length === 0) {
-        setProducts(DEFAULT_CATALOG_PRODUCTS);
-        setError(err?.message || "Gagal menyambung dan membaca Google Sheet.");
-      }
+      // Fallback to empty array so the app doesn't crash with a blank white screen
+      setProducts([]);
+      setCategories([]);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -260,25 +277,33 @@ export default function App() {
 
   // Merge products with any promo items from Alltimepromo and Seasonalpromo sheet tabs
   const allMergedProducts = useMemo(() => {
+    const safeProducts = Array.isArray(products) ? products : [];
+    const safePromos = Array.isArray(promos) ? promos : [];
+    const safeSeasonalPromos = Array.isArray(seasonalPromos) ? seasonalPromos : [];
+
     const extraPromoProducts: Product[] = [];
-    const allPromos = [...promos, ...seasonalPromos];
+    const allPromos = [...safePromos, ...safeSeasonalPromos];
 
     allPromos.forEach((pr) => {
-      const exists = products.some(
+      if (!pr || !pr.id) return;
+      const promoTitle = (pr.title || "").trim().toLowerCase();
+      const promoId = (pr.id || "").toLowerCase();
+
+      const exists = safeProducts.some(
         (p) =>
-          p.id.toLowerCase() === pr.id.toLowerCase() ||
-          p.name.trim().toLowerCase() === pr.title.trim().toLowerCase()
+          (p.id && p.id.toLowerCase() === promoId) ||
+          (p.name && promoTitle && p.name.trim().toLowerCase() === promoTitle)
       );
       const isAlreadyInExtra = extraPromoProducts.some(
         (p) =>
-          p.id.toLowerCase() === pr.id.toLowerCase() ||
-          p.name.trim().toLowerCase() === pr.title.trim().toLowerCase()
+          (p.id && p.id.toLowerCase() === promoId) ||
+          (p.name && promoTitle && p.name.trim().toLowerCase() === promoTitle)
       );
       if (!exists && !isAlreadyInExtra) {
-        const isSeasonal = seasonalPromos.some((sp) => sp.id === pr.id);
+        const isSeasonal = safeSeasonalPromos.some((sp) => sp.id === pr.id);
         extraPromoProducts.push({
           id: pr.id,
-          name: pr.title,
+          name: pr.title || "Promosi Istimewa",
           category: isSeasonal ? "PROMOSI BERMUSIM" : "All Time Promo",
           price: pr.promoPrice || pr.originalPrice || 0,
           originalPrice: pr.originalPrice,
@@ -296,24 +321,38 @@ export default function App() {
       }
     });
 
-    return [...products, ...extraPromoProducts];
+    return [...safeProducts, ...extraPromoProducts];
   }, [products, promos, seasonalPromos]);
 
   // Filtered products calculation for Catalog
   const filteredProducts = useMemo(() => {
-    return allMergedProducts.filter((item) => {
+    const safeMerged = Array.isArray(allMergedProducts) ? allMergedProducts : [];
+    const safePromos = Array.isArray(promos) ? promos : [];
+    const safeSeasonal = Array.isArray(seasonalPromos) ? seasonalPromos : [];
+
+    return safeMerged.filter((item) => {
+      if (!item) return false;
+      const itemName = (item.name || "").toLowerCase();
+      const itemCategory = (item.category || "").toLowerCase();
+      const itemId = (item.id || "").toLowerCase();
+
       // Promo filter (All Time Promo or Seasonal Promo)
       if (activePromoFilter === "alltime") {
         const isDisc = Boolean(
           (item.promoPrice && item.originalPrice && item.promoPrice < item.originalPrice) ||
           (item.promoPrice && item.promoPrice > 0)
         );
-        const matchesPromoTab = promos.some(
-          (pr) =>
-            pr.title.trim().toLowerCase() === item.name.trim().toLowerCase() ||
-            pr.id.toLowerCase() === item.id.toLowerCase() ||
-            item.name.toLowerCase().includes(pr.title.toLowerCase()) ||
-            pr.title.toLowerCase().includes(item.name.toLowerCase())
+        const matchesPromoTab = safePromos.some(
+          (pr) => {
+            const prTitle = (pr.title || "").trim().toLowerCase();
+            const prId = (pr.id || "").toLowerCase();
+            return (
+              prTitle === itemName ||
+              prId === itemId ||
+              (prTitle && itemName.includes(prTitle)) ||
+              (itemName && prTitle.includes(itemName))
+            );
+          }
         );
         if (!isDisc && !matchesPromoTab && !item.isPopular) {
           return false;
@@ -321,15 +360,19 @@ export default function App() {
       }
 
       if (activePromoFilter === "seasonal") {
-        const matchesSeasonalPromoTab = seasonalPromos.some(
-          (sp) =>
-            sp.title.trim().toLowerCase() === item.name.trim().toLowerCase() ||
-            sp.id.toLowerCase() === item.id.toLowerCase() ||
-            item.name.toLowerCase().includes(sp.title.toLowerCase()) ||
-            sp.title.toLowerCase().includes(item.name.toLowerCase())
+        const matchesSeasonalPromoTab = safeSeasonal.some(
+          (sp) => {
+            const spTitle = (sp.title || "").trim().toLowerCase();
+            const spId = (sp.id || "").toLowerCase();
+            return (
+              spTitle === itemName ||
+              spId === itemId ||
+              (spTitle && itemName.includes(spTitle)) ||
+              (itemName && spTitle.includes(itemName))
+            );
+          }
         );
-        const catLower = (item.category || "").toLowerCase();
-        const isSeasonalCategory = catLower.includes("seasonal") || catLower.includes("musiman");
+        const isSeasonalCategory = itemCategory.includes("seasonal") || itemCategory.includes("musiman");
 
         if (!matchesSeasonalPromoTab && !isSeasonalCategory) {
           return false;
@@ -337,7 +380,7 @@ export default function App() {
       }
 
       // Category filter (if not filtered by special promo mode or if specific cat is chosen)
-      if (activeCategoryId !== "all" && item.category.toLowerCase() !== activeCategoryId.toLowerCase()) {
+      if (activeCategoryId !== "all" && itemCategory !== (activeCategoryId || "").toLowerCase()) {
         return false;
       }
 
@@ -349,10 +392,10 @@ export default function App() {
       // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const matchesName = item.name.toLowerCase().includes(q);
-        const matchesDesc = item.description?.toLowerCase().includes(q);
-        const matchesCat = item.category?.toLowerCase().includes(q);
-        const matchesId = item.id?.toLowerCase().includes(q);
+        const matchesName = itemName.includes(q);
+        const matchesDesc = (item.description || "").toLowerCase().includes(q);
+        const matchesCat = itemCategory.includes(q);
+        const matchesId = itemId.includes(q);
         if (!matchesName && !matchesDesc && !matchesCat && !matchesId) {
           return false;
         }
@@ -360,7 +403,7 @@ export default function App() {
 
       return true;
     });
-  }, [allMergedProducts, promos, activePromoFilter, activeCategoryId, showPopularOnly, searchQuery]);
+  }, [allMergedProducts, promos, seasonalPromos, activePromoFilter, activeCategoryId, showPopularOnly, searchQuery]);
 
   // Navigation Handlers
   const handleNavigateToCatalog = (
