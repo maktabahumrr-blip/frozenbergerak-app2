@@ -96,9 +96,13 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
     // Check approvals status
     const checkApprovals = () => {
       fetch("/api/auth/approvals-status")
-        .then((res) => res.json())
+        .then(async (res) => {
+          if (!res.ok) return null;
+          const text = await res.text();
+          return text ? JSON.parse(text) : null;
+        })
         .then((data) => {
-          if (data.success && typeof data.pendingCount === "number") {
+          if (data && data.success && typeof data.pendingCount === "number") {
             setPendingApprovalsCount(data.pendingCount);
           }
         })

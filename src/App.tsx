@@ -165,9 +165,13 @@ export default function App() {
   useEffect(() => {
     const fetchApprovalsStatus = () => {
       fetch("/api/auth/approvals-status")
-        .then((res) => res.json())
+        .then(async (res) => {
+          if (!res.ok) return null;
+          const text = await res.text();
+          return text ? JSON.parse(text) : null;
+        })
         .then((data) => {
-          if (data.success && typeof data.pendingCount === "number") {
+          if (data && data.success && typeof data.pendingCount === "number") {
             setPendingApprovalsCount(data.pendingCount);
             setPendingApprovalsList(data.pendingList || []);
           }
@@ -911,9 +915,13 @@ export default function App() {
           setIsAdminTeamModalOpen(false);
           // Refetch approvals status immediately after closing
           fetch("/api/auth/approvals-status")
-            .then((res) => res.json())
+            .then(async (res) => {
+              if (!res.ok) return null;
+              const text = await res.text();
+              return text ? JSON.parse(text) : null;
+            })
             .then((data) => {
-              if (data.success && typeof data.pendingCount === "number") {
+              if (data && data.success && typeof data.pendingCount === "number") {
                 setPendingApprovalsCount(data.pendingCount);
                 setPendingApprovalsList(data.pendingList || []);
               }

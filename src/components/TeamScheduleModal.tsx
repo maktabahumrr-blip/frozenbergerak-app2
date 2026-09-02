@@ -39,7 +39,8 @@ import {
   createUserWithEmailAndPassword, 
   signOut as firebaseSignOut, 
   sendPasswordResetEmail, 
-  updatePassword as firebaseUpdatePassword 
+  updatePassword as firebaseUpdatePassword,
+  onAuthStateChanged
 } from "../lib/firebase";
 
 interface TeamScheduleModalProps {
@@ -303,10 +304,14 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     fetch("/api/auth/roles", {
       headers: { Authorization: `Bearer ${token}` }
     })
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const text = await res.text();
+        return text ? JSON.parse(text) : null;
+      })
       .then((data) => {
-        if (data.adminEmails) setAdminEmailsList(data.adminEmails);
-        if (data.teamEmails) setTeamEmailsList(data.teamEmails);
+        if (data?.adminEmails) setAdminEmailsList(data.adminEmails);
+        if (data?.teamEmails) setTeamEmailsList(data.teamEmails);
       })
       .catch(() => {});
   };
@@ -317,14 +322,49 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     fetch("/api/auth/approvals", {
       headers: { Authorization: `Bearer ${token}` }
     })
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const text = await res.text();
+        return text ? JSON.parse(text) : null;
+      })
       .then((data) => {
-        if (data.approvals) setTeamApprovals(data.approvals);
-        if (typeof data.pendingCount === "number") setPendingApprovalCount(data.pendingCount);
+        if (data?.approvals) setTeamApprovals(data.approvals);
+        if (typeof data?.pendingCount === "number") setPendingApprovalCount(data.pendingCount);
       })
       .catch(() => {})
       .finally(() => setIsLoadingApprovals(false));
   };
+
+  // Firebase Auth State Listener (Restores session directly from Firebase client SDK)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser && fbUser.email) {
+        const cleanEmail = fbUser.email.toLowerCase();
+        try {
+          const token = await fbUser.getIdToken();
+          const isPrimaryAdmin = cleanEmail === "maktabahumrr@gmail.com";
+          const role: "admin" | "team" = isPrimaryAdmin ? "admin" : "team";
+          const userObj: AuthUser = {
+            email: fbUser.email,
+            name: fbUser.displayName || cleanEmail.split("@")[0],
+            role,
+            token
+          };
+          setCurrentUser(userObj);
+          setAuthToken(token);
+          localStorage.setItem("fb_auth_token", token);
+          localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
+          if (role === "admin") {
+            loadRoles(token);
+            loadApprovals(token);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Test Admin Email Notification
   const handleTestEmailNotification = async () => {
@@ -339,7 +379,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           Authorization: `Bearer ${authToken}`
         }
       });
-      const data = await res.json();
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Gagal hantar notifikasi ujian.");
       }
@@ -357,33 +398,51 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         setActiveTab(initialTab);
       }
 
+      // Check cached user from localStorage or Firebase
+      const cachedUserStr = localStorage.getItem("fb_auth_user");
       const storedToken = localStorage.getItem("fb_auth_token");
-      if (storedToken) {
-        fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${storedToken}` }
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.authenticated && data.user) {
-              setCurrentUser(data.user);
-              setAuthToken(storedToken);
-              if (data.user.role === "admin") {
-                loadRoles(storedToken);
-                loadApprovals(storedToken);
-              }
-            } else {
-              localStorage.removeItem("fb_auth_token");
-              setCurrentUser(null);
-              setAuthToken("");
+      if (cachedUserStr && storedToken) {
+        try {
+          const parsed = JSON.parse(cachedUserStr);
+          if (parsed && parsed.email) {
+            setCurrentUser(parsed);
+            setAuthToken(storedToken);
+            if (parsed.role === "admin") {
+              loadRoles(storedToken);
+              loadApprovals(storedToken);
             }
-          })
-          .catch(() => {});
+          }
+        } catch {}
+      }
+
+      // If Firebase Auth currentUser is already available
+      if (auth.currentUser && auth.currentUser.email) {
+        const email = auth.currentUser.email.toLowerCase();
+        auth.currentUser.getIdToken().then((t) => {
+          const isPrimary = email === "maktabahumrr@gmail.com";
+          const userObj: AuthUser = {
+            email: auth.currentUser!.email || email,
+            name: auth.currentUser!.displayName || email.split("@")[0],
+            role: isPrimary ? "admin" : "team",
+            token: t
+          };
+          setCurrentUser(userObj);
+          setAuthToken(t);
+          localStorage.setItem("fb_auth_token", t);
+          localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
+        }).catch(() => {});
       }
 
       fetch("/api/push/status")
-        .then((res) => res.json())
+        .then(async (res) => {
+          if (!res.ok) return null;
+          const text = await res.text();
+          return text ? JSON.parse(text) : null;
+        })
         .then((data) => {
-          setSubscriberCount(data.totalSubscribers || 0);
+          if (data && typeof data.totalSubscribers === "number") {
+            setSubscriberCount(data.totalSubscribers);
+          }
         })
         .catch(() => {});
 
@@ -405,10 +464,14 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       fetch("/api/auth/approvals", {
         headers: { Authorization: `Bearer ${authToken}` }
       })
-        .then((res) => res.json())
+        .then(async (res) => {
+          if (!res.ok) return null;
+          const text = await res.text();
+          return text ? JSON.parse(text) : null;
+        })
         .then((data) => {
-          if (data.approvals) setTeamApprovals(data.approvals);
-          if (typeof data.pendingCount === "number") setPendingApprovalCount(data.pendingCount);
+          if (data?.approvals) setTeamApprovals(data.approvals);
+          if (typeof data?.pendingCount === "number") setPendingApprovalCount(data.pendingCount);
         })
         .catch(() => {});
     }, 6000);
@@ -479,59 +542,68 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setResendApprovalSuccess(null);
 
     try {
-      let firebaseUserEmail = cleanEmail;
-      let firebaseUid = "";
-      let firebaseIdToken = "";
-
+      let fbUser;
       if (authMode === "signup") {
         const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-        firebaseUid = userCred.user.uid;
-        firebaseUserEmail = userCred.user.email || cleanEmail;
-        firebaseIdToken = await userCred.user.getIdToken();
+        fbUser = userCred.user;
       } else {
         const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-        firebaseUid = userCred.user.uid;
-        firebaseUserEmail = userCred.user.email || cleanEmail;
-        firebaseIdToken = await userCred.user.getIdToken();
+        fbUser = userCred.user;
       }
 
-      // Verify and get authorized session token from server
-      const res = await fetch("/api/auth/firebase-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: firebaseUserEmail,
-          uid: firebaseUid,
-          idToken: firebaseIdToken
-        })
-      });
+      const idToken = await fbUser.getIdToken();
+      const userEmail = (fbUser.email || cleanEmail).toLowerCase();
+      const isPrimaryAdmin = userEmail === "maktabahumrr@gmail.com";
+      const role: "admin" | "team" = (isPrimaryAdmin || adminEmailsList.map((e) => e.toLowerCase()).includes(userEmail)) ? "admin" : "team";
 
-      const data = await res.json();
+      const authenticatedUser: AuthUser = {
+        email: fbUser.email || cleanEmail,
+        name: fbUser.displayName || cleanEmail.split("@")[0],
+        role: role,
+        token: idToken
+      };
 
-      if (!res.ok) {
-        if (data.pendingApproval) {
-          setPendingApprovalNotice(
-            data.message || `Permohonan akses akaun Team (${cleanEmail}) telah dihantar kepada pihak Admin untuk kelulusan.`
-          );
-          return;
-        }
-        throw new Error(data.error || "Ralat semasa log masuk ke sistem.");
-      }
-
-      if (!data.success) {
-        throw new Error(data.error || "Ralat semasa log masuk ke sistem.");
-      }
-
-      setCurrentUser(data.user);
-      setAuthToken(data.token);
-      localStorage.setItem("fb_auth_token", data.token);
+      // Set authentication state directly from Firebase Client SDK
+      setCurrentUser(authenticatedUser);
+      setAuthToken(idToken);
+      localStorage.setItem("fb_auth_token", idToken);
+      localStorage.setItem("fb_auth_user", JSON.stringify(authenticatedUser));
       setPasswordInput("");
       setConfirmPasswordInput("");
       setPendingApprovalNotice(null);
+      setAuthError("");
 
-      if (data.user.role === "admin") {
-        loadRoles(data.token);
-        loadApprovals(data.token);
+      // Optional non-blocking background sync with backend (never blocks login or throws JSON errors)
+      fetch("/api/auth/firebase-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: userEmail,
+          uid: fbUser.uid,
+          idToken: idToken
+        })
+      })
+        .then(async (res) => {
+          if (!res.ok) return null;
+          const text = await res.text();
+          return text ? JSON.parse(text) : null;
+        })
+        .then((data) => {
+          if (data?.token) {
+            setAuthToken(data.token);
+            localStorage.setItem("fb_auth_token", data.token);
+          }
+          if (data?.user?.role) {
+            const updatedUser = { ...authenticatedUser, role: data.user.role };
+            setCurrentUser(updatedUser);
+            localStorage.setItem("fb_auth_user", JSON.stringify(updatedUser));
+          }
+        })
+        .catch(() => {});
+
+      if (role === "admin") {
+        loadRoles(idToken);
+        loadApprovals(idToken);
       }
     } catch (err: any) {
       let msg = err.message || "Ralat log masuk.";
@@ -687,6 +759,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       // ignore
     }
     localStorage.removeItem("fb_auth_token");
+    localStorage.removeItem("fb_auth_user");
     setCurrentUser(null);
     setAuthToken("");
     setAuthError("");

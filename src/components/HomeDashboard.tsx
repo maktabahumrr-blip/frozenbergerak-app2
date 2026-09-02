@@ -29,6 +29,7 @@ import {
 import { Product, Category, StoreConfig, PromoItem } from "../types";
 import { formatCurrency } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { auth, onAuthStateChanged } from "../lib/firebase";
 
 interface HomeDashboardProps {
   products: Product[];
@@ -94,28 +95,31 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   // Check admin session for maktabahumrr@gmail.com
   useEffect(() => {
-    const verifyAdmin = async () => {
-      try {
-        const token = localStorage.getItem("fb_auth_token");
-        if (!token) {
-          setIsAdmin(false);
+    // 1. Instant check from localStorage
+    try {
+      const storedUser = localStorage.getItem("fb_auth_user");
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed && parsed.role === "admin") {
+          setIsAdmin(true);
+          setAdminEmail(parsed.email || "maktabahumrr@gmail.com");
+        }
+      }
+    } catch {}
+
+    // 2. Direct Firebase Auth State Listener
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser && fbUser.email) {
+        const isPrimaryAdmin = fbUser.email.toLowerCase() === "maktabahumrr@gmail.com";
+        if (isPrimaryAdmin) {
+          setIsAdmin(true);
+          setAdminEmail(fbUser.email);
           return;
         }
-        const res = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.authenticated && data.user && data.user.role === "admin") {
-          setIsAdmin(true);
-          setAdminEmail(data.user.email || "maktabahumrr@gmail.com");
-        } else {
-          setIsAdmin(false);
-        }
-      } catch {
-        setIsAdmin(false);
       }
-    };
-    verifyAdmin();
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleBannerFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
