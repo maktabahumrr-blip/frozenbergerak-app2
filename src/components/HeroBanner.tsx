@@ -10,14 +10,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   bannerUrl,
   className = "",
 }) => {
-  const [activeUrl, setActiveUrl] = React.useState<string>(() => {
-    if (bannerUrl && bannerUrl !== defaultHeroBanner) return bannerUrl;
-    try {
-      const saved = localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner");
-      if (saved) return saved;
-    } catch {}
-    return bannerUrl || defaultHeroBanner;
-  });
+  const [activeUrl, setActiveUrl] = React.useState<string>(bannerUrl || defaultHeroBanner);
 
   React.useEffect(() => {
     if (bannerUrl) {

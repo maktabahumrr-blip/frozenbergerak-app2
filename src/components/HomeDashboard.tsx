@@ -104,46 +104,26 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [customBanner, setCustomBanner] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner") || null;
-    } catch {
-      return null;
-    }
-  });
+  const [customBanner, setCustomBanner] = useState<string | null>(null);
   const [liveBannerUrl, setLiveBannerUrl] = useState<string>(() => {
-    try {
-      const stored = localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner");
-      if (stored) return stored;
-    } catch {}
-    return storeConfig?.heroBannerUrl || "/api/hero-banner";
+    return storeConfig?.heroBannerUrl || defaultHeroBanner;
   });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [adminEmail, setAdminEmail] = useState<string>("");
 
-  // Keep live banner URL updated whenever storeConfig changes (unless custom banner exists)
+  // Keep live banner URL updated whenever storeConfig changes
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner");
-      if (stored) {
-        setCustomBanner(stored);
-        setLiveBannerUrl(stored);
-        return;
-      }
-    } catch {}
-
     if (storeConfig?.heroBannerUrl && !customBanner) {
       setLiveBannerUrl(storeConfig.heroBannerUrl);
     }
-  }, [storeConfig?.heroBannerUrl]);
+  }, [storeConfig?.heroBannerUrl, customBanner]);
 
   // Listen to banner update events across the app
   useEffect(() => {
     const handleBannerUpdate = (e: any) => {
       if (e.detail?.url) {
-        setCustomBanner(e.detail.url);
         setLiveBannerUrl(e.detail.url);
       }
     };

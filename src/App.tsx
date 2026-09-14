@@ -245,17 +245,7 @@ export default function App() {
       setPromos(Array.isArray(promoData?.promos) ? promoData.promos : []);
       setSeasonalPromos(Array.isArray(seasonalData?.promos) ? seasonalData.promos : []);
       
-      // Preserve custom banner from localStorage if user uploaded a banner
-      let savedBanner: string | null = null;
-      try {
-        savedBanner = localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner");
-      } catch {}
-
-      const finalConf = (confData && typeof confData === "object") ? { ...confData } : {};
-      if (savedBanner) {
-        finalConf.heroBannerUrl = savedBanner;
-      }
-      setStoreConfig(finalConf);
+      setStoreConfig(confData || null);
 
       if (forceRefresh) {
         showToast(`✓ Data produk berjaya dikemaskini (${catalogProducts.length} produk)!`);
@@ -275,15 +265,8 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Sync banner update across storeConfig and check localStorage on startup
+  // Sync live banner update across storeConfig
   useEffect(() => {
-    try {
-      const savedBanner = localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner");
-      if (savedBanner) {
-        setStoreConfig((prev) => (prev ? { ...prev, heroBannerUrl: savedBanner } : { heroBannerUrl: savedBanner } as any));
-      }
-    } catch {}
-
     const handleBannerUpdate = (e: any) => {
       if (e.detail?.url) {
         setStoreConfig((prev) => (prev ? { ...prev, heroBannerUrl: e.detail.url } : { heroBannerUrl: e.detail.url } as any));
