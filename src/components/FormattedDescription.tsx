@@ -99,9 +99,10 @@ function renderParagraphContent(para: string) {
     );
   }
 
+  const text = String(para || "");
   // Check if it's a bullet point
-  if (para.startsWith("•") || para.startsWith("-") || para.startsWith("*")) {
-    const bulletText = para.replace(/^[•\-\*]\s*/, "");
+  if (text.startsWith("•") || text.startsWith("-") || text.startsWith("*")) {
+    const bulletText = text.replace(/^[•\-\*]\s*/, "");
     return (
       <span className="flex items-start gap-2">
         <span className="text-blue-500 font-bold leading-none mt-1">•</span>
@@ -110,7 +111,7 @@ function renderParagraphContent(para: string) {
     );
   }
 
-  return <span className="text-slate-600">{para}</span>;
+  return <span className="text-slate-600">{text}</span>;
 }
 
 export const FormattedDescription: React.FC<FormattedDescriptionProps> = ({

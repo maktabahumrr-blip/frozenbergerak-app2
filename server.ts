@@ -681,11 +681,11 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
                 if (!Array.isArray(row) || row.length === 0 || row.every(c => !String(c).trim())) continue;
                 const id = (idIdx !== -1 && row[idIdx]) ? String(row[idIdx]).trim() : `JAD-${i.toString().padStart(2, '0')}`;
                 const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : "Team Frozen 1";
-                const teamName = rawTeam.replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
+                const teamName = String(rawTeam || "").replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
                 const date = (dateIdx !== -1 && row[dateIdx]) ? String(row[dateIdx]).trim() : "Hari Ini";
                 const timeSlot = (timeIdx !== -1 && row[timeIdx]) ? String(row[timeIdx]).trim() : "Waktu Operasi";
                 const locations = (locIdx !== -1 && row[locIdx]) ? String(row[locIdx]).trim() : "";
-                const notes = ((notesIdx !== -1 && row[notesIdx]) ? String(row[notesIdx]).trim() : "").replace(/van\s*/gi, "kenderaan ");
+                const notes = String((notesIdx !== -1 && row[notesIdx]) ? row[notesIdx] : "").replace(/van\s*/gi, "kenderaan ");
                 const status = normalizeScheduleStatus((statusIdx !== -1 && row[statusIdx]) ? String(row[statusIdx]).trim() : "Akan Datang");
 
                 if (locations) {
@@ -772,12 +772,12 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
               const row = rows[r];
               if (!row || row.length === 0 || row.every(cell => !cell.trim())) continue;
               const id = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : `JAD-${r.toString().padStart(2, '0')}`;
-              const rawTeam = (teamIdx !== -1 && row[teamIdx]?.trim()) ? row[teamIdx].trim() : "Team Frozen 1";
-              const teamName = rawTeam.replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
-              const date = (dateIdx !== -1 && row[dateIdx]?.trim()) ? row[dateIdx].trim() : "Hari Ini";
-              const timeSlot = (timeIdx !== -1 && row[timeIdx]?.trim()) ? row[timeIdx].trim() : "Waktu Operasi";
-              const locations = (locIdx !== -1 && row[locIdx]?.trim()) ? row[locIdx].trim() : "";
-              const notes = ((notesIdx !== -1 && row[notesIdx]?.trim()) ? row[notesIdx].trim() : "").replace(/van\s*/gi, "kenderaan ");
+              const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : "Team Frozen 1";
+              const teamName = String(rawTeam || "").replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
+              const date = (dateIdx !== -1 && row[dateIdx]) ? String(row[dateIdx]).trim() : "Hari Ini";
+              const timeSlot = (timeIdx !== -1 && row[timeIdx]) ? String(row[timeIdx]).trim() : "Waktu Operasi";
+              const locations = (locIdx !== -1 && row[locIdx]) ? String(row[locIdx]).trim() : "";
+              const notes = String((notesIdx !== -1 && row[notesIdx]) ? row[notesIdx] : "").replace(/van\s*/gi, "kenderaan ");
               const status = normalizeScheduleStatus((statusIdx !== -1 && row[statusIdx]?.trim()) ? row[statusIdx].trim() : "Akan Datang");
 
               if (locations) {
@@ -888,12 +888,12 @@ async function fetchScheduleFromGoogleSheet(): Promise<ScheduleFetchResult> {
             const row = rows[r];
             if (!row || row.length === 0 || row.every(cell => !cell.trim())) continue;
             const id = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : `JAD-${r.toString().padStart(2, '0')}`;
-            const rawTeam = (teamIdx !== -1 && row[teamIdx]?.trim()) ? row[teamIdx].trim() : "Team Frozen 1";
-            const teamName = rawTeam.replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
-            const date = (dateIdx !== -1 && row[dateIdx]?.trim()) ? row[dateIdx].trim() : "Hari Ini";
-            const timeSlot = (timeIdx !== -1 && row[timeIdx]?.trim()) ? row[timeIdx].trim() : "Waktu Operasi";
-            const locations = (locIdx !== -1 && row[locIdx]?.trim()) ? row[locIdx].trim() : "";
-            const notes = ((notesIdx !== -1 && row[notesIdx]?.trim()) ? row[notesIdx].trim() : "").replace(/van\s*/gi, "kenderaan ");
+            const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : "Team Frozen 1";
+            const teamName = String(rawTeam || "").replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
+            const date = (dateIdx !== -1 && row[dateIdx]) ? String(row[dateIdx]).trim() : "Hari Ini";
+            const timeSlot = (timeIdx !== -1 && row[timeIdx]) ? String(row[timeIdx]).trim() : "Waktu Operasi";
+            const locations = (locIdx !== -1 && row[locIdx]) ? String(row[locIdx]).trim() : "";
+            const notes = String((notesIdx !== -1 && row[notesIdx]) ? row[notesIdx] : "").replace(/van\s*/gi, "kenderaan ");
             const status = normalizeScheduleStatus((statusIdx !== -1 && row[statusIdx]?.trim()) ? row[statusIdx].trim() : "Akan Datang");
 
             if (locations) {
@@ -1170,9 +1170,10 @@ function parseCSV(csvText: string): string[][] {
   return rows;
 }
 
-function formatPriceNumber(val: string | undefined): number {
-  if (!val) return 0;
-  const str = String(val).trim();
+function formatPriceNumber(val: any): number {
+  if (val === undefined || val === null || val === "") return 0;
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  const str = String(val || "").trim();
   if (!str || str === "-" || str.toLowerCase() === "n/a" || str.toLowerCase() === "tiada") {
     return 0;
   }
@@ -1181,7 +1182,7 @@ function formatPriceNumber(val: string | undefined): number {
     return 0;
   }
   // Remove RM, currency symbols, and convert commas
-  const cleaned = str.replace(/[^0-9.,]/g, '').replace(',', '.');
+  const cleaned = String(str || "").replace(/[^0-9.,]/g, '').replace(',', '.');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
 }
@@ -3439,10 +3440,10 @@ app.post("/api/schedule/update", requireAdminOrTeamAuth, async (req: Request, re
 
     const currentSchedules = loadSchedule();
     const scheduleId = (id && id.trim()) ? id.trim() : `JAD-${(currentSchedules.length + 1).toString().padStart(2, '0')}`;
-    const finalTeam = (teamName || driverName || "Team Frozen 1").replace(/van\s*/gi, "Team ").trim();
-    const finalDate = (date || tarikh || `Hari Ini (${getTodayMalayDate()})`).trim();
-    const finalTime = (timeSlot || masa || "Waktu Operasi").trim();
-    const finalNotes = (notes || catatan || "").replace(/van\s*/gi, "kenderaan ").trim();
+    const finalTeam = String(teamName || driverName || "Team Frozen 1").replace(/van\s*/gi, "Team ").trim();
+    const finalDate = String(date || tarikh || `Hari Ini (${getTodayMalayDate()})`).trim();
+    const finalTime = String(timeSlot || masa || "Waktu Operasi").trim();
+    const finalNotes = String(notes || catatan || "").replace(/van\s*/gi, "kenderaan ").trim();
     const finalStatus = normalizeScheduleStatus(status || "Akan Datang");
 
     // Google Sheet JADUAL Schema:

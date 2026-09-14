@@ -22,7 +22,7 @@ export const LoyaltyView: React.FC<LoyaltyViewProps> = ({
   onNavigateToCatalog,
 }) => {
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
-  const cleanNumber = whatsappNumber.replace(/[^0-9]/g, "");
+  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   const [simulatedStamps, setSimulatedStamps] = useState<number>(3);
 

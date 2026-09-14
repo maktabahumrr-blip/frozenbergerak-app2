@@ -8,7 +8,8 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ config }) => {
   const currentYear = new Date().getFullYear();
-  const cleanNumber = config?.whatsappNumber.replace(/[^0-9]/g, "") || "60123456789";
+  const rawWa = (config && typeof config === "object") ? config.whatsappNumber : "";
+  const cleanNumber = (typeof rawWa === "string" ? rawWa : String(rawWa || "")).replace(/[^0-9]/g, "") || "60123456789";
 
   return (
     <footer id="main-footer" className="bg-slate-900 text-slate-300 pt-10 pb-8 border-t border-slate-800 mt-auto">

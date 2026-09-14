@@ -28,19 +28,19 @@ export function extractGoogleDriveFileId(rawUrl: string | undefined): string | n
   return null;
 }
 
-export function formatImageUrl(url: string | undefined, category: string = "", name: string = ""): string {
-  if (!url || !url.trim()) {
+export function formatImageUrl(url: any, category: string = "", name: string = ""): string {
+  const str = String(url || "").trim();
+  if (!str) {
     return getCategoryFallbackImage(category, name);
   }
 
-  const trimmed = url.trim();
-  const driveId = extractGoogleDriveFileId(trimmed);
+  const driveId = extractGoogleDriveFileId(str);
   if (driveId) {
     return `https://lh3.googleusercontent.com/d/${driveId}`;
   }
 
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed;
+  if (str.startsWith("http://") || str.startsWith("https://")) {
+    return str;
   }
 
   return getCategoryFallbackImage(category, name);

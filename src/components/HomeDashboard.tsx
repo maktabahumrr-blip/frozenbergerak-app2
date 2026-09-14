@@ -61,7 +61,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenFeedback,
 }) => {
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
-  const cleanNumber = whatsappNumber.replace(/[^0-9]/g, "");
+  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [customBanner, setCustomBanner] = useState<string | null>(null);

@@ -46,7 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToContact,
   onOpenNotifications,
 }) => {
-  const cleanNumber = whatsappNumber.replace(/[^0-9]/g, "");
+  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   return (
     <header id="main-header" className="h-20 bg-white/90 backdrop-blur-md border-b border-sky-100/80 px-4 sm:px-8 flex items-center justify-between shadow-2xs sticky top-0 z-40 transition-colors">

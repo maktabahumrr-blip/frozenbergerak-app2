@@ -95,7 +95,7 @@ export function isTodaySchedule(item: ScheduleItem, targetDate: Date = new Date(
   if (!item || !item.date) return false;
 
   const todayInfo = getTodayDateInfo(targetDate);
-  const rawDateStr = item.date.trim();
+  const rawDateStr = String(item.date || "").trim();
   const lower = rawDateStr.toLowerCase();
 
   // 1. Match ISO dates YYYY-MM-DD or YYYY/MM/DD

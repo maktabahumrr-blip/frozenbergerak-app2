@@ -2,8 +2,9 @@
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   try {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding)
+    const safeStr = String(base64String || "");
+    const padding = '='.repeat((4 - (safeStr.length % 4)) % 4);
+    const base64 = (safeStr + padding)
       .replace(/-/g, '+')
       .replace(/_/g, '/');
 

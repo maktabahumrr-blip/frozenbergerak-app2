@@ -1,8 +1,8 @@
 import { CartItem, CustomerOrderInfo, Product } from "../types";
 
 export function formatCurrency(amount?: number | null | string): string {
-  if (amount === undefined || amount === null) return "RM 0.00";
-  const num = typeof amount === "number" ? amount : parseFloat(String(amount).replace(/[^0-9.-]+/g, ""));
+  if (amount === undefined || amount === null || amount === "") return "RM 0.00";
+  const num = typeof amount === "number" ? amount : parseFloat(String(amount || "").replace(/[^0-9.-]+/g, ""));
   return `RM ${(isNaN(num) ? 0 : num).toFixed(2)}`;
 }
 

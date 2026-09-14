@@ -15,7 +15,7 @@ interface ProductCardProps {
 }
 
 const getCategoryBadgeClass = (category?: string) => {
-  const c = (category || "").toLowerCase();
+  const c = String(category || "").toLowerCase();
   if (c.includes("pastri") || c.includes("kuih") || c.includes("karipap")) {
     return "bg-orange-500 text-white";
   }

@@ -24,7 +24,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({
   onNavigateToCatalog,
 }) => {
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
-  const cleanNumber = whatsappNumber.replace(/[^0-9]/g, "");
+  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   const [feedbackType, setFeedbackType] = useState<"cadangan" | "aduan" | "pujian" | "lain">("cadangan");
   const [customerName, setCustomerName] = useState<string>("");
