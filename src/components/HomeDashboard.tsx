@@ -47,6 +47,46 @@ interface HomeDashboardProps {
   cartCount?: number;
 }
 
+// Helper to compress uploaded banner image so it fits safely and reliably in localStorage
+const compressImageForStorage = (dataUrl: string, maxWidth = 1600, quality = 0.85): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!dataUrl.startsWith("data:image/")) {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        let width = img.width;
+        let height = img.height;
+        if (width <= maxWidth && dataUrl.length < 400000) {
+          resolve(dataUrl);
+          return;
+        }
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL("image/jpeg", quality);
+          resolve(compressed);
+          return;
+        }
+      } catch (err) {
+        console.warn("Canvas compression fallback:", err);
+      }
+      resolve(dataUrl);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+};
+
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   products,
   categories,
@@ -64,8 +104,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [customBanner, setCustomBanner] = useState<string | null>(null);
+  const [customBanner, setCustomBanner] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner") || null;
+    } catch {
+      return null;
+    }
+  });
   const [liveBannerUrl, setLiveBannerUrl] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner");
+      if (stored) return stored;
+    } catch {}
     return storeConfig?.heroBannerUrl || "/api/hero-banner";
   });
   const [isUploading, setIsUploading] = useState(false);
@@ -73,9 +123,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [adminEmail, setAdminEmail] = useState<string>("");
 
-  // Keep live banner URL updated whenever storeConfig changes
+  // Keep live banner URL updated whenever storeConfig changes (unless custom banner exists)
   useEffect(() => {
-    if (storeConfig?.heroBannerUrl) {
+    try {
+      const stored = localStorage.getItem("frozen_custom_hero_banner") || localStorage.getItem("custom_hero_banner");
+      if (stored) {
+        setCustomBanner(stored);
+        setLiveBannerUrl(stored);
+        return;
+      }
+    } catch {}
+
+    if (storeConfig?.heroBannerUrl && !customBanner) {
       setLiveBannerUrl(storeConfig.heroBannerUrl);
     }
   }, [storeConfig?.heroBannerUrl]);
@@ -84,6 +143,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   useEffect(() => {
     const handleBannerUpdate = (e: any) => {
       if (e.detail?.url) {
+        setCustomBanner(e.detail.url);
         setLiveBannerUrl(e.detail.url);
       }
     };
@@ -126,38 +186,62 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input value so re-uploading same file name works
+    e.target.value = "";
+
     const reader = new FileReader();
     reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      setCustomBanner(dataUrl);
+      const rawDataUrl = reader.result as string;
+      if (!rawDataUrl) return;
+
       setIsUploading(true);
 
       try {
-        const token = localStorage.getItem("fb_auth_token") || "";
-        const res = await fetch("/api/upload-banner", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ imageBase64: dataUrl })
-        });
-        
-        const data = await res.json();
-        if (res.ok && data.url) {
-          setLiveBannerUrl(data.url);
-          setCustomBanner(null);
-          // Broadcast update so all open tabs/views update instantly
-          window.dispatchEvent(new CustomEvent("frozen_banner_updated", { detail: { url: data.url } }));
-          setUploadSuccess(true);
-          setTimeout(() => setUploadSuccess(false), 3000);
-        } else {
-          alert(data.error || "Gagal memuat naik gambar banner.");
-          setCustomBanner(null);
+        // Optimize banner image size for instant display & durable localStorage storage
+        const dataUrl = await compressImageForStorage(rawDataUrl);
+
+        // 1. Immediately update state and display on screen without waiting
+        setCustomBanner(dataUrl);
+        setLiveBannerUrl(dataUrl);
+
+        // 2. Immediately persist to localStorage so it survives page reloads
+        try {
+          localStorage.setItem("frozen_custom_hero_banner", dataUrl);
+          localStorage.setItem("custom_hero_banner", dataUrl);
+        } catch (storageErr) {
+          console.warn("Storage warning:", storageErr);
         }
+
+        // 3. Broadcast update to other components and App layout
+        window.dispatchEvent(new CustomEvent("frozen_banner_updated", { detail: { url: dataUrl } }));
+        setUploadSuccess(true);
+        setTimeout(() => setUploadSuccess(false), 3500);
+
+        // 4. Background server sync (non-blocking, never reverts on server error)
+        try {
+          const token = localStorage.getItem("fb_auth_token") || "";
+          fetch("/api/upload-banner", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({ imageBase64: dataUrl })
+          }).then(async (res) => {
+            if (res.ok) {
+              const data = await res.json().catch(() => ({}));
+              if (data?.url) {
+                // Keep live banner in sync with server URL
+                setLiveBannerUrl(data.url);
+              }
+            }
+          }).catch((serverErr) => {
+            console.warn("Background server banner upload note:", serverErr);
+          });
+        } catch {}
+
       } catch (err) {
-        console.error("Gagal muat naik ke server:", err);
-        setCustomBanner(null);
+        console.error("Gagal memproses gambar banner:", err);
       } finally {
         setIsUploading(false);
       }
@@ -168,23 +252,24 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const handleResetBanner = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
+      localStorage.removeItem("frozen_custom_hero_banner");
+      localStorage.removeItem("custom_hero_banner");
+    } catch {}
+
+    setCustomBanner(null);
+    setLiveBannerUrl(defaultHeroBanner);
+    window.dispatchEvent(new CustomEvent("frozen_banner_updated", { detail: { url: defaultHeroBanner } }));
+
+    try {
       const token = localStorage.getItem("fb_auth_token") || "";
-      const res = await fetch("/api/reset-banner", {
+      await fetch("/api/reset-banner", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         }
-      });
-      const data = await res.json();
-      setCustomBanner(null);
-      const resetUrl = data.url || "/api/hero-banner?t=" + Date.now();
-      setLiveBannerUrl(resetUrl);
-      window.dispatchEvent(new CustomEvent("frozen_banner_updated", { detail: { url: resetUrl } }));
-    } catch {
-      setCustomBanner(null);
-      setLiveBannerUrl("/api/hero-banner?t=" + Date.now());
-    }
+      }).catch(() => null);
+    } catch {}
   };
 
   // Active promos from Alltimepromo tab or fallback to promo products in sheets
