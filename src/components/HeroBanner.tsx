@@ -41,8 +41,8 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
         className="w-full h-full object-cover object-center select-none"
         onError={(e) => {
           const target = e.currentTarget;
-          if (target.src !== defaultHeroBanner) {
-            target.src = defaultHeroBanner;
+          if (!target.src.includes("hero_food_collage") && !target.src.endsWith("/hero-banner.jpg")) {
+            target.src = defaultHeroBanner || "/hero-banner.jpg";
           }
         }}
       />
