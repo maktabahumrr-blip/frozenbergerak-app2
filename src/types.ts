@@ -43,11 +43,22 @@ export interface CartItem {
   notes?: string;
 }
 
+export interface DeliveryAgent {
+  id: string;
+  name: string;
+  area: string;
+  phone: string;
+  coverage?: string;
+}
+
 export interface CustomerOrderInfo {
   name: string;
   phone: string;
   address: string;
   deliveryType: 'penghantaran' | 'ambil_sendiri';
+  deliveryArea?: string;
+  agentName?: string;
+  agentPhone?: string;
   notes: string;
 }
 

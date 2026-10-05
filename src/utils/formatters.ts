@@ -9,7 +9,8 @@ export function formatCurrency(amount?: number | null | string): string {
 export function generateSingleProductWhatsAppUrl(
   product?: Product | null,
   quantity: number = 1,
-  whatsappNumber: string = "60123456789"
+  whatsappNumber: string = "60123456789",
+  areaInfo?: { area?: string; agentName?: string }
 ): string {
   const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
   const prodPrice = Number(product?.price) || 0;
@@ -21,6 +22,8 @@ export function generateSingleProductWhatsAppUrl(
   const prodId = product?.id || "N/A";
   const prodCategory = product?.category || "Umum";
 
+  const areaLine = areaInfo?.area ? `📍 *Kawasan Penghantaran:* ${areaInfo.area}${areaInfo?.agentName ? ` (${areaInfo.agentName})` : ""}\n` : "";
+
   const text = `❄️ *TEMPAHAN FROZENBERGERAK*
 --------------------------------
 Halo FrozenBergerak! Saya ingin membuat pesanan bagi produk berikut:
@@ -30,7 +33,7 @@ Halo FrozenBergerak! Saya ingin membuat pesanan bagi produk berikut:
 💵 *Harga:* ${formatCurrency(prodPrice)}${isPromo ? " *(Harga Promo)*" : ""}
 🔢 *Kuantiti:* ${prodQty} pek
 💰 *Jumlah Anggaran:* ${formatCurrency(total)}
-
+${areaLine}
 Mohon pihak FrozenBergerak sahkan ketersediaan stok & maklumat penghantaran. Terima kasih!`;
 
   return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
@@ -41,7 +44,8 @@ export function generateCartWhatsAppUrl(
   customer: CustomerOrderInfo,
   whatsappNumber: string = "60123456789"
 ): string {
-  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
+  const targetNumber = customer?.agentPhone || whatsappNumber || "60123456789";
+  const cleanNumber = String(targetNumber || "").replace(/[^0-9]/g, "") || "60123456789";
   const safeItems = Array.isArray(items) ? items : [];
   const subtotal = safeItems.reduce((acc, item) => acc + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1), 0);
 
@@ -62,6 +66,10 @@ export function generateCartWhatsAppUrl(
       ? "🚚 Penghantaran ke Rumah"
       : "🏬 Ambil Sendiri (Self-Pickup)";
 
+  const areaLine = customer?.deliveryArea
+    ? `• *Kawasan Penghantaran:* ${customer.deliveryArea}${customer?.agentName ? ` (${customer.agentName})` : ""}\n`
+    : "";
+
   const text = `❄️ *TEMPAHAN RASMI FROZENBERGERAK*
 ================================
 Halo FrozenBergerak! Saya ingin mengesahkan tempahan produk sejuk beku berikut:
@@ -77,7 +85,7 @@ ${itemsList || "Tiada item"}
 • *Nama:* ${customer?.name || "Pelanggan FrozenBergerak"}
 • *No. Telefon:* ${customer?.phone || "-"}
 • *Pilihan:* ${deliveryText}
-${customer?.deliveryType === "penghantaran" && customer?.address ? `• *Alamat:* ${customer.address}\n` : ""}${customer?.notes ? `• *Nota Khas:* ${customer.notes}\n` : ""}
+${areaLine}${customer?.deliveryType === "penghantaran" && customer?.address ? `• *Alamat:* ${customer.address}\n` : ""}${customer?.notes ? `• *Nota Khas:* ${customer.notes}\n` : ""}
 Mohon sahkan tempahan dan butiran pembayaran. Terima kasih!`;
 
   return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;

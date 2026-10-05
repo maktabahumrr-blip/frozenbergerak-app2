@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { X, MessageCircle, ShoppingBag, ShieldCheck, ThermometerSnowflake, Sparkles, Plus, Minus, Check, Tag, UtensilsCrossed, Package, Maximize2 } from "lucide-react";
-import { Product } from "../types";
+import { X, MessageCircle, ShoppingBag, ShieldCheck, ThermometerSnowflake, Sparkles, Plus, Minus, Check, Tag, UtensilsCrossed, Package, Maximize2, MapPin, ChevronDown } from "lucide-react";
+import { Product, DeliveryAgent } from "../types";
 import { formatCurrency, generateSingleProductWhatsAppUrl } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
 import { ImageLightbox } from "./ImageLightbox";
 import { FormattedDescription } from "./FormattedDescription";
+import { DELIVERY_AGENTS, DEFAULT_DELIVERY_AGENT } from "../data/deliveryAgents";
 
 interface ProductModalProps {
   product: Product | null;
@@ -25,6 +26,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [justAdded, setJustAdded] = useState<boolean>(false);
   const [activeImageType, setActiveImageType] = useState<"cooked" | "packaging">("cooked");
   const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
+  const [selectedAgent, setSelectedAgent] = useState<DeliveryAgent>(DEFAULT_DELIVERY_AGENT);
 
   useEffect(() => {
     if (isOpen) {
@@ -63,7 +65,12 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const hasBothImages = Boolean(product.cookedImageUrl && product.packagingImageUrl);
 
   const total = (Number(product?.price) || 0) * (Number(quantity) || 1);
-  const whatsappUrl = generateSingleProductWhatsAppUrl(product, quantity, whatsappNumber);
+  const whatsappUrl = generateSingleProductWhatsAppUrl(
+    product, 
+    quantity, 
+    selectedAgent.phone || whatsappNumber,
+    { area: selectedAgent.area, agentName: selectedAgent.name }
+  );
   const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice);
 
   const handleAdd = () => {
@@ -349,6 +356,39 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 </>
               )}
             </button>
+
+            {/* Delivery Area / Agent Selection */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-1 text-left">
+              <label htmlFor={`modal-delivery-area-${product?.id || "item"}`} className="block text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Pilih Kawasan / Agent Penghantaran:</span>
+                </span>
+                <span className="text-[10px] text-emerald-600 font-semibold font-mono">
+                  +{selectedAgent.phone}
+                </span>
+              </label>
+              <div className="relative">
+                <select
+                  id={`modal-delivery-area-${product?.id || "item"}`}
+                  value={selectedAgent.id}
+                  onChange={(e) => {
+                    const found = DELIVERY_AGENTS.find((a) => a.id === e.target.value) || DEFAULT_DELIVERY_AGENT;
+                    setSelectedAgent(found);
+                  }}
+                  className="w-full pl-2.5 pr-7 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
+                >
+                  {DELIVERY_AGENTS.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.area} ({agent.name})
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </div>
+              </div>
+            </div>
 
             <a
               id={`modal-whatsapp-btn-${product?.id || "item"}`}
