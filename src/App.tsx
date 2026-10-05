@@ -265,17 +265,6 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Sync live banner update across storeConfig
-  useEffect(() => {
-    const handleBannerUpdate = (e: any) => {
-      if (e.detail?.url) {
-        setStoreConfig((prev) => (prev ? { ...prev, heroBannerUrl: e.detail.url } : { heroBannerUrl: e.detail.url } as any));
-      }
-    };
-    window.addEventListener("frozen_banner_updated" as any, handleBannerUpdate);
-    return () => window.removeEventListener("frozen_banner_updated" as any, handleBannerUpdate);
-  }, []);
-
   // Merge products with any promo items from Alltimepromo and Seasonalpromo sheet tabs
   const allMergedProducts = useMemo(() => {
     try {

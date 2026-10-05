@@ -1,6 +1,5 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo } from "react";
 import { motion } from "motion/react";
-import defaultHeroBanner from "../assets/images/hero_food_collage_1787666504223.jpg";
 import { 
   Flame, 
   ShoppingBag, 
@@ -18,18 +17,11 @@ import {
   Star,
   CheckCircle2,
   CalendarDays,
-  Grid,
-  Camera,
-  Upload,
-  RotateCcw,
-  Check,
-  Lock,
-  UserCheck
+  Grid
 } from "lucide-react";
 import { Product, Category, StoreConfig, PromoItem } from "../types";
 import { formatCurrency } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
-import { auth, onAuthStateChanged } from "../lib/firebase";
 
 interface HomeDashboardProps {
   products: Product[];
@@ -47,46 +39,6 @@ interface HomeDashboardProps {
   cartCount?: number;
 }
 
-// Helper to compress uploaded banner image so it fits safely and reliably in localStorage
-const compressImageForStorage = (dataUrl: string, maxWidth = 1600, quality = 0.85): Promise<string> => {
-  return new Promise((resolve) => {
-    if (!dataUrl.startsWith("data:image/")) {
-      resolve(dataUrl);
-      return;
-    }
-    const img = new Image();
-    img.onload = () => {
-      try {
-        let width = img.width;
-        let height = img.height;
-        if (width <= maxWidth && dataUrl.length < 400000) {
-          resolve(dataUrl);
-          return;
-        }
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL("image/jpeg", quality);
-          resolve(compressed);
-          return;
-        }
-      } catch (err) {
-        console.warn("Canvas compression fallback:", err);
-      }
-      resolve(dataUrl);
-    };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
-  });
-};
-
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   products,
   categories,
@@ -102,155 +54,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 }) => {
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
   const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [customBanner, setCustomBanner] = useState<string | null>(null);
-  const [liveBannerUrl, setLiveBannerUrl] = useState<string>(() => {
-    return storeConfig?.heroBannerUrl || defaultHeroBanner;
-  });
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [adminEmail, setAdminEmail] = useState<string>("");
-
-  // Keep live banner URL updated whenever storeConfig changes
-  useEffect(() => {
-    if (storeConfig?.heroBannerUrl && !customBanner) {
-      setLiveBannerUrl(storeConfig.heroBannerUrl);
-    }
-  }, [storeConfig?.heroBannerUrl, customBanner]);
-
-  // Listen to banner update events across the app
-  useEffect(() => {
-    const handleBannerUpdate = (e: any) => {
-      if (e.detail?.url) {
-        setLiveBannerUrl(e.detail.url);
-      }
-    };
-    window.addEventListener("frozen_banner_updated" as any, handleBannerUpdate);
-    return () => {
-      window.removeEventListener("frozen_banner_updated" as any, handleBannerUpdate);
-    };
-  }, []);
-
-  // Check admin session for maktabahumrr@gmail.com
-  useEffect(() => {
-    // 1. Instant check from localStorage
-    try {
-      const storedUser = localStorage.getItem("fb_auth_user");
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        if (parsed && parsed.role === "admin") {
-          setIsAdmin(true);
-          setAdminEmail(parsed.email || "maktabahumrr@gmail.com");
-        }
-      }
-    } catch {}
-
-    // 2. Direct Firebase Auth State Listener
-    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
-      if (fbUser && fbUser.email) {
-        const isPrimaryAdmin = fbUser.email.toLowerCase() === "maktabahumrr@gmail.com";
-        if (isPrimaryAdmin) {
-          setIsAdmin(true);
-          setAdminEmail(fbUser.email);
-          return;
-        }
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const handleBannerFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Reset input value so re-uploading same file name works
-    e.target.value = "";
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const rawDataUrl = reader.result as string;
-      if (!rawDataUrl) return;
-
-      setIsUploading(true);
-
-      try {
-        // Optimize banner image size for instant display & durable localStorage storage
-        const dataUrl = await compressImageForStorage(rawDataUrl);
-
-        // 1. Immediately update state and display on screen without waiting
-        setCustomBanner(dataUrl);
-        setLiveBannerUrl(dataUrl);
-
-        // 2. Immediately persist to localStorage so it survives page reloads
-        try {
-          localStorage.setItem("frozen_custom_hero_banner", dataUrl);
-          localStorage.setItem("custom_hero_banner", dataUrl);
-        } catch (storageErr) {
-          console.warn("Storage warning:", storageErr);
-        }
-
-        // 3. Broadcast update to other components and App layout
-        window.dispatchEvent(new CustomEvent("frozen_banner_updated", { detail: { url: dataUrl } }));
-        setUploadSuccess(true);
-        setTimeout(() => setUploadSuccess(false), 3500);
-
-        // 4. Background server sync (non-blocking, never reverts on server error)
-        try {
-          const token = localStorage.getItem("fb_auth_token") || "";
-          fetch("/api/upload-banner", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`
-            },
-            body: JSON.stringify({ imageBase64: dataUrl })
-          }).then(async (res) => {
-            if (res.ok) {
-              const data = await res.json().catch(() => ({}));
-              if (data?.url) {
-                // Keep live banner in sync with server URL
-                setLiveBannerUrl(data.url);
-              }
-            }
-          }).catch((serverErr) => {
-            console.warn("Background server banner upload note:", serverErr);
-          });
-        } catch {}
-
-      } catch (err) {
-        console.error("Gagal memproses gambar banner:", err);
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleResetBanner = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      localStorage.removeItem("frozen_custom_hero_banner");
-      localStorage.removeItem("custom_hero_banner");
-    } catch {}
-
-    setCustomBanner(null);
-    setLiveBannerUrl(defaultHeroBanner);
-    window.dispatchEvent(new CustomEvent("frozen_banner_updated", { detail: { url: defaultHeroBanner } }));
-
-    try {
-      const token = localStorage.getItem("fb_auth_token") || "";
-      await fetch("/api/reset-banner", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        }
-      }).catch(() => null);
-    } catch {}
-  };
 
   // Active promos from Alltimepromo tab or fallback to promo products in sheets
   const activeAllTimePromos = useMemo(() => {
@@ -367,106 +170,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     >
       
       {/* ============================================================ */}
-      {/* 1. HERO BANNER IMAGE (Full-width, pure responsive safe-zone) */}
-      {/* ============================================================ */}
-      <motion.section 
-        variants={itemVariants}
-        id="section-hero-image-banner"
-        className="w-full space-y-2"
-      >
-        {/* Hidden File Input for Admin only */}
-        {isAdmin && (
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleBannerFileSelected}
-          />
-        )}
-
-        {/* Admin-Only Upload Action Toolbar */}
-        {isAdmin && (
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 sm:p-3 bg-blue-50 border border-blue-200 rounded-xl">
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-blue-950">
-              <UserCheck className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>Panel Admin: Kemaskini Hero Banner {adminEmail ? `(${adminEmail})` : ""}</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
-              >
-                {isUploading ? (
-                  <span>Sedang Memproses...</span>
-                ) : uploadSuccess ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-300" />
-                    <span>Gambar Berjaya Dimuat Naik!</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4" />
-                    <span>Muat Naik Gambar Asal</span>
-                  </>
-                )}
-              </button>
-
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={handleResetBanner}
-                  className="px-2.5 py-1.5 bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                  title="Kembalikan ke gambar asal lalai"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Set Semula Banner</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Hero Image Container */}
-        <div 
-          onClick={() => {
-            if (isAdmin) {
-              fileInputRef.current?.click();
-            }
-          }}
-          className={`w-full aspect-[16/9] sm:aspect-[21/9] md:aspect-[2.4/1] lg:aspect-[2.5/1] relative flex items-center justify-center overflow-hidden rounded-2xl sm:rounded-3xl shadow-sm sm:shadow-md border border-slate-200/90 bg-slate-100 ${isAdmin ? "cursor-pointer group" : ""}`}
-          title={isAdmin ? "Klik untuk menukar gambar banner" : "FrozenBergerak Banner"}
-        >
-          <img
-            src={customBanner || liveBannerUrl || storeConfig?.heroBannerUrl || defaultHeroBanner}
-            alt="FrozenBergerak Banner"
-            loading="eager"
-            decoding="async"
-            className="w-full h-full object-cover object-center select-none"
-            onError={(e) => {
-              const target = e.currentTarget;
-              if (!target.src.includes("hero_food_collage") && !target.src.endsWith("/hero-banner.jpg")) {
-                target.src = defaultHeroBanner || "/hero-banner.jpg";
-              }
-            }}
-          />
-
-          {/* Admin Floating Indicator */}
-          {isAdmin && (
-            <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20 shadow-lg text-white text-xs font-medium">
-              <Camera className="w-3.5 h-3.5 text-blue-400" />
-              <span>Klik gambar untuk muat naik (Admin)</span>
-            </div>
-          )}
-        </div>
-      </motion.section>
-
-
-      {/* ============================================================ */}
-      {/* 2. 🔥 ALL TIME PROMO SECTION */}
+      {/* 1. 🔥 ALL TIME PROMO SECTION */}
       {/* ============================================================ */}
       <motion.section 
         variants={itemVariants}
@@ -727,7 +431,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
 
       {/* ============================================================ */}
-      {/* 3. ✨ SEASONAL PROMO SECTION (Promosi Musiman & Istimewa) */}
+      {/* 2. ✨ SEASONAL PROMO SECTION (Promosi Musiman & Istimewa) */}
       {/* ============================================================ */}
       <motion.section 
         variants={itemVariants}
