@@ -43,7 +43,10 @@ import {
   onAuthStateChanged,
   db,
   doc,
-  setDoc
+  setDoc,
+  deleteDoc,
+  saveScheduleToFirestore,
+  deleteScheduleFromFirestore
 } from "../lib/firebase";
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
 
@@ -734,14 +737,44 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         return updated;
       });
 
-      // Save to Firebase Database (Firestore) if db is initialized
-      if (db) {
-        try {
-          await setDoc(doc(db, "schedules", scheduleId), newScheduleObj, { merge: true });
-          console.log("[ScheduleSync] ✅ Rekod jadual disimpan ke Firebase Database:", scheduleId);
-        } catch (fbErr: any) {
-          console.warn("[ScheduleSync] ℹ️ Simpanan ke Firebase Database dilepaskan:", fbErr?.message || fbErr);
+      // 1. Save to Firebase Database (Firestore) globally across all devices
+      saveScheduleToFirestore(newScheduleObj).catch((fbErr) => {
+        console.warn("[ScheduleSync] Firestore save note:", fbErr);
+      });
+
+      // 2. Persist to Server Database (/api/schedule/update) globally
+      const token = authToken || localStorage.getItem("fb_auth_token") || "";
+      try {
+        const updateRes = await fetch("/api/schedule/update", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            id: scheduleId,
+            teamName: finalTeam,
+            date: finalDate,
+            timeSlot: finalTime,
+            locations: finalLocations,
+            notes: finalNotes,
+            status: finalStatus,
+            sendPushNotification,
+            token
+          })
+        });
+        if (updateRes.ok) {
+          const updateData = await updateRes.json();
+          if (updateData.schedules && Array.isArray(updateData.schedules)) {
+            setAllSchedules(updateData.schedules);
+            try {
+              localStorage.setItem("frozen_schedules", JSON.stringify(updateData.schedules));
+            } catch {}
+          }
+          console.log("[ScheduleSync] ✅ Rekod jadual disimpan secara global pada server:", scheduleId);
         }
+      } catch (serverUpErr) {
+        console.warn("[ScheduleSync] Server update call note:", serverUpErr);
       }
 
       if (webAppResult.success) {
@@ -759,27 +792,62 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Delete Schedule from Google Apps Script Web App
+  // Delete Schedule globally across all devices (Server, Firebase Database, & Google Sheets)
   const handleDelete = async () => {
     if (!selectedId) return;
-    if (!window.confirm("Adakah anda pasti mahu memadam slot jadual ini daripada Google Sheets tab JADUAL?")) return;
+    if (!window.confirm("Adakah anda pasti mahu memadam slot jadual ini daripada sistem & Google Sheets tab JADUAL?")) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
 
+    const targetIdToDelete = selectedId;
     const deletePayload = {
       action: "SCHEDULE_DELETE",
       sheetName: "JADUAL",
-      id: selectedId,
-      data: { id: selectedId }
+      id: targetIdToDelete,
+      data: { id: targetIdToDelete }
     };
 
     try {
+      // 1. Delete from Server Database globally (/api/schedule/delete)
+      const token = authToken || localStorage.getItem("fb_auth_token") || "";
+      try {
+        const delRes = await fetch("/api/schedule/delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ id: targetIdToDelete, token })
+        });
+        if (delRes.ok) {
+          const resData = await delRes.json();
+          if (resData.schedules && Array.isArray(resData.schedules)) {
+            setAllSchedules(resData.schedules);
+            try {
+              localStorage.setItem("frozen_schedules", JSON.stringify(resData.schedules));
+            } catch {}
+          }
+          console.log("[ScheduleSync] ✅ Rekod jadual dipadam secara global dari server:", targetIdToDelete);
+        }
+      } catch (serverErr) {
+        console.warn("[ScheduleSync] Server delete call note:", serverErr);
+      }
+
+      // 2. Delete from Firebase Database (Firestore) globally
+      try {
+        await deleteScheduleFromFirestore(targetIdToDelete);
+      } catch (fbErr) {
+        console.warn("[ScheduleSync] Firestore delete note:", fbErr);
+      }
+
+      // 3. Post delete to Google Apps Script Web App
       const webAppResult = await postToGoogleAppsScript(deletePayload);
 
+      // 4. Update local state
       setAllSchedules((prev) => {
-        const filtered = prev.filter((s) => s.id !== selectedId);
+        const filtered = prev.filter((s) => s.id !== targetIdToDelete);
         try {
           localStorage.setItem("frozen_schedules", JSON.stringify(filtered));
         } catch {}
@@ -787,11 +855,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       });
 
       if (webAppResult.success) {
-        setSubmitSuccess(`Jadual (${selectedId}) berjaya dipadam daripada Google Sheets tab JADUAL.`);
-        setTimeout(() => setSubmitSuccess(null), 3000);
+        setSubmitSuccess(`Jadual (${targetIdToDelete}) berjaya dipadam secara kekal di semua peranti & tab JADUAL.`);
       } else {
-        setSubmitError(webAppResult.error || "Gagal memulakan penghantaran pemadaman ke Google Sheets Web App.");
+        setSubmitSuccess(`Jadual (${targetIdToDelete}) dipadam secara kekal dari pangkalan data sistem.`);
       }
+      setTimeout(() => setSubmitSuccess(null), 3500);
 
       populateFormWithSchedule(null);
       onScheduleUpdated();

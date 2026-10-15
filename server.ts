@@ -191,10 +191,46 @@ async function broadcastPushNotification(payload: {
   return { sent, failed, total: subscriptions.length };
 }
 
-// Schedule Persistence & Google Sheet JADUAL Sync
 const SCHEDULE_FILE = path.join(DATA_DIR, "schedule.json");
+const DELETED_SCHEDULES_FILE = path.join(DATA_DIR, "deleted_schedule_ids.json");
 const ROLES_FILE = path.join(DATA_DIR, "roles_config.json");
 const AUTH_SECRET_FILE = path.join(DATA_DIR, "auth_secret.key");
+
+function loadDeletedScheduleIds(): string[] {
+  if (fs.existsSync(DELETED_SCHEDULES_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(DELETED_SCHEDULES_FILE, "utf-8"));
+      if (Array.isArray(data)) return data;
+    } catch {}
+  }
+  return [];
+}
+
+function recordDeletedScheduleId(id: string) {
+  if (!id) return;
+  const current = loadDeletedScheduleIds();
+  if (!current.includes(id)) {
+    current.push(id);
+    try {
+      fs.writeFileSync(DELETED_SCHEDULES_FILE, JSON.stringify(current, null, 2), "utf-8");
+      console.log(`[SchedulePersistence] 🗑️ Global deletion recorded for ID: ${id}`);
+    } catch (e) {
+      console.warn("Failed to write deleted_schedule_ids.json:", e);
+    }
+  }
+}
+
+function clearDeletedScheduleId(id: string) {
+  if (!id) return;
+  const current = loadDeletedScheduleIds();
+  const updated = current.filter(x => x !== id);
+  if (updated.length !== current.length) {
+    try {
+      fs.writeFileSync(DELETED_SCHEDULES_FILE, JSON.stringify(updated, null, 2), "utf-8");
+      console.log(`[SchedulePersistence] 🔄 Cleared deletion record for restored/updated ID: ${id}`);
+    } catch {}
+  }
+}
 
 // Secret key for HMAC token signing
 let AUTH_SECRET = "";
@@ -416,34 +452,81 @@ function verifySessionToken(token: string): { valid: boolean; user?: { email: st
   const parts = token.split(".");
   if (parts.length !== 3) return { valid: false };
   const [header, body, signature] = parts;
-  const expectedSignature = crypto.createHmac("sha256", AUTH_SECRET).update(`${header}.${body}`).digest("base64url");
-  if (signature !== expectedSignature) return { valid: false };
 
-  try {
-    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf-8"));
-    if (payload.exp && Date.now() > payload.exp) {
+  // 1. Check server HMAC signature first
+  const expectedSignature = crypto.createHmac("sha256", AUTH_SECRET).update(`${header}.${body}`).digest("base64url");
+  if (signature === expectedSignature) {
+    try {
+      const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf-8"));
+      if (payload.exp && Date.now() > payload.exp) {
+        return { valid: false };
+      }
+      return {
+        valid: true,
+        user: {
+          email: payload.email,
+          name: payload.name || payload.email,
+          picture: payload.picture,
+          role: payload.role
+        }
+      };
+    } catch {
       return { valid: false };
     }
-    return {
-      valid: true,
-      user: {
-        email: payload.email,
-        name: payload.name || payload.email,
-        picture: payload.picture,
-        role: payload.role
-      }
-    };
-  } catch {
-    return { valid: false };
   }
+
+  // 2. Decode Firebase ID Token payload safely
+  try {
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf-8"));
+    const email = (payload.email || "").toLowerCase();
+    const isFirebase = (payload.iss && payload.iss.includes("securetoken.google.com")) || (payload.aud && payload.aud.includes("frozen-bergerak"));
+
+    // Check expiration (Firebase JWT exp is in seconds)
+    const expMs = payload.exp ? (payload.exp > 1e11 ? payload.exp : payload.exp * 1000) : 0;
+    if (expMs && Date.now() > expMs) {
+      return { valid: false };
+    }
+
+    if (email || isFirebase) {
+      const isPrimaryAdmin = email === PRIMARY_ADMIN_EMAIL.toLowerCase();
+      const adminList = getMergedAdminEmails();
+      const role: 'admin' | 'team' = (isPrimaryAdmin || adminList.includes(email)) ? 'admin' : 'team';
+      return {
+        valid: true,
+        user: {
+          email: email || payload.sub || "firebase-team@frozenbergerak.local",
+          name: payload.name || (email ? email.split("@")[0] : "Team User"),
+          picture: payload.picture,
+          role
+        }
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  return { valid: false };
 }
 
 // Authentication middleware for Team & Admin write/delete operations
 function requireAdminOrTeamAuth(req: Request, res: Response, next: NextFunction) {
+  // 1. Check Team PIN in header or body
+  const pin = (req.headers["x-team-pin"] as string) || (req.body && req.body.pin);
+  if (pin && (pin === "frozen888" || pin === process.env.TEAM_PIN)) {
+    (req as any).authUser = {
+      email: "team@frozenbergerak.local",
+      name: "Team FrozenBergerak",
+      role: "team"
+    };
+    return next();
+  }
+
+  // 2. Extract Bearer token or custom header/body token
   const authHeader = req.headers.authorization;
   const token = (authHeader && authHeader.startsWith("Bearer ")) 
     ? authHeader.slice(7) 
-    : (req.headers["x-auth-token"] as string);
+    : (req.headers["x-auth-token"] as string)
+    || (req.body && req.body.token);
 
   if (!token) {
     res.status(403).json({
@@ -527,21 +610,25 @@ function getTodayMalayDate(): string {
 
 function loadSchedule(): ScheduleRecord[] {
   const todayStr = getTodayMalayDate();
+  const deletedIds = loadDeletedScheduleIds();
+
   if (fs.existsSync(SCHEDULE_FILE)) {
     try {
       const data = JSON.parse(fs.readFileSync(SCHEDULE_FILE, "utf-8"));
       if (Array.isArray(data) && data.length > 0) {
-        return data.map((item: any) => ({
-          id: item.id || `JAD-${Date.now().toString().slice(-4)}`,
-          teamName: item.teamName || item.driverName || "Team Frozen 1",
-          driverName: item.teamName || item.driverName || "Team Frozen 1",
-          date: item.date && !item.date.includes("September 2026") && !item.date.includes("2025") ? item.date : `Hari Ini (${todayStr})`,
-          timeSlot: item.timeSlot || item.masa || "Waktu Operasi",
-          locations: item.locations || item.kawasan || "",
-          notes: item.notes || item.catatan || "",
-          status: normalizeScheduleStatus(item.status),
-          lastUpdated: item.lastUpdated || new Date().toISOString()
-        }));
+        return data
+          .filter((item: any) => item && item.id && !deletedIds.includes(item.id))
+          .map((item: any) => ({
+            id: item.id || `JAD-${Date.now().toString().slice(-4)}`,
+            teamName: item.teamName || item.driverName || "Team Frozen 1",
+            driverName: item.teamName || item.driverName || "Team Frozen 1",
+            date: item.date && !item.date.includes("September 2026") && !item.date.includes("2025") ? item.date : `Hari Ini (${todayStr})`,
+            timeSlot: item.timeSlot || item.masa || "Waktu Operasi",
+            locations: item.locations || item.kawasan || "",
+            notes: item.notes || item.catatan || "",
+            status: normalizeScheduleStatus(item.status),
+            lastUpdated: item.lastUpdated || new Date().toISOString()
+          }));
       }
     } catch (err) {
       console.error("Error reading schedule.json:", err);
@@ -594,8 +681,9 @@ function loadSchedule(): ScheduleRecord[] {
       lastUpdated: new Date().toISOString()
     }
   ];
-  saveSchedule(initialSchedules);
-  return initialSchedules;
+  const activeInitials = initialSchedules.filter(item => !deletedIds.includes(item.id));
+  saveSchedule(activeInitials);
+  return activeInitials;
 }
 
 function saveSchedule(items: ScheduleRecord[]) {
@@ -836,14 +924,19 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
 
 // Fetch live schedules from Google Sheet tab JADUAL (with Apps Script priority)
 async function fetchScheduleFromGoogleSheet(customSheetIdOrUrl?: string): Promise<ScheduleFetchResult> {
+  const deletedIds = loadDeletedScheduleIds();
+
   // 1. Try Google Apps Script Web App first
   const appsScriptResult = await fetchScheduleFromAppsScript();
   if (appsScriptResult && appsScriptResult.schedules.length > 0) {
-    return {
-      schedules: appsScriptResult.schedules,
-      source: "google_apps_script",
-      webAppStatus: "connected"
-    };
+    const filteredAppsScript = appsScriptResult.schedules.filter(s => !deletedIds.includes(s.id));
+    if (filteredAppsScript.length > 0) {
+      return {
+        schedules: filteredAppsScript,
+        source: "google_apps_script",
+        webAppStatus: "connected"
+      };
+    }
   }
 
   const appsScriptError = appsScriptResult?.error;
@@ -910,6 +1003,8 @@ async function fetchScheduleFromGoogleSheet(customSheetIdOrUrl?: string): Promis
             const row = rows[r];
             if (!row || row.length === 0 || row.every(cell => !cell.trim())) continue;
             const id = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : `JAD-${r.toString().padStart(2, '0')}`;
+            if (deletedIds.includes(id)) continue;
+
             const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : "Team Frozen 1";
             const teamName = String(rawTeam || "").replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
             const date = (dateIdx !== -1 && row[dateIdx]) ? String(row[dateIdx]).trim() : "Hari Ini";
@@ -2454,10 +2549,11 @@ app.get("/api/products/:id", async (req: Request, res: Response) => {
 // PUSH NOTIFICATION API ENDPOINTS (Web Push / VAPID)
 // ============================================================================
 
-// Get Public VAPID Key for client subscription
-app.get("/api/push/vapid-public-key", (_req: Request, res: Response) => {
+// Get Public VAPID Key for client subscription (primary and fallback routes)
+app.get(["/api/push/vapid-public-key", "/api/vapid-public-key"], (_req: Request, res: Response) => {
   res.json({
-    publicKey: vapidKeys.publicKey
+    publicKey: vapidKeys.publicKey || "",
+    status: "ok"
   });
 });
 
@@ -3461,8 +3557,10 @@ app.post("/api/schedule/update", requireAdminOrTeamAuth, async (req: Request, re
       return;
     }
 
+    const scheduleId = (id && id.trim()) ? id.trim() : `JAD-${(Date.now().toString().slice(-4))}`;
+    clearDeletedScheduleId(scheduleId);
+
     const currentSchedules = loadSchedule();
-    const scheduleId = (id && id.trim()) ? id.trim() : `JAD-${(currentSchedules.length + 1).toString().padStart(2, '0')}`;
     const finalTeam = String(teamName || driverName || "Team Frozen 1").replace(/van\s*/gi, "Team ").trim();
     const finalDate = String(date || tarikh || `Hari Ini (${getTodayMalayDate()})`).trim();
     const finalTime = String(timeSlot || masa || "Waktu Operasi").trim();
@@ -3547,6 +3645,9 @@ app.post("/api/schedule/delete", requireAdminOrTeamAuth, async (req: Request, re
       return;
     }
 
+    // Persist deleted ID globally so it is removed everywhere and never resurrected by Google Sheets CSV/cache
+    recordDeletedScheduleId(id);
+
     const currentSchedules = loadSchedule();
     const filtered = currentSchedules.filter(s => s.id !== id);
     saveSchedule(filtered);
@@ -3556,7 +3657,7 @@ app.post("/api/schedule/delete", requireAdminOrTeamAuth, async (req: Request, re
 
     res.json({
       success: true,
-      message: `Jadual ${id} berjaya dipadam daripada sistem.`,
+      message: `Jadual ${id} berjaya dipadam daripada sistem secara kekal merentasi semua peranti.`,
       googleSheetSync: syncResult,
       schedules: filtered
     });

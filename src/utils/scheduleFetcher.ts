@@ -270,18 +270,17 @@ export async function fetchScheduleWithFallback(customSheetUrlOrId?: string): Pr
     if (res.ok) {
       const data = await res.json();
       if (data && Array.isArray(data.schedules) && data.schedules.length > 0) {
-        // Check if data is from Google Sheets / Apps Script
-        if (data.source === "google_apps_script" || data.source === "google_sheet_jadual") {
-          console.log(`[ScheduleSync] ✅ Data jadual berjaya disegerakkan dari Google Sheets tab JADUAL (${data.schedules.length} rekod).`);
-          try {
-            localStorage.setItem("frozen_schedules", JSON.stringify(data.schedules));
-          } catch {}
-          return {
-            schedules: data.schedules,
-            source: data.source,
-            isFallback: false
-          };
-        }
+        console.log(`[ScheduleSync] ✅ Data jadual berjaya disegerakkan dari pelayan (${data.schedules.length} rekod, sumber: ${data.source}).`);
+        try {
+          localStorage.setItem("frozen_schedules", JSON.stringify(data.schedules));
+        } catch {}
+        return {
+          schedules: data.schedules,
+          source: (data.source === "google_apps_script" || data.source === "google_sheet_jadual") 
+            ? data.source 
+            : "local_cache",
+          isFallback: false
+        };
       }
     }
   } catch (serverErr: any) {

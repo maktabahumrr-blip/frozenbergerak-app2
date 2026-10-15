@@ -52,7 +52,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
       if (result.success) {
         setIsSubscribed(true);
         setMessage({
-          text: "Notifikasi berjaya diaktifkan! Anda akan menerima jadual pergerakan terus ke telefon walaupun aplikasi ditutup.",
+          text: result.message || "Notifikasi berjaya diaktifkan! Anda akan menerima jadual pergerakan terus ke telefon anda.",
           type: "success"
         });
       } else {

@@ -15,6 +15,7 @@ import {
   getDocs, 
   doc, 
   setDoc,
+  deleteDoc,
   Firestore 
 } from "firebase/firestore";
 import { ScheduleItem } from "../types";
@@ -123,6 +124,47 @@ export async function fetchSchedulesFromFirestore(): Promise<ScheduleItem[]> {
   }
 }
 
+/**
+ * Persists a schedule item to Firebase Firestore globally
+ */
+export async function saveScheduleToFirestore(item: ScheduleItem): Promise<boolean> {
+  if (!db || !item || !item.id) return false;
+  try {
+    const docRef = doc(db, "schedules", item.id);
+    await setDoc(docRef, item, { merge: true });
+    // Also mirror to jadual collection for backwards compatibility
+    try {
+      const jadualRef = doc(db, "jadual", item.id);
+      await setDoc(jadualRef, item, { merge: true });
+    } catch {}
+    console.log(`[ScheduleSync] ✅ Saved schedule ${item.id} to Firebase Database.`);
+    return true;
+  } catch (err: any) {
+    console.warn(`[ScheduleSync] Firebase Database save warning (${item.id}):`, err?.message || err);
+    return false;
+  }
+}
+
+/**
+ * Deletes a schedule item globally from Firebase Firestore
+ */
+export async function deleteScheduleFromFirestore(id: string): Promise<boolean> {
+  if (!db || !id) return false;
+  try {
+    const schedulesRef = doc(db, "schedules", id);
+    await deleteDoc(schedulesRef);
+    try {
+      const jadualRef = doc(db, "jadual", id);
+      await deleteDoc(jadualRef);
+    } catch {}
+    console.log(`[ScheduleSync] 🗑️ Deleted schedule ${id} from Firebase Database.`);
+    return true;
+  } catch (err: any) {
+    console.warn(`[ScheduleSync] Firebase Database delete warning (${id}):`, err?.message || err);
+    return false;
+  }
+}
+
 export {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -133,7 +175,9 @@ export {
   collection,
   getDocs,
   doc,
-  setDoc
+  setDoc,
+  deleteDoc
 };
 export type { User, Firestore };
+
 
