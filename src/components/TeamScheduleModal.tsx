@@ -760,7 +760,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             notes: finalNotes,
             status: finalStatus,
             sendPushNotification,
-            token
+            token,
+            pin: "frozen888"
           })
         });
         if (updateRes.ok) {
@@ -819,7 +820,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             "Content-Type": "application/json",
             ...(token ? { "Authorization": `Bearer ${token}` } : {})
           },
-          body: JSON.stringify({ id: targetIdToDelete, token })
+          body: JSON.stringify({ id: targetIdToDelete, token, pin: "frozen888" })
         });
         if (delRes.ok) {
           const resData = await delRes.json();

@@ -1,11 +1,11 @@
 /**
  * Service Worker for FrozenBergerak PWA
- * Version: 1.0.0
+ * Version: 2.1.0 (Auto-updating cache)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v4';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v4';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v4';
+const CACHE_NAME = 'frozenbergerak-static-v6';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v6';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v6';
 
 const STATIC_ASSETS = [
   '/',
@@ -20,24 +20,26 @@ const STATIC_ASSETS = [
   '/icons/apple-touch-icon.png'
 ];
 
-// Install Event - Pre-cache core shell
+// Install Event - Pre-cache core shell & skip waiting immediately
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
         console.warn('SW pre-cache warning:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
-// Activate Event - Clean old caches
+// Activate Event - Clean old caches immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keyList) => {
       return Promise.all(
         keyList.map((key) => {
           if (key !== CACHE_NAME && key !== DATA_CACHE_NAME && key !== IMAGE_CACHE_NAME) {
+            console.log('SW deleting outdated cache:', key);
             return caches.delete(key);
           }
         })
@@ -104,13 +106,36 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 3. Navigation and App Shell (HTML, JS, CSS, Fonts)
-  // Strategy: Network-First with cache fallback for navigation, Cache-First for versioned assets
-  if (event.request.mode === 'navigate') {
+  // Strategy: Network-First with cache fallback so mobile browsers always pull the latest version immediately
+  if (event.request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname === '/') {
     event.respondWith(
       fetch(event.request)
-        .catch(() => {
-          return caches.match('/index.html') || caches.match('/');
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
         })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => cached || caches.match('/index.html') || caches.match('/'));
+        })
+    );
+    return;
+  }
+
+  // Network-First for dynamic scripts and stylesheets
+  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css') || url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }

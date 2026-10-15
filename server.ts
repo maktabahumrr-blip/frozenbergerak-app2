@@ -3474,10 +3474,12 @@ app.get("/api/schedule", async (req: Request, res: Response) => {
   try {
     const customSheet = req.query.sheet ? String(req.query.sheet).trim() : undefined;
     const fetchResult = await fetchScheduleFromGoogleSheet(customSheet);
+    const deletedIds = loadDeletedScheduleIds();
     res.json({
       schedules: fetchResult.schedules,
       total: fetchResult.schedules.length,
       source: fetchResult.source,
+      deletedIds,
       webAppUrl: getAppsScriptUrl(),
       webAppStatus: fetchResult.webAppStatus,
       webAppError: fetchResult.webAppError || null,
@@ -3487,10 +3489,12 @@ app.get("/api/schedule", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     const fallback = loadSchedule();
+    const deletedIds = loadDeletedScheduleIds();
     res.status(200).json({
       schedules: fallback,
       total: fallback.length,
       source: "local_cache",
+      deletedIds,
       webAppStatus: "error",
       webAppError: error.message || "Gagal membaca data jadual dari Web App.",
       hasGoogleSheetId: Boolean(process.env.GOOGLE_SHEET_ID && process.env.GOOGLE_SHEET_ID.trim()),
@@ -3498,6 +3502,11 @@ app.get("/api/schedule", async (req: Request, res: Response) => {
       lastUpdated: new Date().toISOString()
     });
   }
+});
+
+// Get Deleted Schedule IDs (Public endpoint for client syncing)
+app.get("/api/schedule/deleted-ids", (_req: Request, res: Response) => {
+  res.json({ deletedIds: loadDeletedScheduleIds() });
 });
 
 // Force Sync from Google Sheets tab JADUAL (Protected for Admin/Team)

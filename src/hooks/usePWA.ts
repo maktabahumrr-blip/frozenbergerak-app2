@@ -33,24 +33,68 @@ export function usePWA() {
     setIsIOS(isIosDevice);
     setIsAndroid(isAndroidDevice);
 
-    // Register Service Worker reliably on startup
+    // Clean up outdated Service Worker caches and register/update freshest version immediately
     if ("serviceWorker" in navigator) {
-      const registerSW = () => {
-        navigator.serviceWorker
-          .register("/sw.js", { scope: "/" })
-          .then((registration) => {
-            registration.update();
-            console.log("FrozenBergerak Service Worker registered with scope:", registration.scope);
-          })
-          .catch((error) => {
-            console.warn("Service Worker registration failed:", error);
+      // 1. Purge outdated SW caches so mobile browsers pull fresh assets
+      if ("caches" in window) {
+        caches.keys().then((cacheNames) => {
+          const currentVersion = "v6";
+          cacheNames.forEach((name) => {
+            if (!name.includes(currentVersion)) {
+              console.log(`[PWA] Removing outdated cache: ${name}`);
+              caches.delete(name).catch(() => {});
+            }
           });
+        }).catch(() => {});
+      }
+
+      // 2. Unregister any stale SW registrations and update active SW
+      const registerAndUpdateSW = async () => {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            // Unregister obsolete service workers with non-root scopes or wrong script URLs
+            const scriptURL = reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || "";
+            if (scriptURL && !scriptURL.endsWith("/sw.js")) {
+              console.log("[PWA] Unregistering obsolete service worker:", scriptURL);
+              await reg.unregister().catch(() => {});
+            } else {
+              // Force update to fetch latest sw.js from server
+              await reg.update().catch(() => {});
+            }
+          }
+
+          // Register or refresh primary service worker
+          const primaryReg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+          primaryReg.update().catch(() => {});
+
+          // If a new worker is found waiting, prompt skipWaiting immediately
+          if (primaryReg.waiting) {
+            primaryReg.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
+
+          primaryReg.onupdatefound = () => {
+            const installingWorker = primaryReg.installing;
+            if (installingWorker) {
+              installingWorker.onstatechange = () => {
+                if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+                  installingWorker.postMessage({ type: "SKIP_WAITING" });
+                  console.log("[PWA] New version installed and activated.");
+                }
+              };
+            }
+          };
+
+          console.log("[PWA] Service Worker verified and active on scope:", primaryReg.scope);
+        } catch (error) {
+          console.warn("[PWA] Service Worker registration/update notice:", error);
+        }
       };
 
       if (document.readyState === "complete" || document.readyState === "interactive") {
-        registerSW();
+        registerAndUpdateSW();
       } else {
-        window.addEventListener("load", registerSW);
+        window.addEventListener("load", registerAndUpdateSW);
       }
     }
 

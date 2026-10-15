@@ -238,88 +238,119 @@ async function fetchGoogleSheetsJadualCsv(sheetId: string): Promise<ScheduleItem
 export async function fetchScheduleWithFallback(customSheetUrlOrId?: string): Promise<ScheduleFetchResult> {
   console.log("[ScheduleSync] 🔄 Memulakan pengambilan data jadual pergerakan...");
 
-  // RULE 2: Non-blocking Firebase check. Public visitors are NEVER blocked by Firebase.
-  try {
-    const firestoreSchedules = await fetchSchedulesFromFirestore();
-    if (firestoreSchedules && firestoreSchedules.length > 0) {
-      console.log(`[ScheduleSync] ✅ Data jadual berjaya dimuatkan dari Firebase Database (${firestoreSchedules.length} rekod).`);
-      return {
-        schedules: firestoreSchedules,
-        source: "firebase_database",
-        isFallback: false
-      };
-    }
-    console.warn("[ScheduleSync] ℹ️ Firebase Database tiada rekod atau kosong. Meneruskan ke Google Sheets tab JADUAL sebagai sandaran...");
-  } catch (firebaseErr: any) {
-    console.warn("[ScheduleSync] ⚠️ Ralat Firebase Database (tidak menghalang akses awam):", firebaseErr?.message || firebaseErr);
-  }
-
-  // RULE 1: Read Schedule data directly from Google Sheets API / CSV URL
   let sheetId = "";
   try {
     const customSheet = customSheetUrlOrId || (typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "");
     sheetId = extractGoogleSheetId(customSheet);
   } catch {}
 
-  // 1. Try server endpoint /api/schedule
+  // 1. Fetch server state first (/api/schedule) to get live schedules AND globally deleted IDs
+  let serverDeletedIds: string[] = [];
   try {
-    console.log("[ScheduleSync] 🌐 Mengambil data jadual dari pelayan (/api/schedule)...");
+    console.log("[ScheduleSync] 🌐 Menyegerakkan data jadual & rekod pemadaman global dari pelayan (/api/schedule)...");
     const queryParam = sheetId ? `?sheet=${encodeURIComponent(sheetId)}` : "";
     const res = await fetch(`/api/schedule${queryParam}`, { signal: AbortSignal.timeout(4000) });
     
     if (res.ok) {
       const data = await res.json();
-      if (data && Array.isArray(data.schedules) && data.schedules.length > 0) {
-        console.log(`[ScheduleSync] ✅ Data jadual berjaya disegerakkan dari pelayan (${data.schedules.length} rekod, sumber: ${data.source}).`);
+      if (Array.isArray(data.deletedIds)) {
+        serverDeletedIds = data.deletedIds;
+        // Purge any deleted items from local storage immediately
         try {
-          localStorage.setItem("frozen_schedules", JSON.stringify(data.schedules));
+          const cached = localStorage.getItem("frozen_schedules");
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              const purged = parsed.filter((item: any) => !serverDeletedIds.includes(item.id));
+              localStorage.setItem("frozen_schedules", JSON.stringify(purged));
+            }
+          }
         } catch {}
-        return {
-          schedules: data.schedules,
-          source: (data.source === "google_apps_script" || data.source === "google_sheet_jadual") 
-            ? data.source 
-            : "local_cache",
-          isFallback: false
-        };
+      }
+
+      if (data && Array.isArray(data.schedules)) {
+        const filtered = data.schedules.filter((s: any) => !serverDeletedIds.includes(s.id));
+        console.log(`[ScheduleSync] ✅ Data jadual berjaya disegerakkan dari pelayan (${filtered.length} rekod, sumber: ${data.source}).`);
+        try {
+          localStorage.setItem("frozen_schedules", JSON.stringify(filtered));
+        } catch {}
+
+        if (filtered.length > 0) {
+          return {
+            schedules: filtered,
+            source: (data.source === "google_apps_script" || data.source === "google_sheet_jadual") 
+              ? data.source 
+              : "local_cache",
+            isFallback: false
+          };
+        }
       }
     }
   } catch (serverErr: any) {
     console.warn("[ScheduleSync] ⚠️ Ralat semasa memanggil /api/schedule:", serverErr?.message || serverErr);
   }
 
-  // 2. Try direct client-side Google Sheets CSV fetch for tab 'JADUAL'
+  // 2. Non-blocking Firebase check (if server schedules were empty or offline)
+  try {
+    const firestoreSchedules = await fetchSchedulesFromFirestore();
+    if (firestoreSchedules && firestoreSchedules.length > 0) {
+      const filteredFirestore = firestoreSchedules.filter(s => !serverDeletedIds.includes(s.id));
+      if (filteredFirestore.length > 0) {
+        console.log(`[ScheduleSync] ✅ Data jadual berjaya dimuatkan dari Firebase Database (${filteredFirestore.length} rekod).`);
+        try {
+          localStorage.setItem("frozen_schedules", JSON.stringify(filteredFirestore));
+        } catch {}
+        return {
+          schedules: filteredFirestore,
+          source: "firebase_database",
+          isFallback: false
+        };
+      }
+    }
+    console.warn("[ScheduleSync] ℹ️ Firebase Database tiada rekod atau kosong. Meneruskan ke Google Sheets tab JADUAL sebagai sandaran...");
+  } catch (firebaseErr: any) {
+    console.warn("[ScheduleSync] ⚠️ Ralat Firebase Database (tidak menghalang akses awam):", firebaseErr?.message || firebaseErr);
+  }
+
+  // 3. Try direct client-side Google Sheets CSV fetch for tab 'JADUAL'
   if (sheetId) {
     try {
       console.log(`[ScheduleSync] 📊 Mencuba membaca tab JADUAL secara terus dari Google Sheet ID: ${sheetId}...`);
       const directItems = await fetchGoogleSheetsJadualCsv(sheetId);
       if (directItems && directItems.length > 0) {
-        console.log(`[ScheduleSync] ✅ Berjaya membaca ${directItems.length} rekod dari Google Sheets tab JADUAL secara terus.`);
-        try {
-          localStorage.setItem("frozen_schedules", JSON.stringify(directItems));
-        } catch {}
-        return {
-          schedules: directItems,
-          source: "google_sheet_jadual",
-          isFallback: false
-        };
+        const filteredDirect = directItems.filter(s => !serverDeletedIds.includes(s.id));
+        if (filteredDirect.length > 0) {
+          console.log(`[ScheduleSync] ✅ Berjaya membaca ${filteredDirect.length} rekod dari Google Sheets tab JADUAL secara terus.`);
+          try {
+            localStorage.setItem("frozen_schedules", JSON.stringify(filteredDirect));
+          } catch {}
+          return {
+            schedules: filteredDirect,
+            source: "google_sheet_jadual",
+            isFallback: false
+          };
+        }
       }
     } catch (directErr: any) {
       console.warn("[ScheduleSync] ⚠️ Ralat membaca Google Sheets CSV tab JADUAL:", directErr?.message || directErr);
     }
   }
 
-  // Check locally saved schedules from previous sessions
+  // 4. Check locally saved schedules from previous sessions (with deleted IDs filtered out)
   try {
     const saved = localStorage.getItem("frozen_schedules");
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        console.log(`[ScheduleSync] 📦 Menggunakan jadual yang disimpan dalam memori tempatan (${parsed.length} rekod).`);
-        return {
-          schedules: parsed,
-          source: "local_cache",
-          isFallback: false
-        };
+        const cleanSaved = parsed.filter((s: any) => !serverDeletedIds.includes(s.id));
+        if (cleanSaved.length > 0) {
+          console.log(`[ScheduleSync] 📦 Menggunakan jadual yang disimpan dalam memori tempatan (${cleanSaved.length} rekod).`);
+          return {
+            schedules: cleanSaved,
+            source: "local_cache",
+            isFallback: false
+          };
+        }
       }
     }
   } catch {}
