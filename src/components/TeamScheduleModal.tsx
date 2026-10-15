@@ -40,8 +40,12 @@ import {
   signOut as firebaseSignOut, 
   sendPasswordResetEmail, 
   updatePassword as firebaseUpdatePassword,
-  onAuthStateChanged
+  onAuthStateChanged,
+  db,
+  doc,
+  setDoc
 } from "../lib/firebase";
+import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
 
 interface TeamScheduleModalProps {
   isOpen: boolean;
@@ -217,7 +221,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     });
   };
 
-  const fetchScheduleList = () => {
+  const fetchScheduleList = async () => {
+    try {
+      const result = await fetchScheduleWithFallback();
+      if (result.schedules && result.schedules.length > 0) {
+        setAllSchedules(result.schedules);
+        return;
+      }
+    } catch {}
+
     try {
       const saved = localStorage.getItem("frozen_schedules");
       if (saved) {
@@ -722,6 +734,16 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         return updated;
       });
 
+      // Save to Firebase Database (Firestore) if db is initialized
+      if (db) {
+        try {
+          await setDoc(doc(db, "schedules", scheduleId), newScheduleObj, { merge: true });
+          console.log("[ScheduleSync] ✅ Rekod jadual disimpan ke Firebase Database:", scheduleId);
+        } catch (fbErr: any) {
+          console.warn("[ScheduleSync] ℹ️ Simpanan ke Firebase Database dilepaskan:", fbErr?.message || fbErr);
+        }
+      }
+
       if (webAppResult.success) {
         setSubmitSuccess(`Jadual pergerakan berjaya disimpan & disegerakkan ke Google Sheets tab JADUAL`);
         setTimeout(() => setSubmitSuccess(null), 3500);
@@ -780,18 +802,27 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Sync fresh from Google Sheets tab JADUAL
+  // Sync fresh from Google Sheets tab JADUAL / Firebase Database
   const handleSyncFromSheets = async () => {
     setIsSyncing(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      fetchScheduleList();
+      const result = await fetchScheduleWithFallback();
+      if (result.schedules && result.schedules.length > 0) {
+        setAllSchedules(result.schedules);
+      }
       onScheduleUpdated();
-      setSubmitSuccess("Jadual disegerakkan.");
-      setTimeout(() => setSubmitSuccess(null), 3000);
-    } catch {
-      setSubmitError("Gagal menyegerakkan data jadual buat masa ini.");
+      if (result.source === "firebase_database") {
+        setSubmitSuccess(`Berjaya menyegerakkan ${result.schedules.length} rekod dari Firebase Database.`);
+      } else if (result.source === "google_apps_script" || result.source === "google_sheet_jadual") {
+        setSubmitSuccess(`Berjaya menyegerakkan ${result.schedules.length} rekod terus dari Google Sheets tab JADUAL!`);
+      } else {
+        setSubmitSuccess("Jadual disegerakkan menggunakan jadual aktif sandaran.");
+      }
+      setTimeout(() => setSubmitSuccess(null), 3500);
+    } catch (err: any) {
+      setSubmitError(err?.message || "Gagal menyegerakkan data jadual buat masa ini.");
     } finally {
       setIsSyncing(false);
     }

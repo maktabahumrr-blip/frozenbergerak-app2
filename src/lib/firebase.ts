@@ -9,6 +9,15 @@ import {
   updatePassword,
   User
 } from "firebase/auth";
+import { 
+  getFirestore, 
+  collection, 
+  getDocs, 
+  doc, 
+  setDoc,
+  Firestore 
+} from "firebase/firestore";
+import { ScheduleItem } from "../types";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyDj2prRasRQ35xLzmxCbxJj2X0APh0gWIg",
@@ -24,12 +33,107 @@ export const firebaseConfig = {
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+// Initialize Firestore safely without crashing if offline or unavailable
+let firestoreDb: Firestore | null = null;
+try {
+  firestoreDb = getFirestore(app);
+} catch (err) {
+  console.warn("[Firebase] Firestore initialization warning:", err);
+}
+export const db = firestoreDb;
+
+/**
+ * Fetch schedule records from Firebase Firestore with a quick timeout.
+ * Crucial rule: Firebase never blocks public access or throws uncaught exceptions.
+ * If empty or permissions error occurs, returns [] gracefully so caller falls back to Google Sheets.
+ */
+export async function fetchSchedulesFromFirestore(): Promise<ScheduleItem[]> {
+  if (!db) {
+    console.log("[ScheduleSync] Firestore db is not initialized. Skipping Firestore.");
+    return [];
+  }
+
+  try {
+    console.log("[ScheduleSync] Checking Firebase Database for schedule data...");
+    
+    // Quick timeout to guarantee non-blocking access for public customers
+    const timeoutPromise = new Promise<ScheduleItem[]>((resolve) => {
+      setTimeout(() => resolve([]), 2500);
+    });
+
+    const fetchPromise = async (): Promise<ScheduleItem[]> => {
+      // 1. Try 'schedules' collection
+      const schedulesColl = collection(db!, "schedules");
+      const schedSnap = await getDocs(schedulesColl);
+      if (!schedSnap.empty) {
+        const items: ScheduleItem[] = [];
+        schedSnap.forEach((d) => {
+          const data = d.data();
+          items.push({
+            id: d.id || data.id || `JAD-${items.length + 1}`,
+            teamName: data.teamName || data.namaTeam || data.driverName || "Team Frozen 1",
+            driverName: data.driverName || data.teamName || data.namaTeam || "Team Frozen 1",
+            date: data.date || data.tarikh || "Hari Ini",
+            timeSlot: data.timeSlot || data.masa || "Waktu Operasi",
+            locations: data.locations || data.kawasan || "",
+            notes: data.notes || data.catatan || "",
+            status: data.status || "Sedang Bergerak",
+            lastUpdated: data.lastUpdated || new Date().toISOString()
+          });
+        });
+        return items;
+      }
+
+      // 2. Try 'jadual' collection
+      const jadualColl = collection(db!, "jadual");
+      const jadualSnap = await getDocs(jadualColl);
+      if (!jadualSnap.empty) {
+        const items: ScheduleItem[] = [];
+        jadualSnap.forEach((d) => {
+          const data = d.data();
+          items.push({
+            id: d.id || data.id || data.idJadual || `JAD-${items.length + 1}`,
+            teamName: data.namaTeam || data.teamName || data.driverName || "Team Frozen 1",
+            driverName: data.namaTeam || data.teamName || data.driverName || "Team Frozen 1",
+            date: data.tarikh || data.date || "Hari Ini",
+            timeSlot: data.masa || data.timeSlot || "Waktu Operasi",
+            locations: data.kawasan || data.locations || "",
+            notes: data.catatan || data.notes || "",
+            status: data.status || "Sedang Bergerak",
+            lastUpdated: data.lastUpdated || new Date().toISOString()
+          });
+        });
+        return items;
+      }
+
+      return [];
+    };
+
+    const results = await Promise.race([fetchPromise(), timeoutPromise]);
+    if (results && results.length > 0) {
+      console.log(`[ScheduleSync] ✅ Loaded ${results.length} schedule records from Firebase Database.`);
+      return results;
+    }
+
+    console.warn("[ScheduleSync] ℹ️ Firebase Database is empty. Proceeding to Google Sheets fallback...");
+    return [];
+  } catch (err: any) {
+    console.warn("[ScheduleSync] Firebase Database read skipped or error encountered:", err?.message || err);
+    return [];
+  }
+}
+
 export {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
-  updatePassword
+  updatePassword,
+  collection,
+  getDocs,
+  doc,
+  setDoc
 };
-export type { User };
+export type { User, Firestore };
+

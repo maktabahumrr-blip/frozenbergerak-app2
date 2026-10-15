@@ -526,6 +526,7 @@ function getTodayMalayDate(): string {
 }
 
 function loadSchedule(): ScheduleRecord[] {
+  const todayStr = getTodayMalayDate();
   if (fs.existsSync(SCHEDULE_FILE)) {
     try {
       const data = JSON.parse(fs.readFileSync(SCHEDULE_FILE, "utf-8"));
@@ -534,7 +535,7 @@ function loadSchedule(): ScheduleRecord[] {
           id: item.id || `JAD-${Date.now().toString().slice(-4)}`,
           teamName: item.teamName || item.driverName || "Team Frozen 1",
           driverName: item.teamName || item.driverName || "Team Frozen 1",
-          date: item.date || `Hari Ini (${getTodayMalayDate()})`,
+          date: item.date && !item.date.includes("September 2026") && !item.date.includes("2025") ? item.date : `Hari Ini (${todayStr})`,
           timeSlot: item.timeSlot || item.masa || "Waktu Operasi",
           locations: item.locations || item.kawasan || "",
           notes: item.notes || item.catatan || "",
@@ -547,28 +548,49 @@ function loadSchedule(): ScheduleRecord[] {
     }
   }
 
-  const todayStr = `Hari Ini (${getTodayMalayDate()})`;
   const initialSchedules: ScheduleRecord[] = [
     {
       id: "JAD-01",
-      teamName: "Team Frozen 1",
-      driverName: "Team Frozen 1",
-      date: todayStr,
-      timeSlot: "Sesi Pagi (9:00 PG - 1:00 PTG)",
-      locations: "Seremban 2 • Rasah Kemayan • Sendayan • Mambau",
+      teamName: "Team Putrajaya & Cyberjaya",
+      driverName: "Team Putrajaya & Cyberjaya",
+      date: `Hari Ini (${todayStr})`,
+      timeSlot: "10:00 PG - 1:00 PTG",
+      locations: "Kawasan Putrajaya & Cyberjaya (Presint 1-18, Cyberia, Shaftsbury)",
       status: "Sedang Bergerak",
-      notes: "Team kini sedang bergerak di sekitar Seremban 2! Boleh WhatsApp untuk buat pesanan terus ke rumah.",
+      notes: "Sedia menghantar kambing perap, oden & dim sum panas ke pintu rumah",
       lastUpdated: new Date().toISOString()
     },
     {
       id: "JAD-02",
-      teamName: "Team Frozen 2",
-      driverName: "Team Frozen 2",
-      date: todayStr,
-      timeSlot: "Sesi Petang (3:00 PTG - 7:00 MLM)",
-      locations: "Senawang • Lavender Heights • Taman Tuanku Jaafar • Rahang",
+      teamName: "Team Bangi & Kajang",
+      driverName: "Team Bangi & Kajang",
+      date: `Hari Ini (${todayStr})`,
+      timeSlot: "2:00 PTG - 5:00 PTG",
+      locations: "Kawasan Bangi & Kajang (Bandar Baru Bangi, Sg Chua, Prima Saujana)",
       status: "Akan Datang",
-      notes: "Slot petang dibuka untuk pesanan awal. Stok Kambing Perap & Karipap Pusing tersedia!",
+      notes: "Slot petang dibuka untuk penghantaran kawasan kediaman",
+      lastUpdated: new Date().toISOString()
+    },
+    {
+      id: "JAD-03",
+      teamName: "Team Shah Alam & Subang",
+      driverName: "Team Shah Alam & Subang",
+      date: `Hari Ini (${todayStr})`,
+      timeSlot: "5:30 PTG - 8:30 MLM",
+      locations: "Kawasan Shah Alam & Subang (Seksyen 7, 9, 13, USJ, Subang Jaya)",
+      status: "Akan Datang",
+      notes: "Sesi petang/malam untuk persiapan makan malam & bekalan hujung minggu",
+      lastUpdated: new Date().toISOString()
+    },
+    {
+      id: "JAD-04",
+      teamName: "Team Seremban & Nilai",
+      driverName: "Team Seremban & Nilai",
+      date: `Hari Ini (${todayStr})`,
+      timeSlot: "9:30 PG - 12:30 TGH",
+      locations: "Kawasan Seremban & Nilai (Bandar Ainsdale, Senawang, Bandar Baru Nilai)",
+      status: "Selesai",
+      notes: "Laluan sesi pagi telah selesai. Pesanan seterusnya dihantar pada pusingan esok.",
       lastUpdated: new Date().toISOString()
     }
   ];
@@ -813,7 +835,7 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
 }
 
 // Fetch live schedules from Google Sheet tab JADUAL (with Apps Script priority)
-async function fetchScheduleFromGoogleSheet(): Promise<ScheduleFetchResult> {
+async function fetchScheduleFromGoogleSheet(customSheetIdOrUrl?: string): Promise<ScheduleFetchResult> {
   // 1. Try Google Apps Script Web App first
   const appsScriptResult = await fetchScheduleFromAppsScript();
   if (appsScriptResult && appsScriptResult.schedules.length > 0) {
@@ -826,8 +848,8 @@ async function fetchScheduleFromGoogleSheet(): Promise<ScheduleFetchResult> {
 
   const appsScriptError = appsScriptResult?.error;
 
-  // 2. Try Google Sheet ID Public CSV if GOOGLE_SHEET_ID is set
-  const sheetIdRaw = process.env.GOOGLE_SHEET_ID;
+  // 2. Try Google Sheet ID Public CSV if customSheetIdOrUrl or GOOGLE_SHEET_ID is set
+  const sheetIdRaw = customSheetIdOrUrl || process.env.GOOGLE_SHEET_ID;
   if (sheetIdRaw && sheetIdRaw.trim()) {
     const sheetId = extractSheetId(sheetIdRaw);
     const tabNames = ["JADUAL", "jadual", "Jadual", "JADUAL_PERGERAKAN", "SCHEDULE"];
@@ -3352,9 +3374,10 @@ app.post("/api/auth/roles", requireAdminOnlyAuth, (req: Request, res: Response) 
 
 // Get Active Schedules (Public / Read-only for all customers)
 // Columns: ID JADUAL | NAMA TEAM | TARIKH | MASA | KAWASAN | CATATAN | STATUS
-app.get("/api/schedule", async (_req: Request, res: Response) => {
+app.get("/api/schedule", async (req: Request, res: Response) => {
   try {
-    const fetchResult = await fetchScheduleFromGoogleSheet();
+    const customSheet = req.query.sheet ? String(req.query.sheet).trim() : undefined;
+    const fetchResult = await fetchScheduleFromGoogleSheet(customSheet);
     res.json({
       schedules: fetchResult.schedules,
       total: fetchResult.schedules.length,

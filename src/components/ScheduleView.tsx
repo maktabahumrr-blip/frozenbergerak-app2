@@ -13,7 +13,8 @@ import {
   RefreshCw,
   Truck,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  AlertCircle
 } from "lucide-react";
 import { ScheduleItem, StoreConfig } from "../types";
 import { TeamScheduleModal } from "./TeamScheduleModal";
@@ -25,6 +26,7 @@ import {
   sendTestPushNotification
 } from "../utils/pushNotifications";
 import { getFilteredTodaySchedules, getTodayDateInfo } from "../utils/scheduleDateHelper";
+import { fetchScheduleWithFallback, getDynamicFallbackSchedules } from "../utils/scheduleFetcher";
 
 interface ScheduleViewProps {
   storeConfig: StoreConfig | null;
@@ -38,10 +40,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
   const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
-  // Schedule & Push Notification States
-  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  // Schedule & Push Notification States - initialized with rich sample fallback so UI is immediately active
+  const [schedules, setSchedules] = useState<ScheduleItem[]>(() => getDynamicFallbackSchedules());
   const [isScheduleLoading, setIsScheduleLoading] = useState<boolean>(false);
-  const [scheduleSource, setScheduleSource] = useState<string>("local_cache");
+  const [scheduleSource, setScheduleSource] = useState<string>("sample_fallback");
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState<boolean>(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
   const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(false);
@@ -52,42 +55,37 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   // Dynamic automatic date calculation for today
   const todayInfo = useMemo(() => getTodayDateInfo(), []);
   const todaySchedules = useMemo(() => getFilteredTodaySchedules(schedules, 10), [schedules]);
+  const displayedSchedules = useMemo(() => {
+    if (todaySchedules.length > 0) return todaySchedules;
+    if (schedules.length > 0) return schedules;
+    return getDynamicFallbackSchedules();
+  }, [todaySchedules, schedules]);
 
   // Pending Team Approvals state for Admin alert
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
   const [teamModalInitialTab, setTeamModalInitialTab] = useState<"manage" | "approvals">("manage");
 
-  const loadSchedules = () => {
+  const loadSchedules = async () => {
     setIsScheduleLoading(true);
-    fetch("/api/schedule")
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const text = await res.text();
-        if (!text) return null;
-        const trimmed = text.trim();
-        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-          return null;
-        }
-        try {
-          return JSON.parse(trimmed);
-        } catch {
-          return null;
-        }
-      })
-      .then((data) => {
-        if (data && data.schedules && Array.isArray(data.schedules) && data.schedules.length > 0) {
-          setSchedules(data.schedules);
-        }
-        if (data && data.source) {
-          setScheduleSource(data.source);
-        }
-      })
-      .catch(() => {
-        // Silently preserve existing data without throwing raw error to users
-      })
-      .finally(() => {
-        setIsScheduleLoading(false);
-      });
+    setSyncWarning(null);
+
+    try {
+      const result = await fetchScheduleWithFallback();
+      if (result.schedules && result.schedules.length > 0) {
+        setSchedules(result.schedules);
+      }
+      setScheduleSource(result.source);
+      if (result.warning) {
+        setSyncWarning(result.warning);
+      }
+    } catch (err: any) {
+      console.error("[ScheduleView] Error loading schedules with fallback:", err);
+      setSyncWarning("Ralat semasa menyegerakkan jadual. Memaparkan jadual pergerakan sandaran.");
+      setSchedules(getDynamicFallbackSchedules());
+      setScheduleSource("sample_fallback");
+    } finally {
+      setIsScheduleLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -255,6 +253,28 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
         </div>
       </div>
 
+      {/* Sync Warning Notice if Google Sheets sync fails or is falling back */}
+      {syncWarning && (
+        <div className="p-4 bg-amber-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 text-xs shadow-2xs">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5 sm:mt-0" />
+            <div>
+              <span className="font-bold block sm:inline mr-1.5">Penyegerakan Jadual:</span>
+              <span className="text-amber-800">{syncWarning}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={loadSchedules}
+            disabled={isScheduleLoading}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all self-end sm:self-auto cursor-pointer flex-shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isScheduleLoading ? "animate-spin" : ""}`} />
+            <span>Segerak Semula</span>
+          </button>
+        </div>
+      )}
+
       {/* Main Schedule Content List */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-5">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -264,11 +284,34 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             </div>
             <div>
               <h2 className="font-bold text-slate-900 text-lg tracking-tight">
-                Laluan &amp; Sesi Hari Ini ({todayInfo.formattedShort})
+                {todaySchedules.length > 0 
+                  ? `Laluan & Sesi Hari Ini (${todayInfo.formattedShort})`
+                  : `Jadual Pergerakan Pasukan (${displayedSchedules.length} Laluan)`}
               </h2>
-              <span className="text-xs text-slate-500">
-                Data diselaraskan secara langsung bersama tab JADUAL Google Sheets.
-              </span>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <span className="text-xs text-slate-500">
+                  {scheduleSource === "firebase_database" 
+                    ? "Data diselaraskan bersama Firebase Database."
+                    : scheduleSource === "sample_fallback"
+                    ? "Memaparkan jadual pergerakan sandaran aktif."
+                    : "Data diselaraskan secara langsung bersama tab JADUAL Google Sheets."}
+                </span>
+                {scheduleSource === "sample_fallback" && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                    Mod Sandaran Aktif
+                  </span>
+                )}
+                {scheduleSource === "firebase_database" && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                    Firebase DB
+                  </span>
+                )}
+                {(scheduleSource === "google_sheet_jadual" || scheduleSource === "google_apps_script") && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Google Sheets Tab JADUAL
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -276,17 +319,17 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             type="button"
             onClick={loadSchedules}
             disabled={isScheduleLoading}
-            className="p-2 text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"
-            title="Muat semula jadual"
+            className="p-2 text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+            title="Muat semula jadual dari Firebase / Google Sheets"
           >
             <RefreshCw className={`w-4 h-4 ${isScheduleLoading ? "animate-spin text-blue-600" : ""}`} />
           </button>
         </div>
 
         {/* Schedule list */}
-        {todaySchedules.length > 0 ? (
+        {displayedSchedules.length > 0 ? (
           <div className="space-y-3.5">
-            {todaySchedules.map((item) => {
+            {displayedSchedules.map((item) => {
               const statusStr = String(item.status || "").toLowerCase();
               const isMoving = statusStr.includes("sedang") || statusStr.includes("bergerak");
               const isDone = statusStr.includes("selesai") || statusStr.includes("tamat");
