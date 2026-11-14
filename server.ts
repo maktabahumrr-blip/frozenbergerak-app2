@@ -647,7 +647,7 @@ function saveSchedule(items: ScheduleRecord[]) {
 }
 
 // Google Apps Script Web App URL for JADUAL tab synchronization
-const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwqmpIZqNqpSxLGW-baulbHN-6Z7iJbVzzAn_yyB8ytNag32l_1ksoAVRZqLBEAEyOw/exec";
+const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyaZor09_xe666Ii7sa2AR-Z3dYG0H2iOf-fgcxQkrl1vyI99XKJ9cPXJRJX68r1bNM/exec";
 
 function getAppsScriptUrl(): string {
   return process.env.GOOGLE_SHEET_WEBHOOK_URL?.trim() || 

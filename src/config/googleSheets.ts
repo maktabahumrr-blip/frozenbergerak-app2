@@ -4,4 +4,4 @@
  */
 export const GOOGLE_APPS_SCRIPT_WEB_APP_URL =
   import.meta.env.VITE_GOOGLE_APPS_SCRIPT_URL?.trim() ||
-  "https://script.google.com/macros/s/AKfycbwqmpIZqNqpSxLGW-baulbHN-6Z7iJbVzzAn_yyB8ytNag32l_1ksoAVRZqLBEAEyOw/exec";
+  "https://script.google.com/macros/s/AKfycbyaZor09_xe666Ii7sa2AR-Z3dYG0H2iOf-fgcxQkrl1vyI99XKJ9cPXJRJX68r1bNM/exec";
