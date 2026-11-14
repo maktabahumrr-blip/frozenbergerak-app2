@@ -72,8 +72,8 @@ export async function fetchSchedulesFromFirestore(): Promise<ScheduleItem[]> {
           const data = d.data();
           items.push({
             id: d.id || data.id || `JAD-${items.length + 1}`,
-            teamName: data.teamName || data.namaTeam || data.driverName || "Team Frozen 1",
-            driverName: data.driverName || data.teamName || data.namaTeam || "Team Frozen 1",
+            teamName: data.teamName || data.team || data.namaTeam || data.nama_team || data.driverName || "Team Frozen 1",
+            driverName: data.driverName || data.teamName || data.team || data.namaTeam || data.nama_team || "Team Frozen 1",
             date: data.date || data.tarikh || "Hari Ini",
             timeSlot: data.timeSlot || data.masa || "Waktu Operasi",
             locations: data.locations || data.kawasan || "",
@@ -94,8 +94,8 @@ export async function fetchSchedulesFromFirestore(): Promise<ScheduleItem[]> {
           const data = d.data();
           items.push({
             id: d.id || data.id || data.idJadual || `JAD-${items.length + 1}`,
-            teamName: data.namaTeam || data.teamName || data.driverName || "Team Frozen 1",
-            driverName: data.namaTeam || data.teamName || data.driverName || "Team Frozen 1",
+            teamName: data.namaTeam || data.teamName || data.team || data.nama_team || data.driverName || "Team Frozen 1",
+            driverName: data.namaTeam || data.teamName || data.team || data.nama_team || data.driverName || "Team Frozen 1",
             date: data.tarikh || data.date || "Hari Ini",
             timeSlot: data.masa || data.timeSlot || "Waktu Operasi",
             locations: data.kawasan || data.locations || "",

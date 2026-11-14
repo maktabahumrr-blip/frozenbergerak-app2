@@ -748,8 +748,8 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
                 const row = rawItems[i];
                 if (!Array.isArray(row) || row.length === 0 || row.every(c => !String(c).trim())) continue;
                 const id = (idIdx !== -1 && row[idIdx]) ? String(row[idIdx]).trim() : `JAD-${i.toString().padStart(2, '0')}`;
-                const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : "Team Frozen 1";
-                const teamName = String(rawTeam || "").replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
+                const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : (row.length > 1 && row[1] ? String(row[1]).trim() : "Team Frozen 1");
+                const teamName = String(rawTeam || "").replace(/\bvan\b\s*/gi, "Team ").trim() || "Team Frozen 1";
                 const date = (dateIdx !== -1 && row[dateIdx]) ? String(row[dateIdx]).trim() : "Hari Ini";
                 const timeSlot = (timeIdx !== -1 && row[timeIdx]) ? String(row[timeIdx]).trim() : "Waktu Operasi";
                 const locations = (locIdx !== -1 && row[locIdx]) ? String(row[locIdx]).trim() : "";
@@ -777,8 +777,8 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
                 if (!item || typeof item !== "object") continue;
 
                 const id = item["ID JADUAL"] || item["ID"] || item.id || item.id_jadual || `JAD-${(i + 1).toString().padStart(2, '0')}`;
-                const rawTeam = item["NAMA TEAM"] || item["TEAM"] || item.teamName || item.team || item.nama_team || item.driverName || "Team Frozen 1";
-                const teamName = String(rawTeam).replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
+                const rawTeam = item["NAMA TEAM"] || item["TEAM"] || item.teamName || item.team || item.namaTeam || item.nama_team || item.team_name || item.driverName || "Team Frozen 1";
+                const teamName = String(rawTeam).replace(/\bvan\b\s*/gi, "Team ").trim() || "Team Frozen 1";
                 const date = item["TARIKH"] || item["DATE"] || item.date || item.tarikh || item.hari || "Hari Ini";
                 const timeSlot = item["MASA"] || item["TIME"] || item.timeSlot || item.masa || item.waktu || item.slot || "Waktu Operasi";
                 const locations = item["KAWASAN"] || item["LOCATION"] || item.locations || item.kawasan || item.lokasi || item.laluan || "";
@@ -848,8 +848,8 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
               const row = rows[r];
               if (!row || row.length === 0 || row.every(cell => !cell.trim())) continue;
               const id = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : `JAD-${r.toString().padStart(2, '0')}`;
-              const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : "Team Frozen 1";
-              const teamName = String(rawTeam || "").replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
+              const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : (row.length > 1 && row[1] ? String(row[1]).trim() : "Team Frozen 1");
+              const teamName = String(rawTeam || "").replace(/\bvan\b\s*/gi, "Team ").trim() || "Team Frozen 1";
               const date = (dateIdx !== -1 && row[dateIdx]) ? String(row[dateIdx]).trim() : "Hari Ini";
               const timeSlot = (timeIdx !== -1 && row[timeIdx]) ? String(row[timeIdx]).trim() : "Waktu Operasi";
               const locations = (locIdx !== -1 && row[locIdx]) ? String(row[locIdx]).trim() : "";
@@ -969,8 +969,8 @@ async function fetchScheduleFromGoogleSheet(customSheetIdOrUrl?: string): Promis
             const id = (idIdx !== -1 && row[idIdx]?.trim()) ? row[idIdx].trim() : `JAD-${r.toString().padStart(2, '0')}`;
             if (deletedIds.includes(id)) continue;
 
-            const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : "Team Frozen 1";
-            const teamName = String(rawTeam || "").replace(/van\s*/gi, "Team ").trim() || "Team Frozen 1";
+            const rawTeam = (teamIdx !== -1 && row[teamIdx]) ? String(row[teamIdx]).trim() : (row.length > 1 && row[1] ? String(row[1]).trim() : "Team Frozen 1");
+            const teamName = String(rawTeam || "").replace(/\bvan\b\s*/gi, "Team ").trim() || "Team Frozen 1";
             const date = (dateIdx !== -1 && row[dateIdx]) ? String(row[dateIdx]).trim() : "Hari Ini";
             const timeSlot = (timeIdx !== -1 && row[timeIdx]) ? String(row[timeIdx]).trim() : "Waktu Operasi";
             const locations = (locIdx !== -1 && row[locIdx]) ? String(row[locIdx]).trim() : "";

@@ -363,7 +363,14 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               const isMoving = statusStr.includes("sedang") || statusStr.includes("bergerak");
               const isDone = statusStr.includes("selesai") || statusStr.includes("tamat");
               const isUpcoming = !isMoving && !isDone;
-              const hasTeamName = Boolean(item.teamName && item.teamName.trim());
+              const resolvedTeamName = String(
+                item.teamName ||
+                  (item as any).team ||
+                  (item as any).namaTeam ||
+                  item.driverName ||
+                  ""
+              ).trim();
+              const hasTeamName = Boolean(resolvedTeamName);
 
               return (
                 <div 
@@ -384,7 +391,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                       {hasTeamName && (
                         <span className="text-xs font-bold text-slate-700 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 flex items-center gap-1">
                           <Users className="w-3.5 h-3.5 text-blue-600" />
-                          {item.teamName}
+                          {resolvedTeamName}
                         </span>
                       )}
                     </div>

@@ -3,9 +3,9 @@
  * Version: 2.2.0 (Strict Live Schedule Sync & Auto-updating cache)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v7';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v7';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v7';
+const CACHE_NAME = 'frozenbergerak-static-v8';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v8';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v8';
 
 const STATIC_ASSETS = [
   '/',

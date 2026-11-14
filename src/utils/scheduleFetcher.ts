@@ -118,7 +118,13 @@ function parseScheduleRowsFromMatrix(rows: string[][]): ScheduleItem[] {
     if (!row || row.length === 0 || row.every((c) => !String(c).trim())) continue;
 
     const id = idIdx !== -1 && row[idIdx] ? String(row[idIdx]).trim() : `JAD-${r.toString().padStart(2, "0")}`;
-    const teamName = teamIdx !== -1 && row[teamIdx] ? String(row[teamIdx]).trim() : "Team Frozen 1";
+    const rawTeamVal =
+      teamIdx !== -1 && row[teamIdx]
+        ? String(row[teamIdx]).trim()
+        : row.length > 1 && row[1]
+        ? String(row[1]).trim()
+        : "";
+    const teamName = rawTeamVal || "Team Frozen 1";
     const date = dateIdx !== -1 && row[dateIdx] ? String(row[dateIdx]).trim() : "Hari Ini";
     const timeSlot = timeIdx !== -1 && row[timeIdx] ? String(row[timeIdx]).trim() : "Waktu Operasi";
     const locations = locIdx !== -1 && row[locIdx] ? String(row[locIdx]).trim() : "";
@@ -241,26 +247,9 @@ async function fetchDirectFromAppsScript(): Promise<{ schedules: ScheduleItem[];
           for (let i = 0; i < rawItems.length; i++) {
             const item = rawItems[i];
             if (!item || typeof item !== "object") continue;
-            const id = String(item["ID JADUAL"] || item["ID"] || item.id || item.idJadual || `JAD-${(i + 1).toString().padStart(2, "0")}`).trim();
-            const teamName = String(item["NAMA TEAM"] || item["TEAM"] || item.teamName || item.namaTeam || item.driverName || "Team Frozen 1").trim();
-            const date = String(item["TARIKH"] || item["DATE"] || item.date || item.tarikh || "Hari Ini").trim();
-            const timeSlot = String(item["MASA"] || item["TIME"] || item.timeSlot || item.masa || "Waktu Operasi").trim();
-            const locations = String(item["KAWASAN"] || item["LOCATION"] || item.locations || item.kawasan || "").trim();
-            const notes = String(item["CATATAN"] || item["NOTES"] || item.notes || item.catatan || "").trim();
-            const status = normalizeStatus(item["STATUS"] || item.status || "Sedang Bergerak");
-
-            if (locations) {
-              parsed.push({
-                id,
-                teamName,
-                driverName: teamName,
-                date,
-                timeSlot,
-                locations,
-                notes,
-                status,
-                lastUpdated: new Date().toISOString()
-              });
+            const normalized = normalizeScheduleObject(item, i);
+            if (normalized.locations) {
+              parsed.push(normalized);
             }
           }
           return { schedules: parsed, connected: true };
@@ -272,6 +261,45 @@ async function fetchDirectFromAppsScript(): Promise<{ schedules: ScheduleItem[];
   }
 
   return { schedules: [], connected: false };
+}
+
+function normalizeScheduleObject(item: any, index = 0): ScheduleItem {
+  const id = String(
+    item["ID JADUAL"] || item["ID"] || item.id || item.idJadual || item.id_jadual || `JAD-${(index + 1).toString().padStart(2, "0")}`
+  ).trim();
+  const resolvedTeam = String(
+    item["NAMA TEAM"] ||
+      item["TEAM"] ||
+      item.teamName ||
+      item.team ||
+      item.namaTeam ||
+      item.nama_team ||
+      item.team_name ||
+      item.driverName ||
+      ""
+  ).trim();
+  const teamName = resolvedTeam || "Team Frozen 1";
+  const date = String(item["TARIKH"] || item["DATE"] || item.date || item.tarikh || item.hari || "Hari Ini").trim();
+  const timeSlot = String(
+    item["MASA"] || item["TIME"] || item.timeSlot || item.masa || item.waktu || item.slot || "Waktu Operasi"
+  ).trim() || "Waktu Operasi";
+  const locations = String(
+    item["KAWASAN"] || item["LOCATION"] || item.locations || item.kawasan || item.lokasi || item.laluan || ""
+  ).trim();
+  const notes = String(item["CATATAN"] || item["NOTES"] || item.notes || item.catatan || item.nota || "").trim();
+  const status = normalizeStatus(item["STATUS"] || item.status || item.keadaan || "Sedang Bergerak");
+
+  return {
+    id,
+    teamName,
+    driverName: teamName,
+    date,
+    timeSlot,
+    locations,
+    notes,
+    status,
+    lastUpdated: item.lastUpdated || new Date().toISOString()
+  };
 }
 
 /**
@@ -315,7 +343,9 @@ export async function fetchScheduleWithFallback(customSheetUrlOrId?: string): Pr
         Array.isArray(data.schedules) &&
         (data.source === "google_apps_script" || data.source === "google_sheet_jadual")
       ) {
-        const filtered = data.schedules.filter((s: any) => !serverDeletedIds.includes(s.id));
+        const filtered = data.schedules
+          .map((s: any, idx: number) => normalizeScheduleObject(s, idx))
+          .filter((s: ScheduleItem) => !serverDeletedIds.includes(s.id));
         if (filtered.length > 0) {
           console.log(`[ScheduleSync] ✅ Data jadual langsung dimuatkan (${filtered.length} rekod, sumber: ${data.source}).`);
           return {
