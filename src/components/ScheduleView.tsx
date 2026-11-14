@@ -26,7 +26,7 @@ import {
   sendTestPushNotification
 } from "../utils/pushNotifications";
 import { getFilteredTodaySchedules, getTodayDateInfo } from "../utils/scheduleDateHelper";
-import { fetchScheduleWithFallback, getDynamicFallbackSchedules } from "../utils/scheduleFetcher";
+import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
 
 interface ScheduleViewProps {
   storeConfig: StoreConfig | null;
@@ -40,11 +40,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
   const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
-  // Schedule & Push Notification States - initialized with rich sample fallback so UI is immediately active
-  const [schedules, setSchedules] = useState<ScheduleItem[]>(() => getDynamicFallbackSchedules());
-  const [isScheduleLoading, setIsScheduleLoading] = useState<boolean>(false);
-  const [scheduleSource, setScheduleSource] = useState<string>("sample_fallback");
-  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  // Strict Live Schedule & Push Notification States (zero hardcoded mock schedules)
+  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [isScheduleLoading, setIsScheduleLoading] = useState<boolean>(true);
+  const [scheduleSource, setScheduleSource] = useState<string>("");
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState<boolean>(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
   const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(false);
@@ -57,8 +57,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   const todaySchedules = useMemo(() => getFilteredTodaySchedules(schedules, 10), [schedules]);
   const displayedSchedules = useMemo(() => {
     if (todaySchedules.length > 0) return todaySchedules;
-    if (schedules.length > 0) return schedules;
-    return getDynamicFallbackSchedules();
+    return schedules;
   }, [todaySchedules, schedules]);
 
   // Pending Team Approvals state for Admin alert
@@ -67,22 +66,22 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
 
   const loadSchedules = async () => {
     setIsScheduleLoading(true);
-    setSyncWarning(null);
+    setSyncError(null);
 
     try {
       const result = await fetchScheduleWithFallback();
-      if (result.schedules && result.schedules.length > 0) {
-        setSchedules(result.schedules);
-      }
+      setSchedules(Array.isArray(result.schedules) ? result.schedules : []);
       setScheduleSource(result.source);
-      if (result.warning) {
-        setSyncWarning(result.warning);
+      if (result.source === "sync_error" || result.error) {
+        setSyncError(result.error || "Gagal menyegerakkan jadual langsung daripada Google Sheets / Firebase.");
+      } else {
+        setSyncError(null);
       }
     } catch (err: any) {
-      console.error("[ScheduleView] Error loading schedules with fallback:", err);
-      setSyncWarning("Ralat semasa menyegerakkan jadual. Memaparkan jadual pergerakan sandaran.");
-      setSchedules(getDynamicFallbackSchedules());
-      setScheduleSource("sample_fallback");
+      console.error("[ScheduleView] Error loading live schedules:", err);
+      setSchedules([]);
+      setScheduleSource("sync_error");
+      setSyncError("Ralat semasa menyegerakkan jadual langsung. Sila cuba lagi.");
     } finally {
       setIsScheduleLoading(false);
     }
@@ -253,24 +252,24 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
         </div>
       </div>
 
-      {/* Sync Warning Notice if Google Sheets sync fails or is falling back */}
-      {syncWarning && (
-        <div className="p-4 bg-amber-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 text-xs shadow-2xs">
+      {/* Sync Error Notice if live Google Sheets / Firebase sync fails */}
+      {syncError && displayedSchedules.length > 0 && (
+        <div className="p-4 bg-rose-50 border border-rose-200/90 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-rose-900 text-xs shadow-2xs">
           <div className="flex items-start sm:items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5 sm:mt-0" />
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5 sm:mt-0" />
             <div>
-              <span className="font-bold block sm:inline mr-1.5">Penyegerakan Jadual:</span>
-              <span className="text-amber-800">{syncWarning}</span>
+              <span className="font-bold block sm:inline mr-1.5">Ralat Penyegerakan:</span>
+              <span className="text-rose-800">{syncError}</span>
             </div>
           </div>
           <button
             type="button"
             onClick={loadSchedules}
             disabled={isScheduleLoading}
-            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all self-end sm:self-auto cursor-pointer flex-shrink-0"
+            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all self-end sm:self-auto cursor-pointer flex-shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isScheduleLoading ? "animate-spin" : ""}`} />
-            <span>Segerak Semula</span>
+            <span>Cuba Lagi</span>
           </button>
         </div>
       )}
@@ -290,17 +289,14 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               </h2>
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 <span className="text-xs text-slate-500">
-                  {scheduleSource === "firebase_database" 
+                  {isScheduleLoading
+                    ? "Sedang menyegerakkan jadual langsung..."
+                    : scheduleSource === "firebase_database" 
                     ? "Data diselaraskan bersama Firebase Database."
-                    : scheduleSource === "sample_fallback"
-                    ? "Memaparkan jadual pergerakan sandaran aktif."
+                    : scheduleSource === "sync_error"
+                    ? "Gagal menyegerakkan jadual langsung dari pelayan."
                     : "Data diselaraskan secara langsung bersama tab JADUAL Google Sheets."}
                 </span>
-                {scheduleSource === "sample_fallback" && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                    Mod Sandaran Aktif
-                  </span>
-                )}
                 {scheduleSource === "firebase_database" && (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
                     Firebase DB
@@ -327,7 +323,40 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
         </div>
 
         {/* Schedule list */}
-        {displayedSchedules.length > 0 ? (
+        {isScheduleLoading && displayedSchedules.length === 0 ? (
+          <div className="p-10 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-3">
+            <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+              <RefreshCw className="w-6 h-6 animate-spin" />
+            </div>
+            <h3 className="font-bold text-base text-slate-800">
+              Menyegerakkan Jadual Langsung...
+            </h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+              Sedang mengambil data jadual pergerakan terkini daripada Google Sheets tab JADUAL dan Firebase.
+            </p>
+          </div>
+        ) : syncError && displayedSchedules.length === 0 ? (
+          <div className="p-8 bg-rose-50/70 border border-rose-200 rounded-2xl text-center space-y-3.5">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-base text-rose-900">
+              Gagal Memuatkan Jadual Langsung
+            </h3>
+            <p className="text-xs text-rose-700 max-w-md mx-auto leading-relaxed">
+              {syncError}
+            </p>
+            <button
+              type="button"
+              onClick={loadSchedules}
+              disabled={isScheduleLoading}
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl font-bold text-xs inline-flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+            >
+              <RefreshCw className={`w-4 h-4 ${isScheduleLoading ? "animate-spin" : ""}`} />
+              <span>Cuba Lagi</span>
+            </button>
+          </div>
+        ) : displayedSchedules.length > 0 ? (
           <div className="space-y-3.5">
             {displayedSchedules.map((item) => {
               const statusStr = String(item.status || "").toLowerCase();
@@ -403,11 +432,20 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               <Clock className="w-6 h-6" />
             </div>
             <h3 className="font-bold text-base text-slate-800">
-              Waktu Operasi &amp; Penghantaran Standard
+              Tiada Jadual Pergerakan Aktif Buat Masa Ini
             </h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              Pasukan bersedia membuat penghantaran setiap hari ({storeConfig?.operatingHours || "8:00 PG - 10:00 MLM"}). Sila tempah slot kawasan anda lebih awal.
+              Belum ada rekod pergerakan pasukan dimasukkan ke dalam tab JADUAL hari ini. Pasukan beroperasi setiap hari ({storeConfig?.operatingHours || "8:00 PG - 10:00 MLM"}). Sila tekan butang di bawah untuk semak semula atau tempah slot kawasan anda.
             </p>
+            <button
+              type="button"
+              onClick={loadSchedules}
+              disabled={isScheduleLoading}
+              className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isScheduleLoading ? "animate-spin" : ""}`} />
+              <span>Semak Jadual Terkini</span>
+            </button>
           </div>
         )}
 

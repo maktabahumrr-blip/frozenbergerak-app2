@@ -49,6 +49,7 @@ import {
   deleteScheduleFromFirestore
 } from "../lib/firebase";
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
+import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
 
 interface TeamScheduleModalProps {
   isOpen: boolean;
@@ -168,8 +169,6 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   // Helper for current date formatted in Malay
   const todayFormatted = formatDateMalay(new Date());
 
-  const GOOGLE_APPS_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzopp-hWrQBI45eCzqs-ZPTgz346JuiZgClCy0KM2V8b-uhKX0LvYvg1tszdyL6unR7zw/exec";
-
   // Send request to Google Apps Script Web App directly via Client-side Form POST (no backend fetch)
   const postToGoogleAppsScript = async (payload: any): Promise<{ success: boolean; isHtml?: boolean; error?: string; data?: any }> => {
     return new Promise((resolve) => {
@@ -227,19 +226,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const fetchScheduleList = async () => {
     try {
       const result = await fetchScheduleWithFallback();
-      if (result.schedules && result.schedules.length > 0) {
-        setAllSchedules(result.schedules);
-        return;
-      }
-    } catch {}
-
-    try {
-      const saved = localStorage.getItem("frozen_schedules");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setAllSchedules(parsed);
-        }
+      if (result.source !== "sync_error") {
+        setAllSchedules(Array.isArray(result.schedules) ? result.schedules : []);
       }
     } catch {}
   };
@@ -878,16 +866,18 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setSubmitSuccess(null);
     try {
       const result = await fetchScheduleWithFallback();
-      if (result.schedules && result.schedules.length > 0) {
-        setAllSchedules(result.schedules);
+      if (result.source === "sync_error" || result.error) {
+        setSubmitError(result.error || "Gagal menyegerakkan jadual langsung dari Google Sheets / Firebase.");
+        return;
       }
+
+      setAllSchedules(Array.isArray(result.schedules) ? result.schedules : []);
       onScheduleUpdated();
+
       if (result.source === "firebase_database") {
         setSubmitSuccess(`Berjaya menyegerakkan ${result.schedules.length} rekod dari Firebase Database.`);
-      } else if (result.source === "google_apps_script" || result.source === "google_sheet_jadual") {
-        setSubmitSuccess(`Berjaya menyegerakkan ${result.schedules.length} rekod terus dari Google Sheets tab JADUAL!`);
       } else {
-        setSubmitSuccess("Jadual disegerakkan menggunakan jadual aktif sandaran.");
+        setSubmitSuccess(`Berjaya menyegerakkan ${result.schedules.length} rekod terus dari Google Sheets tab JADUAL!`);
       }
       setTimeout(() => setSubmitSuccess(null), 3500);
     } catch (err: any) {
@@ -2197,7 +2187,7 @@ function doPost(e) {
                   </span>
                 </div>
                 <p className="text-[11px] text-blue-800 break-all font-mono bg-white p-2 rounded-xl border border-blue-200">
-                  https://script.google.com/macros/s/AKfycbzopp-hWrQBI45eCzqs-ZPTgz346JuiZgClCy0KM2V8b-uhKX0LvYvg1tszdyL6unR7zw/exec
+                  {GOOGLE_APPS_SCRIPT_WEB_APP_URL}
                 </p>
                 <p className="text-[11px] text-blue-800">
                   Google Sheet anda mestilah mempunyai tab bernama <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-blue-950">JADUAL</code> dengan 7 lajur berikut:

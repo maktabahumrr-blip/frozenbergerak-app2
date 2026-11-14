@@ -635,55 +635,7 @@ function loadSchedule(): ScheduleRecord[] {
     }
   }
 
-  const initialSchedules: ScheduleRecord[] = [
-    {
-      id: "JAD-01",
-      teamName: "Team Putrajaya & Cyberjaya",
-      driverName: "Team Putrajaya & Cyberjaya",
-      date: `Hari Ini (${todayStr})`,
-      timeSlot: "10:00 PG - 1:00 PTG",
-      locations: "Kawasan Putrajaya & Cyberjaya (Presint 1-18, Cyberia, Shaftsbury)",
-      status: "Sedang Bergerak",
-      notes: "Sedia menghantar kambing perap, oden & dim sum panas ke pintu rumah",
-      lastUpdated: new Date().toISOString()
-    },
-    {
-      id: "JAD-02",
-      teamName: "Team Bangi & Kajang",
-      driverName: "Team Bangi & Kajang",
-      date: `Hari Ini (${todayStr})`,
-      timeSlot: "2:00 PTG - 5:00 PTG",
-      locations: "Kawasan Bangi & Kajang (Bandar Baru Bangi, Sg Chua, Prima Saujana)",
-      status: "Akan Datang",
-      notes: "Slot petang dibuka untuk penghantaran kawasan kediaman",
-      lastUpdated: new Date().toISOString()
-    },
-    {
-      id: "JAD-03",
-      teamName: "Team Shah Alam & Subang",
-      driverName: "Team Shah Alam & Subang",
-      date: `Hari Ini (${todayStr})`,
-      timeSlot: "5:30 PTG - 8:30 MLM",
-      locations: "Kawasan Shah Alam & Subang (Seksyen 7, 9, 13, USJ, Subang Jaya)",
-      status: "Akan Datang",
-      notes: "Sesi petang/malam untuk persiapan makan malam & bekalan hujung minggu",
-      lastUpdated: new Date().toISOString()
-    },
-    {
-      id: "JAD-04",
-      teamName: "Team Seremban & Nilai",
-      driverName: "Team Seremban & Nilai",
-      date: `Hari Ini (${todayStr})`,
-      timeSlot: "9:30 PG - 12:30 TGH",
-      locations: "Kawasan Seremban & Nilai (Bandar Ainsdale, Senawang, Bandar Baru Nilai)",
-      status: "Selesai",
-      notes: "Laluan sesi pagi telah selesai. Pesanan seterusnya dihantar pada pusingan esok.",
-      lastUpdated: new Date().toISOString()
-    }
-  ];
-  const activeInitials = initialSchedules.filter(item => !deletedIds.includes(item.id));
-  saveSchedule(activeInitials);
-  return activeInitials;
+  return [];
 }
 
 function saveSchedule(items: ScheduleRecord[]) {
@@ -695,7 +647,7 @@ function saveSchedule(items: ScheduleRecord[]) {
 }
 
 // Google Apps Script Web App URL for JADUAL tab synchronization
-const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzopp-hWrQBI45eCzqs-ZPTgz346JuiZgClCy0KM2V8b-uhKX0LvYvg1tszdyL6unR7zw/exec";
+const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwqmpIZqNqpSxLGW-baulbHN-6Z7iJbVzzAn_yyB8ytNag32l_1ksoAVRZqLBEAEyOw/exec";
 
 function getAppsScriptUrl(): string {
   return process.env.GOOGLE_SHEET_WEBHOOK_URL?.trim() || 
@@ -705,20 +657,23 @@ function getAppsScriptUrl(): string {
 
 interface ScheduleFetchResult {
   schedules: ScheduleRecord[];
-  source: 'google_apps_script' | 'google_sheet_jadual' | 'local_cache';
+  source: 'google_apps_script' | 'google_sheet_jadual' | 'error';
   webAppStatus: 'connected' | 'error' | 'unconfigured';
   webAppError?: string;
 }
 
 // Fetch live schedules from Google Apps Script Web App (Tab JADUAL)
-async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecord[]; error?: string } | null> {
+async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecord[]; connected: boolean; error?: string } | null> {
   const webAppUrl = getAppsScriptUrl();
   if (!webAppUrl) return null;
 
+  const cacheBuster = Date.now();
   const tryUrls = [
-    `${webAppUrl}?action=getSchedules&sheet=JADUAL`,
-    webAppUrl
+    `${webAppUrl}?action=getSchedules&sheet=JADUAL&_t=${cacheBuster}`,
+    `${webAppUrl}?_t=${cacheBuster}`
   ];
+
+  let lastError: string | undefined;
 
   for (const url of tryUrls) {
     try {
@@ -726,13 +681,16 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
         method: "GET",
         headers: {
           "Accept": "application/json, text/plain, */*",
+          "Cache-Control": "no-cache",
           "User-Agent": "Mozilla/5.0 (compatible; FrozenBergerak/1.0)"
         },
-        signal: AbortSignal.timeout(3000),
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
         redirect: "follow"
       });
 
       if (!response.ok) {
+        lastError = `HTTP ${response.status} dari Google Apps Script Web App`;
         continue;
       }
 
@@ -845,10 +803,18 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
               }
             }
 
-            if (parsedList.length > 0) {
-              saveSchedule(parsedList);
-              return { schedules: parsedList };
-            }
+            saveSchedule(parsedList);
+            return { schedules: parsedList, connected: true };
+          } else if (Array.isArray(json) || (json && typeof json === "object" && (
+            Array.isArray(json.schedules) ||
+            Array.isArray(json.data) ||
+            Array.isArray(json.records) ||
+            Array.isArray(json.rows) ||
+            Array.isArray(json.JADUAL) ||
+            Array.isArray(json.jadual)
+          ))) {
+            saveSchedule([]);
+            return { schedules: [], connected: true };
           }
         } catch {
           // Ignore json parse error and proceed
@@ -905,21 +871,21 @@ async function fetchScheduleFromAppsScript(): Promise<{ schedules: ScheduleRecor
               }
             }
 
-            if (schedules.length > 0) {
+            if (rows.length >= 1) {
               saveSchedule(schedules);
-              return { schedules };
+              return { schedules, connected: true };
             }
           }
         } catch {
           // Ignore csv error
         }
       }
-    } catch {
-      // Network or fetch error caught safely
+    } catch (err: any) {
+      lastError = err?.message || "Ralat rangkaian semasa menghubungi Google Apps Script Web App.";
     }
   }
 
-  return { schedules: [] };
+  return { schedules: [], connected: false, error: lastError };
 }
 
 // Fetch live schedules from Google Sheet tab JADUAL (with Apps Script priority)
@@ -928,15 +894,13 @@ async function fetchScheduleFromGoogleSheet(customSheetIdOrUrl?: string): Promis
 
   // 1. Try Google Apps Script Web App first
   const appsScriptResult = await fetchScheduleFromAppsScript();
-  if (appsScriptResult && appsScriptResult.schedules.length > 0) {
+  if (appsScriptResult && appsScriptResult.connected) {
     const filteredAppsScript = appsScriptResult.schedules.filter(s => !deletedIds.includes(s.id));
-    if (filteredAppsScript.length > 0) {
-      return {
-        schedules: filteredAppsScript,
-        source: "google_apps_script",
-        webAppStatus: "connected"
-      };
-    }
+    return {
+      schedules: filteredAppsScript,
+      source: "google_apps_script",
+      webAppStatus: "connected"
+    };
   }
 
   const appsScriptError = appsScriptResult?.error;
@@ -1028,7 +992,7 @@ async function fetchScheduleFromGoogleSheet(customSheetIdOrUrl?: string): Promis
             }
           }
 
-          if (schedules.length > 0) {
+          if (rows.length >= 1) {
             saveSchedule(schedules);
             return {
               schedules,
@@ -1043,13 +1007,12 @@ async function fetchScheduleFromGoogleSheet(customSheetIdOrUrl?: string): Promis
     }
   }
 
-  // 3. Fallback to local cache
-  const local = loadSchedule();
+  // 3. Strict Live Sync: never serve stale or hardcoded mock schedules if live sources fail
   return {
-    schedules: local,
-    source: "local_cache",
+    schedules: [],
+    source: "error",
     webAppStatus: appsScriptError ? "error" : "unconfigured",
-    webAppError: appsScriptError
+    webAppError: appsScriptError || "Gagal menyegerakkan jadual langsung daripada Google Apps Script atau Google Sheets."
   };
 }
 
@@ -3471,6 +3434,10 @@ app.post("/api/auth/roles", requireAdminOnlyAuth, (req: Request, res: Response) 
 // Get Active Schedules (Public / Read-only for all customers)
 // Columns: ID JADUAL | NAMA TEAM | TARIKH | MASA | KAWASAN | CATATAN | STATUS
 app.get("/api/schedule", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
   try {
     const customSheet = req.query.sheet ? String(req.query.sheet).trim() : undefined;
     const fetchResult = await fetchScheduleFromGoogleSheet(customSheet);
@@ -3488,12 +3455,11 @@ app.get("/api/schedule", async (req: Request, res: Response) => {
       lastUpdated: new Date().toISOString()
     });
   } catch (error: any) {
-    const fallback = loadSchedule();
     const deletedIds = loadDeletedScheduleIds();
     res.status(200).json({
-      schedules: fallback,
-      total: fallback.length,
-      source: "local_cache",
+      schedules: [],
+      total: 0,
+      source: "error",
       deletedIds,
       webAppStatus: "error",
       webAppError: error.message || "Gagal membaca data jadual dari Web App.",
@@ -3506,6 +3472,7 @@ app.get("/api/schedule", async (req: Request, res: Response) => {
 
 // Get Deleted Schedule IDs (Public endpoint for client syncing)
 app.get("/api/schedule/deleted-ids", (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   res.json({ deletedIds: loadDeletedScheduleIds() });
 });
 
@@ -3513,7 +3480,7 @@ app.get("/api/schedule/deleted-ids", (_req: Request, res: Response) => {
 app.post("/api/schedule/sync", requireAdminOrTeamAuth, async (_req: Request, res: Response) => {
   try {
     const fetchResult = await fetchScheduleFromGoogleSheet();
-    if (fetchResult.source !== "local_cache" && fetchResult.schedules.length > 0) {
+    if (fetchResult.source !== "error") {
       res.json({
         success: true,
         message: `Berjaya menyegerakkan ${fetchResult.schedules.length} rekod jadual terus dari ${fetchResult.source === 'google_apps_script' ? 'Google Apps Script Web App' : 'tab JADUAL Google Sheets'}!`,
@@ -3526,9 +3493,9 @@ app.post("/api/schedule/sync", requireAdminOrTeamAuth, async (_req: Request, res
         success: false,
         message: fetchResult.webAppError 
           ? `Status Web App: ${fetchResult.webAppError}` 
-          : "Tidak dapat mengambil data baru dari Web App/Sheets. Menggunakan data tempatan.",
-        schedules: fetchResult.schedules,
-        source: "local_cache",
+          : "Tidak dapat mengambil data baru dari Web App/Sheets.",
+        schedules: [],
+        source: "error",
         webAppStatus: fetchResult.webAppStatus,
         webAppError: fetchResult.webAppError
       });

@@ -1,11 +1,12 @@
 import { ScheduleItem } from "../types";
 import { fetchSchedulesFromFirestore } from "../lib/firebase";
-import { getTodayDateInfo } from "./scheduleDateHelper";
+import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
 
 export interface ScheduleFetchResult {
   schedules: ScheduleItem[];
-  source: "firebase_database" | "google_apps_script" | "google_sheet_jadual" | "sample_fallback" | "local_cache";
+  source: "firebase_database" | "google_apps_script" | "google_sheet_jadual" | "sync_error";
   warning?: string;
+  error?: string;
   isFallback: boolean;
 }
 
@@ -37,7 +38,7 @@ function parseCSVRows(csvText: string): string[][] {
         i++;
       }
       currentRow.push(currentCell.trim());
-      if (currentRow.some(c => c.length > 0)) {
+      if (currentRow.some((c) => c.length > 0)) {
         rows.push(currentRow);
       }
       currentRow = [];
@@ -49,12 +50,23 @@ function parseCSVRows(csvText: string): string[][] {
 
   if (currentCell.length > 0 || currentRow.length > 0) {
     currentRow.push(currentCell.trim());
-    if (currentRow.some(c => c.length > 0)) {
+    if (currentRow.some((c) => c.length > 0)) {
       rows.push(currentRow);
     }
   }
 
   return rows;
+}
+
+function normalizeStatus(rawStatus: string): "Akan Datang" | "Sedang Bergerak" | "Selesai" {
+  const lower = String(rawStatus || "").toLowerCase();
+  if (lower.includes("selesai") || lower.includes("tamat") || lower.includes("done")) {
+    return "Selesai";
+  }
+  if (lower.includes("akan") || lower.includes("upcoming") || lower.includes("pending")) {
+    return "Akan Datang";
+  }
+  return "Sedang Bergerak";
 }
 
 /**
@@ -78,59 +90,57 @@ export function extractGoogleSheetId(input: string): string {
 }
 
 /**
- * Generate rich, dynamic sample fallback schedule records matching the 4 delivery teams
- * Always uses today's date so it cleanly passes today-filters and displays active routes.
+ * Parses schedule rows from a CSV matrix into ScheduleItem[]
  */
-export function getDynamicFallbackSchedules(): ScheduleItem[] {
-  const todayInfo = getTodayDateInfo();
-  const todayDateString = todayInfo.formattedLong;
+function parseScheduleRowsFromMatrix(rows: string[][]): ScheduleItem[] {
+  if (!rows || rows.length < 2) return [];
+  const headerRow = rows[0].map((h) => String(h).trim().toUpperCase());
 
-  return [
-    {
-      id: "JAD-01",
-      teamName: "Team Putrajaya & Cyberjaya",
-      driverName: "Team Putrajaya & Cyberjaya",
-      date: todayDateString,
-      timeSlot: "10:00 PG - 1:00 PTG",
-      locations: "Kawasan Putrajaya & Cyberjaya (Presint 1-18, Cyberia, Shaftsbury)",
-      notes: "Sedia menghantar kambing perap, oden & dim sum panas ke pintu rumah",
-      status: "Sedang Bergerak",
-      lastUpdated: new Date().toISOString()
-    },
-    {
-      id: "JAD-02",
-      teamName: "Team Bangi & Kajang",
-      driverName: "Team Bangi & Kajang",
-      date: todayDateString,
-      timeSlot: "2:00 PTG - 5:00 PTG",
-      locations: "Kawasan Bangi & Kajang (Bandar Baru Bangi, Sg Chua, Prima Saujana)",
-      notes: "Slot petang dibuka untuk penghantaran kawasan kediaman",
-      status: "Akan Datang",
-      lastUpdated: new Date().toISOString()
-    },
-    {
-      id: "JAD-03",
-      teamName: "Team Shah Alam & Subang",
-      driverName: "Team Shah Alam & Subang",
-      date: todayDateString,
-      timeSlot: "5:30 PTG - 8:30 MLM",
-      locations: "Kawasan Shah Alam & Subang (Seksyen 7, 9, 13, USJ, Subang Jaya)",
-      notes: "Sesi petang/malam untuk persiapan makan malam & bekalan hujung minggu",
-      status: "Akan Datang",
-      lastUpdated: new Date().toISOString()
-    },
-    {
-      id: "JAD-04",
-      teamName: "Team Seremban & Nilai",
-      driverName: "Team Seremban & Nilai",
-      date: todayDateString,
-      timeSlot: "9:30 PG - 12:30 TGH",
-      locations: "Kawasan Seremban & Nilai (Bandar Ainsdale, Senawang, Bandar Baru Nilai)",
-      notes: "Laluan sesi pagi telah selesai. Pesanan seterusnya dihantar pada pusingan esok.",
-      status: "Selesai",
-      lastUpdated: new Date().toISOString()
+  const findIndex = (possibleNames: string[]): number => {
+    for (const name of possibleNames) {
+      const idx = headerRow.findIndex((h) => h === name.toUpperCase() || h.includes(name.toUpperCase()));
+      if (idx !== -1) return idx;
     }
-  ];
+    return -1;
+  };
+
+  const idIdx = findIndex(["ID JADUAL", "ID", "KOD", "NO"]);
+  const teamIdx = findIndex(["NAMA TEAM", "TEAM", "DRIVER", "PEMANDU", "NAMA"]);
+  const dateIdx = findIndex(["TARIKH", "DATE", "HARI"]);
+  const timeIdx = findIndex(["MASA", "TIME", "WAKTU", "SLOT"]);
+  const locIdx = findIndex(["KAWASAN", "LOCATION", "LOKASI", "LALUAN"]);
+  const notesIdx = findIndex(["CATATAN", "NOTES", "NOTA", "INFO"]);
+  const statusIdx = findIndex(["STATUS", "KEADAAN"]);
+
+  const parsedItems: ScheduleItem[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length === 0 || row.every((c) => !String(c).trim())) continue;
+
+    const id = idIdx !== -1 && row[idIdx] ? String(row[idIdx]).trim() : `JAD-${r.toString().padStart(2, "0")}`;
+    const teamName = teamIdx !== -1 && row[teamIdx] ? String(row[teamIdx]).trim() : "Team Frozen 1";
+    const date = dateIdx !== -1 && row[dateIdx] ? String(row[dateIdx]).trim() : "Hari Ini";
+    const timeSlot = timeIdx !== -1 && row[timeIdx] ? String(row[timeIdx]).trim() : "Waktu Operasi";
+    const locations = locIdx !== -1 && row[locIdx] ? String(row[locIdx]).trim() : "";
+    const notes = notesIdx !== -1 && row[notesIdx] ? String(row[notesIdx]).trim() : "";
+    const rawStatus = statusIdx !== -1 && row[statusIdx] ? String(row[statusIdx]).trim() : "Sedang Bergerak";
+
+    if (locations) {
+      parsedItems.push({
+        id,
+        teamName,
+        driverName: teamName,
+        date,
+        timeSlot,
+        locations,
+        notes,
+        status: normalizeStatus(rawStatus),
+        lastUpdated: new Date().toISOString()
+      });
+    }
+  }
+
+  return parsedItems;
 }
 
 /**
@@ -138,84 +148,30 @@ export function getDynamicFallbackSchedules(): ScheduleItem[] {
  */
 async function fetchGoogleSheetsJadualCsv(sheetId: string): Promise<ScheduleItem[] | null> {
   const tabNames = ["JADUAL", "jadual", "Jadual", "JADUAL_PERGERAKAN", "SCHEDULE"];
-  
+  const cacheBuster = Date.now();
+
   for (const tab of tabNames) {
     const enc = encodeURIComponent(tab);
     const endpoints = [
-      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${enc}`,
-      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${enc}`,
-      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&sheet=${enc}`
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${enc}&_t=${cacheBuster}`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${enc}&_t=${cacheBuster}`,
+      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&sheet=${enc}&_t=${cacheBuster}`
     ];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           headers: { Accept: "text/csv, text/plain, */*" },
-          signal: AbortSignal.timeout(3500)
+          cache: "no-store",
+          signal: AbortSignal.timeout(6000)
         });
 
         if (res.ok) {
           const text = await res.text();
-          if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html") && text.trim().length > 10) {
+          if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html") && text.trim().length > 5) {
             const rows = parseCSVRows(text);
-            if (rows.length >= 2) {
-              const headerRow = rows[0].map(h => h.trim().toUpperCase());
-              
-              const findIndex = (possibleNames: string[]): number => {
-                for (const name of possibleNames) {
-                  const idx = headerRow.findIndex(h => h === name.toUpperCase() || h.includes(name.toUpperCase()));
-                  if (idx !== -1) return idx;
-                }
-                return -1;
-              };
-
-              const idIdx = findIndex(["ID JADUAL", "ID", "KOD", "NO"]);
-              const teamIdx = findIndex(["NAMA TEAM", "TEAM", "DRIVER", "PEMANDU", "NAMA"]);
-              const dateIdx = findIndex(["TARIKH", "DATE", "HARI"]);
-              const timeIdx = findIndex(["MASA", "TIME", "WAKTU", "SLOT"]);
-              const locIdx = findIndex(["KAWASAN", "LOCATION", "LOKASI", "LALUAN"]);
-              const notesIdx = findIndex(["CATATAN", "NOTES", "NOTA", "INFO"]);
-              const statusIdx = findIndex(["STATUS", "KEADAAN"]);
-
-              const parsedItems: ScheduleItem[] = [];
-              for (let r = 1; r < rows.length; r++) {
-                const row = rows[r];
-                if (!row || row.length === 0 || row.every(c => !c.trim())) continue;
-
-                const id = (idIdx !== -1 && row[idIdx]) ? row[idIdx].trim() : `JAD-${r.toString().padStart(2, "0")}`;
-                const teamName = (teamIdx !== -1 && row[teamIdx]) ? row[teamIdx].trim() : "Team Frozen 1";
-                const date = (dateIdx !== -1 && row[dateIdx]) ? row[dateIdx].trim() : "Hari Ini";
-                const timeSlot = (timeIdx !== -1 && row[timeIdx]) ? row[timeIdx].trim() : "Waktu Operasi";
-                const locations = (locIdx !== -1 && row[locIdx]) ? row[locIdx].trim() : "";
-                const notes = (notesIdx !== -1 && row[notesIdx]) ? row[notesIdx].trim() : "";
-                
-                let rawStatus = (statusIdx !== -1 && row[statusIdx]) ? row[statusIdx].trim() : "Sedang Bergerak";
-                let status: "Akan Datang" | "Sedang Bergerak" | "Selesai" = "Sedang Bergerak";
-                const lower = rawStatus.toLowerCase();
-                if (lower.includes("selesai") || lower.includes("tamat") || lower.includes("done")) {
-                  status = "Selesai";
-                } else if (lower.includes("akan") || lower.includes("upcoming") || lower.includes("pending")) {
-                  status = "Akan Datang";
-                }
-
-                if (locations) {
-                  parsedItems.push({
-                    id,
-                    teamName,
-                    driverName: teamName,
-                    date,
-                    timeSlot,
-                    locations,
-                    notes,
-                    status,
-                    lastUpdated: new Date().toISOString()
-                  });
-                }
-              }
-
-              if (parsedItems.length > 0) {
-                return parsedItems;
-              }
+            if (rows.length >= 1) {
+              return parseScheduleRowsFromMatrix(rows);
             }
           }
         }
@@ -229,77 +185,231 @@ async function fetchGoogleSheetsJadualCsv(sheetId: string): Promise<ScheduleItem
 }
 
 /**
- * Master Schedule Fetcher complying with:
- * 1. Read Schedule data from Google Sheets API / CSV URL as fallback if Firebase Database is empty.
- * 2. Ensure Firebase initialization does not block public access to fetch 'JADUAL' tab data.
- * 3. Add error handling and console logs so if Google Sheets sync fails, it shows a clear warning
- *    and sample fallback data instead of breaking the entire schedule UI.
+ * Direct client-side fetch to the configured Google Apps Script Web App URL (Tab JADUAL)
+ */
+async function fetchDirectFromAppsScript(): Promise<{ schedules: ScheduleItem[]; connected: boolean }> {
+  if (!GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
+    return { schedules: [], connected: false };
+  }
+
+  const cacheBuster = Date.now();
+  const tryUrls = [
+    `${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getSchedules&sheet=JADUAL&_t=${cacheBuster}`,
+    `${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?_t=${cacheBuster}`
+  ];
+
+  for (const url of tryUrls) {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json, text/plain, */*" },
+        cache: "no-store",
+        redirect: "follow",
+        signal: AbortSignal.timeout(8000)
+      });
+
+      if (!res.ok) continue;
+
+      const text = (await res.text()).trim();
+      if (!text || text.startsWith("<") || text.toLowerCase().includes("<html") || text.includes("accounts.google.com")) {
+        continue;
+      }
+
+      if (text.startsWith("{") || text.startsWith("[")) {
+        const json = JSON.parse(text);
+        let rawItems: any[] | null = null;
+
+        if (Array.isArray(json)) {
+          rawItems = json;
+        } else if (json && typeof json === "object") {
+          if (Array.isArray(json.schedules)) rawItems = json.schedules;
+          else if (Array.isArray(json.data)) rawItems = json.data;
+          else if (Array.isArray(json.records)) rawItems = json.records;
+          else if (Array.isArray(json.rows)) rawItems = json.rows;
+          else if (Array.isArray(json.JADUAL)) rawItems = json.JADUAL;
+          else if (Array.isArray(json.jadual)) rawItems = json.jadual;
+        }
+
+        if (rawItems !== null) {
+          if (rawItems.length === 0) {
+            return { schedules: [], connected: true };
+          }
+          if (Array.isArray(rawItems[0])) {
+            return { schedules: parseScheduleRowsFromMatrix(rawItems as string[][]), connected: true };
+          }
+          const parsed: ScheduleItem[] = [];
+          for (let i = 0; i < rawItems.length; i++) {
+            const item = rawItems[i];
+            if (!item || typeof item !== "object") continue;
+            const id = String(item["ID JADUAL"] || item["ID"] || item.id || item.idJadual || `JAD-${(i + 1).toString().padStart(2, "0")}`).trim();
+            const teamName = String(item["NAMA TEAM"] || item["TEAM"] || item.teamName || item.namaTeam || item.driverName || "Team Frozen 1").trim();
+            const date = String(item["TARIKH"] || item["DATE"] || item.date || item.tarikh || "Hari Ini").trim();
+            const timeSlot = String(item["MASA"] || item["TIME"] || item.timeSlot || item.masa || "Waktu Operasi").trim();
+            const locations = String(item["KAWASAN"] || item["LOCATION"] || item.locations || item.kawasan || "").trim();
+            const notes = String(item["CATATAN"] || item["NOTES"] || item.notes || item.catatan || "").trim();
+            const status = normalizeStatus(item["STATUS"] || item.status || "Sedang Bergerak");
+
+            if (locations) {
+              parsed.push({
+                id,
+                teamName,
+                driverName: teamName,
+                date,
+                timeSlot,
+                locations,
+                notes,
+                status,
+                lastUpdated: new Date().toISOString()
+              });
+            }
+          }
+          return { schedules: parsed, connected: true };
+        }
+      }
+    } catch {
+      // Try next URL
+    }
+  }
+
+  return { schedules: [], connected: false };
+}
+
+/**
+ * Strict Live Schedule Fetcher:
+ * Only renders live schedule data from Google Sheets (Apps Script / JADUAL CSV) or Firebase Database.
+ * Never falls back to hardcoded mock data or stale offline schedules.
  */
 export async function fetchScheduleWithFallback(customSheetUrlOrId?: string): Promise<ScheduleFetchResult> {
-  console.log("[ScheduleSync] 🔄 Memulakan pengambilan data jadual pergerakan...");
+  console.log("[ScheduleSync] 🔄 Menyegerakkan data jadual langsung dari Google Sheets / Firebase...");
 
   let sheetId = "";
   try {
-    const customSheet = customSheetUrlOrId || (typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "");
+    const customSheet =
+      customSheetUrlOrId ||
+      (typeof window !== "undefined" && window.localStorage ? localStorage.getItem("custom_google_sheet_url") || "" : "");
     sheetId = extractGoogleSheetId(customSheet);
   } catch {}
 
-  // 1. Fetch server state first (/api/schedule) to get live schedules AND globally deleted IDs
   let serverDeletedIds: string[] = [];
+
+  // 1. Fetch live schedule state from server endpoint (/api/schedule -> Google Apps Script Web App / JADUAL tab)
   try {
-    console.log("[ScheduleSync] 🌐 Menyegerakkan data jadual & rekod pemadaman global dari pelayan (/api/schedule)...");
-    const queryParam = sheetId ? `?sheet=${encodeURIComponent(sheetId)}` : "";
-    const res = await fetch(`/api/schedule${queryParam}`, { signal: AbortSignal.timeout(4000) });
-    
+    const params = new URLSearchParams();
+    if (sheetId) params.set("sheet", sheetId);
+    params.set("_t", String(Date.now()));
+
+    const res = await fetch(`/api/schedule?${params.toString()}`, {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-cache" },
+      signal: AbortSignal.timeout(9000)
+    });
+
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.deletedIds)) {
         serverDeletedIds = data.deletedIds;
-        // Purge any deleted items from local storage immediately
-        try {
-          const cached = localStorage.getItem("frozen_schedules");
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed)) {
-              const purged = parsed.filter((item: any) => !serverDeletedIds.includes(item.id));
-              localStorage.setItem("frozen_schedules", JSON.stringify(purged));
-            }
-          }
-        } catch {}
       }
 
-      if (data && Array.isArray(data.schedules)) {
+      if (
+        data &&
+        Array.isArray(data.schedules) &&
+        (data.source === "google_apps_script" || data.source === "google_sheet_jadual")
+      ) {
         const filtered = data.schedules.filter((s: any) => !serverDeletedIds.includes(s.id));
-        console.log(`[ScheduleSync] ✅ Data jadual berjaya disegerakkan dari pelayan (${filtered.length} rekod, sumber: ${data.source}).`);
-        try {
-          localStorage.setItem("frozen_schedules", JSON.stringify(filtered));
-        } catch {}
-
         if (filtered.length > 0) {
+          console.log(`[ScheduleSync] ✅ Data jadual langsung dimuatkan (${filtered.length} rekod, sumber: ${data.source}).`);
           return {
             schedules: filtered,
-            source: (data.source === "google_apps_script" || data.source === "google_sheet_jadual") 
-              ? data.source 
-              : "local_cache",
+            source: data.source,
             isFallback: false
           };
         }
+
+        // If Google Sheets returned 0 rows, check Firebase Database for any live records before returning empty
+        try {
+          const firestoreSchedules = await fetchSchedulesFromFirestore();
+          const filteredFirestore = firestoreSchedules.filter((s) => !serverDeletedIds.includes(s.id));
+          if (filteredFirestore.length > 0) {
+            return {
+              schedules: filteredFirestore,
+              source: "firebase_database",
+              isFallback: false
+            };
+          }
+        } catch {}
+
+        return {
+          schedules: [],
+          source: data.source,
+          isFallback: false
+        };
       }
     }
   } catch (serverErr: any) {
-    console.warn("[ScheduleSync] ⚠️ Ralat semasa memanggil /api/schedule:", serverErr?.message || serverErr);
+    console.warn("[ScheduleSync] ⚠️ Ralat /api/schedule, mencuba sambungan langsung ke Google Apps Script:", serverErr?.message || serverErr);
   }
 
-  // 2. Non-blocking Firebase check (if server schedules were empty or offline)
+  // 2. Direct client-side fetch to Google Apps Script Web App URL (Tab JADUAL)
+  try {
+    const directAppsScript = await fetchDirectFromAppsScript();
+    if (directAppsScript.connected) {
+      const filteredDirect = directAppsScript.schedules.filter((s) => !serverDeletedIds.includes(s.id));
+      if (filteredDirect.length > 0) {
+        console.log(`[ScheduleSync] ✅ Data jadual langsung dari Apps Script Web App (${filteredDirect.length} rekod).`);
+        return {
+          schedules: filteredDirect,
+          source: "google_apps_script",
+          isFallback: false
+        };
+      }
+
+      // Check Firebase Database if Apps Script sheet currently has 0 rows
+      try {
+        const firestoreSchedules = await fetchSchedulesFromFirestore();
+        const filteredFirestore = firestoreSchedules.filter((s) => !serverDeletedIds.includes(s.id));
+        if (filteredFirestore.length > 0) {
+          return {
+            schedules: filteredFirestore,
+            source: "firebase_database",
+            isFallback: false
+          };
+        }
+      } catch {}
+
+      return {
+        schedules: [],
+        source: "google_apps_script",
+        isFallback: false
+      };
+    }
+  } catch (gasErr: any) {
+    console.warn("[ScheduleSync] ⚠️ Ralat sambungan langsung Google Apps Script:", gasErr?.message || gasErr);
+  }
+
+  // 3. Direct client-side Google Sheets CSV fetch for tab 'JADUAL' (if custom sheet ID configured)
+  if (sheetId) {
+    try {
+      const directItems = await fetchGoogleSheetsJadualCsv(sheetId);
+      if (directItems !== null) {
+        const filteredDirect = directItems.filter((s) => !serverDeletedIds.includes(s.id));
+        return {
+          schedules: filteredDirect,
+          source: "google_sheet_jadual",
+          isFallback: false
+        };
+      }
+    } catch (directErr: any) {
+      console.warn("[ScheduleSync] ⚠️ Ralat membaca Google Sheets CSV tab JADUAL:", directErr?.message || directErr);
+    }
+  }
+
+  // 4. Live Firebase Database fallback (only live cloud records, never mock data)
   try {
     const firestoreSchedules = await fetchSchedulesFromFirestore();
     if (firestoreSchedules && firestoreSchedules.length > 0) {
-      const filteredFirestore = firestoreSchedules.filter(s => !serverDeletedIds.includes(s.id));
+      const filteredFirestore = firestoreSchedules.filter((s) => !serverDeletedIds.includes(s.id));
       if (filteredFirestore.length > 0) {
-        console.log(`[ScheduleSync] ✅ Data jadual berjaya dimuatkan dari Firebase Database (${filteredFirestore.length} rekod).`);
-        try {
-          localStorage.setItem("frozen_schedules", JSON.stringify(filteredFirestore));
-        } catch {}
+        console.log(`[ScheduleSync] ✅ Data jadual dimuatkan dari Firebase Database (${filteredFirestore.length} rekod).`);
         return {
           schedules: filteredFirestore,
           source: "firebase_database",
@@ -307,63 +417,16 @@ export async function fetchScheduleWithFallback(customSheetUrlOrId?: string): Pr
         };
       }
     }
-    console.warn("[ScheduleSync] ℹ️ Firebase Database tiada rekod atau kosong. Meneruskan ke Google Sheets tab JADUAL sebagai sandaran...");
   } catch (firebaseErr: any) {
-    console.warn("[ScheduleSync] ⚠️ Ralat Firebase Database (tidak menghalang akses awam):", firebaseErr?.message || firebaseErr);
+    console.warn("[ScheduleSync] ⚠️ Ralat Firebase Database:", firebaseErr?.message || firebaseErr);
   }
 
-  // 3. Try direct client-side Google Sheets CSV fetch for tab 'JADUAL'
-  if (sheetId) {
-    try {
-      console.log(`[ScheduleSync] 📊 Mencuba membaca tab JADUAL secara terus dari Google Sheet ID: ${sheetId}...`);
-      const directItems = await fetchGoogleSheetsJadualCsv(sheetId);
-      if (directItems && directItems.length > 0) {
-        const filteredDirect = directItems.filter(s => !serverDeletedIds.includes(s.id));
-        if (filteredDirect.length > 0) {
-          console.log(`[ScheduleSync] ✅ Berjaya membaca ${filteredDirect.length} rekod dari Google Sheets tab JADUAL secara terus.`);
-          try {
-            localStorage.setItem("frozen_schedules", JSON.stringify(filteredDirect));
-          } catch {}
-          return {
-            schedules: filteredDirect,
-            source: "google_sheet_jadual",
-            isFallback: false
-          };
-        }
-      }
-    } catch (directErr: any) {
-      console.warn("[ScheduleSync] ⚠️ Ralat membaca Google Sheets CSV tab JADUAL:", directErr?.message || directErr);
-    }
-  }
-
-  // 4. Check locally saved schedules from previous sessions (with deleted IDs filtered out)
-  try {
-    const saved = localStorage.getItem("frozen_schedules");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const cleanSaved = parsed.filter((s: any) => !serverDeletedIds.includes(s.id));
-        if (cleanSaved.length > 0) {
-          console.log(`[ScheduleSync] 📦 Menggunakan jadual yang disimpan dalam memori tempatan (${cleanSaved.length} rekod).`);
-          return {
-            schedules: cleanSaved,
-            source: "local_cache",
-            isFallback: false
-          };
-        }
-      }
-    }
-  } catch {}
-
-  // RULE 3: Google Sheets sync failed or unconfigured -> show clear warning and sample fallback data
-  console.error("[ScheduleSync] ❌ Penyegerakan Google Sheets tab JADUAL gagal atau tiada URL dikonfigurasi.");
-  console.info("[ScheduleSync] 🛡️ Memaparkan sampel data jadual sandaran terkini untuk memastikan antaramuka jadual berfungsi sepenuhnya.");
-
-  const fallbackSchedules = getDynamicFallbackSchedules();
+  // 5. All live sources failed — return strict sync_error (NEVER hardcoded mock data)
+  console.error("[ScheduleSync] ❌ Gagal menyegerakkan jadual langsung daripada Google Sheets atau Firebase.");
   return {
-    schedules: fallbackSchedules,
-    source: "sample_fallback",
-    isFallback: true,
-    warning: "Peringatan: Sambungan ke Google Sheets tab JADUAL sedang diselaraskan. Memaparkan jadual pergerakan sandaran terkini."
+    schedules: [],
+    source: "sync_error",
+    isFallback: false,
+    error: "Gagal memuatkan jadual langsung dari Google Sheets / Firebase. Sila semak sambungan internet dan tekan Cuba Lagi."
   };
 }

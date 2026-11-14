@@ -1,11 +1,11 @@
 /**
  * Service Worker for FrozenBergerak PWA
- * Version: 2.1.0 (Auto-updating cache)
+ * Version: 2.2.0 (Strict Live Schedule Sync & Auto-updating cache)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v6';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v6';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v6';
+const CACHE_NAME = 'frozenbergerak-static-v7';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v7';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v7';
 
 const STATIC_ASSETS = [
   '/',
@@ -54,6 +54,17 @@ self.addEventListener('fetch', (event) => {
 
   // Ignore non-GET requests or chrome-extension URLs
   if (event.request.method !== 'GET' || !url.protocol.startsWith('http')) {
+    return;
+  }
+
+  // Never intercept or cache live schedule / Google Sheets / Firebase API calls
+  if (
+    url.pathname.startsWith('/api/schedule') ||
+    url.hostname.includes('script.google.com') ||
+    url.hostname.includes('script.googleusercontent.com') ||
+    url.hostname.includes('docs.google.com') ||
+    url.hostname.includes('firestore.googleapis.com')
+  ) {
     return;
   }
 
