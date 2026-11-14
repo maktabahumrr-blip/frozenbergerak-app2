@@ -1,0 +1,445 @@
+/**
+ * Generator kod Google Apps Script bersepadu (1 fail Apps Script menguruskan 2 fail Google Sheets):
+ * 1. Fail "Frozen Bergerak" -> Produk, Promo Bermusim (Seasonal), Promo All-Time (Alltimepromo)
+ * 2. Fail "Jadual Team"     -> Jadual Pergerakan (JADUAL)
+ */
+export function buildUnifiedAppsScriptCode(
+  frozenBergerakSheetId = "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw",
+  jadualTeamSheetId = ""
+): string {
+  return `// ============================================================================
+// FrozenBergerak - SATU FAIL GOOGLE APPS SCRIPT BERSEPADU (doGet & doPost)
+// Menguruskan 2 fail Google Sheets berasingan secara serentak:
+//   1. Fail "Frozen Bergerak" : Tab Produk, Alltimepromo, Seasonal
+//   2. Fail "Jadual Team"     : Tab JADUAL (baca & tulis jadual pergerakan)
+// ============================================================================
+
+var FROZEN_BERGERAK_SHEET_ID = "${frozenBergerakSheetId}";
+var JADUAL_TEAM_SHEET_ID = "${jadualTeamSheetId}"; // Pilihan: isi ID fail "Jadual Team" jika skrip dipasang di luar fail tersebut
+
+/**
+ * Jalankan fungsi ini sekali sahaja di editor Apps Script (Run > authorizePermissions)
+ * untuk meluluskan kebenaran akses Google Sheets, Google Drive, dan Gmail.
+ */
+function authorizePermissions() {
+  var fb = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+  var jt = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+  Logger.log("Frozen Bergerak: " + (fb ? fb.getName() + " (" + fb.getId() + ")" : "TIDAK DIJUMPAI"));
+  Logger.log("Jadual Team: " + (jt ? jt.getName() + " (" + jt.getId() + ")" : "TIDAK DIJUMPAI"));
+}
+
+function openSheetFile_(sheetId, fileName, allowActiveFallback, expectedTabs) {
+  // 1. Jika ID fail diberikan secara langsung, buka terus (paling pantas)
+  if (sheetId && String(sheetId).trim() !== "") {
+    try {
+      return SpreadsheetApp.openById(String(sheetId).trim());
+    } catch (e) {}
+  }
+
+  // 2. Semak spreadsheet aktif jika skrip dipasang terus di dalam fail sasaran
+  if (allowActiveFallback) {
+    try {
+      var active = SpreadsheetApp.getActiveSpreadsheet();
+      if (active && (!expectedTabs || findTabByNames_(active, expectedTabs))) {
+        return active;
+      }
+    } catch (e) {}
+  }
+
+  // 3. Cari mengikut nama fail tepat dalam Google Drive (abaikan fail dalam Trash)
+  try {
+    var exactFiles = DriveApp.getFilesByName(fileName);
+    while (exactFiles.hasNext()) {
+      var f = exactFiles.next();
+      if (f.isTrashed()) continue;
+      try {
+        var ss = SpreadsheetApp.openById(f.getId());
+        if (!expectedTabs || findTabByNames_(ss, expectedTabs)) {
+          return ss;
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  // 4. Cari mengikut padanan separa (case-insensitive) jika ejaan nama fail sedikit berbeza
+  try {
+    var keyword = String(fileName || "").split(" ")[0].replace(/'/g, "");
+    if (keyword) {
+      var query = "title contains '" + keyword + "' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
+      var fuzzyFiles = DriveApp.searchFiles(query);
+      while (fuzzyFiles.hasNext()) {
+        var ff = fuzzyFiles.next();
+        try {
+          var fss = SpreadsheetApp.openById(ff.getId());
+          if (!expectedTabs || findTabByNames_(fss, expectedTabs)) {
+            return fss;
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+
+  if (allowActiveFallback) {
+    try {
+      return SpreadsheetApp.getActiveSpreadsheet();
+    } catch (e) {}
+  }
+  return null;
+}
+
+function findTabByNames_(ss, candidateNames) {
+  if (!ss) return null;
+  var sheets = ss.getSheets();
+  for (var i = 0; i < candidateNames.length; i++) {
+    var exact = ss.getSheetByName(candidateNames[i]);
+    if (exact) return exact;
+  }
+  for (var i = 0; i < candidateNames.length; i++) {
+    var target = String(candidateNames[i]).toLowerCase().trim();
+    for (var s = 0; s < sheets.length; s++) {
+      if (sheets[s].getName().toLowerCase().trim() === target) {
+        return sheets[s];
+      }
+    }
+  }
+  return null;
+}
+
+function findHeaderRowIdx_(values) {
+  var limit = Math.min(values.length, 5);
+  for (var r = 0; r < limit; r++) {
+    var row = values[r];
+    for (var c = 0; c < row.length; c++) {
+      var cell = String(row[c] || "").trim().toUpperCase();
+      if (/^(ID|ID PRODUK|KOD|PRODUK|NAMA PRODUK|ID PROMO|TAJUK PROMO|NAMA PROMO|ID JADUAL|NAMA TEAM|TEAM|KAWASAN|LOKASI|TARIKH|MASA)$/.test(cell)) {
+        return r;
+      }
+    }
+  }
+  return 0;
+}
+
+function findColIdx_(headerRow, possibleNames, excludeWords) {
+  excludeWords = excludeWords || [];
+  for (var i = 0; i < possibleNames.length; i++) {
+    var name = possibleNames[i].toUpperCase();
+    for (var c = 0; c < headerRow.length; c++) {
+      if (headerRow[c] === name) return c;
+    }
+  }
+  for (var i = 0; i < possibleNames.length; i++) {
+    var name = possibleNames[i].toUpperCase();
+    for (var c = 0; c < headerRow.length; c++) {
+      var h = headerRow[c];
+      if (h.indexOf(name) !== -1) {
+        var excluded = false;
+        for (var ex = 0; ex < excludeWords.length; ex++) {
+          if (h.indexOf(excludeWords[ex].toUpperCase()) !== -1) {
+            excluded = true;
+            break;
+          }
+        }
+        if (!excluded) return c;
+      }
+    }
+  }
+  return -1;
+}
+
+function parsePriceNum_(val) {
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  var cleaned = String(val || "").replace(/[^0-9.]/g, "");
+  var num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+}
+
+function normalizeDriveImg_(url) {
+  var raw = String(url || "").trim();
+  if (!raw || raw.indexOf("http") !== 0) return "";
+  var m = raw.match(/\\/d\\/([a-zA-Z0-9_-]+)/) || raw.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m && m[1]) {
+    return "https://lh3.googleusercontent.com/d/" + m[1] + "=w1000";
+  }
+  return raw;
+}
+
+function readProductsFromSheet_(ss) {
+  var sheet = findTabByNames_(ss, ["Produk", "PRODUK", "Products", "Katalog", "Catalog", "Sheet1"]);
+  if (!sheet) return [];
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+
+  var hIdx = findHeaderRowIdx_(values);
+  var header = values[hIdx].map(function(h) { return String(h || "").trim().toUpperCase(); });
+  var idIdx = findColIdx_(header, ["ID", "KOD", "CODE", "ID PRODUK", "SKU"]);
+  var nameIdx = findColIdx_(header, ["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "ITEM"]);
+  var catIdx = findColIdx_(header, ["KATEGORI", "CATEGORY", "JENIS"]);
+  var priceIdx = findColIdx_(header, ["HARGA", "PRICE", "HARGA ASAL"], ["PROMO", "DISKAUN"]);
+  var promoIdx = findColIdx_(header, ["HARGA PROMO", "PROMO PRICE", "HARGA DISKAUN"]);
+  var cookedIdx = findColIdx_(header, ["GAMBAR SIAP MASAK", "GAMBAR MASAK", "GAMBAR 1"]);
+  var packIdx = findColIdx_(header, ["GAMBAR PACKAGING", "GAMBAR PACK", "GAMBAR 2"]);
+  var imgIdx = findColIdx_(header, ["GAMBAR", "IMAGE", "FOTO", "URL GAMBAR"]);
+  var descIdx = findColIdx_(header, ["PENERANGAN", "DESCRIPTION", "NOTA", "INFO"]);
+  var statusIdx = findColIdx_(header, ["STATUS", "STOK", "AVAILABILITY"]);
+
+  var list = [];
+  for (var r = hIdx + 1; r < values.length; r++) {
+    var row = values[r];
+    var name = String((nameIdx !== -1 ? row[nameIdx] : row[1]) || "").trim();
+    if (!name) continue;
+    var id = String((idIdx !== -1 ? row[idIdx] : row[0]) || ("FB-" + r)).trim();
+    var category = String((catIdx !== -1 ? row[catIdx] : row[2]) || "Lain-lain").trim();
+    var origPrice = parsePriceNum_(priceIdx !== -1 ? row[priceIdx] : row[3]);
+    var promoPrice = promoIdx !== -1 ? parsePriceNum_(row[promoIdx]) : 0;
+    var finalPrice = (promoPrice > 0 && (origPrice === 0 || promoPrice < origPrice)) ? promoPrice : origPrice;
+    var cookedImg = cookedIdx !== -1 ? normalizeDriveImg_(row[cookedIdx]) : "";
+    var packImg = packIdx !== -1 ? normalizeDriveImg_(row[packIdx]) : "";
+    var genImg = imgIdx !== -1 ? normalizeDriveImg_(row[imgIdx]) : "";
+    var statusStr = String((statusIdx !== -1 ? row[statusIdx] : "AVAILABLE") || "").toLowerCase();
+    var inStock = statusStr.indexOf("habis") === -1 && statusStr.indexOf("out") === -1 && statusStr.indexOf("tidak") === -1;
+
+    list.push({
+      id: id,
+      name: name,
+      category: category || "Lain-lain",
+      price: finalPrice,
+      originalPrice: (promoPrice > 0 && origPrice > promoPrice) ? origPrice : undefined,
+      promoPrice: promoPrice > 0 ? promoPrice : undefined,
+      unit: name.toLowerCase().indexOf("pek") !== -1 ? "" : "1 pek",
+      description: String((descIdx !== -1 ? row[descIdx] : "") || "").trim(),
+      imageUrl: cookedImg || genImg || packImg,
+      cookedImageUrl: cookedImg || undefined,
+      packagingImageUrl: packImg || undefined,
+      inStock: inStock,
+      halalCertified: true
+    });
+  }
+  return list;
+}
+
+function readPromosFromSheet_(ss, tabNames, prefix) {
+  var sheet = findTabByNames_(ss, tabNames);
+  if (!sheet) return [];
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+
+  var hIdx = findHeaderRowIdx_(values);
+  var header = values[hIdx].map(function(h) { return String(h || "").trim().toUpperCase(); });
+  var idIdx = findColIdx_(header, ["ID PROMO", "ID", "KOD"]);
+  var titleIdx = findColIdx_(header, ["TAJUK PROMO", "TAJUK", "NAMA PROMO", "PRODUK", "NAMA", "TITLE"]);
+  var descIdx = findColIdx_(header, ["PENERANGAN", "DESCRIPTION", "NOTA", "INFO"]);
+  var imgIdx = findColIdx_(header, ["GAMBAR PROMO", "GAMBAR SIAP MASAK", "GAMBAR", "IMAGE", "FOTO"]);
+  var origIdx = findColIdx_(header, ["HARGA ASAL", "HARGA BIASA", "HARGA", "PRICE"], ["PROMO", "DISKAUN"]);
+  var promoIdx = findColIdx_(header, ["HARGA PROMO", "PROMO PRICE", "HARGA DISKAUN", "PROMO"]);
+  var statusIdx = findColIdx_(header, ["STATUS", "KEADAAN", "STOK"]);
+
+  var list = [];
+  for (var r = hIdx + 1; r < values.length; r++) {
+    var row = values[r];
+    var title = String((titleIdx !== -1 ? row[titleIdx] : "") || "").trim();
+    if (!title) continue;
+    var statusStr = String((statusIdx !== -1 ? row[statusIdx] : "Aktif") || "").trim();
+    var lower = statusStr.toLowerCase();
+    if (lower.indexOf("tidak") !== -1 || lower.indexOf("habis") !== -1 || lower.indexOf("tamat") !== -1 || lower === "inactive") continue;
+
+    var origPrice = origIdx !== -1 ? parsePriceNum_(row[origIdx]) : 0;
+    var promoPrice = promoIdx !== -1 ? parsePriceNum_(row[promoIdx]) : 0;
+
+    list.push({
+      id: String((idIdx !== -1 ? row[idIdx] : "") || (prefix + "-" + r)).trim(),
+      title: title,
+      description: String((descIdx !== -1 ? row[descIdx] : "") || "").trim(),
+      imageUrl: imgIdx !== -1 ? normalizeDriveImg_(row[imgIdx]) : "",
+      originalPrice: origPrice > 0 ? origPrice : undefined,
+      promoPrice: promoPrice > 0 ? promoPrice : (origPrice > 0 ? origPrice : undefined),
+      status: statusStr || "Aktif",
+      unit: "1 pek"
+    });
+  }
+  return list;
+}
+
+function readSchedulesFromSheet_(ss) {
+  var sheet = findTabByNames_(ss, ["JADUAL", "Jadual", "jadual", "JADUAL_PERGERAKAN", "SCHEDULE"]);
+  if (!sheet) return [];
+  var values = sheet.getDataRange().getDisplayValues();
+  if (values.length <= 1) return [];
+
+  var hIdx = findHeaderRowIdx_(values);
+  var header = values[hIdx].map(function(h) { return String(h || "").trim().toUpperCase(); });
+  var idIdx = findColIdx_(header, ["ID JADUAL", "ID", "KOD", "NO"]);
+  var teamIdx = findColIdx_(header, ["NAMA TEAM", "TEAM", "DRIVER", "NAMA"]);
+  var dateIdx = findColIdx_(header, ["TARIKH", "DATE", "HARI"]);
+  var timeIdx = findColIdx_(header, ["MASA", "TIME", "WAKTU", "SLOT"]);
+  var locIdx = findColIdx_(header, ["KAWASAN", "LOCATION", "LOKASI", "LALUAN"]);
+  var notesIdx = findColIdx_(header, ["CATATAN", "NOTES", "NOTA"]);
+  var statusIdx = findColIdx_(header, ["STATUS", "KEADAAN"]);
+
+  var schedules = [];
+  for (var i = hIdx + 1; i < values.length; i++) {
+    var row = values[i];
+    if (row.join("").trim() === "") continue;
+    var id = String((idIdx !== -1 ? row[idIdx] : row[0]) || ("JAD-" + i)).trim();
+    var team = String((teamIdx !== -1 ? row[teamIdx] : row[1]) || "").trim();
+    var tarikh = String((dateIdx !== -1 ? row[dateIdx] : row[2]) || "Hari Ini").trim();
+    var masa = String((timeIdx !== -1 ? row[timeIdx] : row[3]) || "Waktu Operasi").trim();
+    var kawasan = String((locIdx !== -1 ? row[locIdx] : row[4]) || "").trim();
+    var catatan = String((notesIdx !== -1 ? row[notesIdx] : row[5]) || "").trim();
+    var status = String((statusIdx !== -1 ? row[statusIdx] : row[6]) || "Akan Datang").trim();
+
+    if (!kawasan) continue;
+    schedules.push({
+      id: id,
+      team: team,
+      teamName: team,
+      tarikh: tarikh,
+      date: tarikh,
+      masa: masa,
+      timeSlot: masa,
+      kawasan: kawasan,
+      locations: kawasan,
+      catatan: catatan,
+      notes: catatan,
+      status: status
+    });
+  }
+  return schedules;
+}
+
+// ==========================================
+// 1. FUNGSI MEMBACA DATA (GET / fetch)
+// ==========================================
+function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) ? String(e.parameter.action) : "getAll";
+
+  if (action === "getProducts") {
+    var fbSS = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      products: readProductsFromSheet_(fbSS)
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === "getPromos") {
+    var fbSS = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      promos: readPromosFromSheet_(fbSS, ["Alltimepromo", "All Time Promo", "ALL TIME PROMO", "AllTimePromo", "Promo"], "PROMO")
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === "getSeasonalPromos") {
+    var fbSS = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+    var seasonal = readPromosFromSheet_(fbSS, ["Seasonal", "Seasonalpromo", "Seasonal Promo", "Promosi Musiman", "Musiman"], "SEA");
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      promos: seasonal,
+      seasonalPromos: seasonal
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === "getSchedules") {
+    var jtSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      schedules: readSchedulesFromSheet_(jtSS)
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Lalai / action === "getAll": baca KEDUA-DUA fail ("Frozen Bergerak" + "Jadual Team") serentak
+  var fbSSAll = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+  var jtSSAll = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    products: readProductsFromSheet_(fbSSAll),
+    promos: readPromosFromSheet_(fbSSAll, ["Alltimepromo", "All Time Promo", "ALL TIME PROMO", "AllTimePromo", "Promo"], "PROMO"),
+    seasonalPromos: readPromosFromSheet_(fbSSAll, ["Seasonal", "Seasonalpromo", "Seasonal Promo", "Promosi Musiman", "Musiman"], "SEA"),
+    schedules: readSchedulesFromSheet_(jtSSAll),
+    meta: {
+      frozenBergerakConnected: Boolean(fbSSAll),
+      jadualTeamConnected: Boolean(jtSSAll),
+      syncedAt: new Date().toISOString()
+    }
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ==========================================
+// 2. FUNGSI KEMASKINI / TAMBAH / PADAM (POST)
+// ==========================================
+function doPost(e) {
+  try {
+    var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "";
+    var data = {};
+    if (typeof raw === "string" && raw.trim() !== "") {
+      try {
+        data = JSON.parse(raw);
+      } catch (pe) {
+        data = (e && e.parameter) || {};
+      }
+    } else {
+      data = (e && e.parameter) || {};
+    }
+
+    var action = data.action || "SCHEDULE_CREATE";
+
+    // Penghantaran notifikasi e-mel admin
+    if (action === "send_email_notification" || action === "team_approval_request" || data.type === "team_approval_request") {
+      var recipient = data.recipient || data.adminEmail || "maktabahumrr@gmail.com";
+      var subject = data.subject || "[FrozenBergerak] Permohonan Kelulusan Akses Team";
+      var body = data.body || "Terdapat permohonan akses baharu.";
+      MailApp.sendEmail({ to: recipient, subject: subject, body: body, htmlBody: data.htmlBody || undefined });
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Email dihantar ke " + recipient }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Pengurusan Jadual dalam fail "Jadual Team" (Tab JADUAL)
+    var ss = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+    var sheet = findTabByNames_(ss, ["JADUAL", "Jadual", "jadual"]);
+    if (!sheet) {
+      sheet = ss.insertSheet("JADUAL");
+      sheet.appendRow(["ID JADUAL", "NAMA TEAM", "TARIKH", "MASA", "KAWASAN", "CATATAN", "STATUS"]);
+      sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#1e40af").setFontColor("#ffffff");
+    }
+
+    var id = data.idJadual || data.id || (data.data && (data.data.idJadual || data.data.id)) || "JAD-01";
+    var namaTeam = data.namaTeam || data.teamName || data.team || (data.data && (data.data.namaTeam || data.data.teamName || data.data.team)) || "Team Frozen 1";
+    var tarikh = data.tarikh || data.date || (data.data && (data.data.tarikh || data.data.date)) || "Hari Ini";
+    var masa = data.masa || data.timeSlot || (data.data && (data.data.masa || data.data.timeSlot)) || "Waktu Operasi";
+    var kawasan = data.kawasan || data.locations || (data.data && (data.data.kawasan || data.data.locations)) || "";
+    var catatan = data.catatan || data.notes || (data.data && (data.data.catatan || data.data.notes)) || "";
+    var status = data.status || (data.data && data.data.status) || "Akan Datang";
+
+    var rowData = data.row;
+    if (!rowData || !Array.isArray(rowData)) {
+      rowData = [id, namaTeam, tarikh, masa, kawasan, catatan, status];
+    }
+
+    id = (rowData && rowData[0]) || id;
+    var lastRow = sheet.getLastRow();
+    var foundRow = -1;
+    if (lastRow > 1) {
+      var idValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (var i = 0; i < idValues.length; i++) {
+        if (String(idValues[i][0]).trim() === String(id).trim()) {
+          foundRow = i + 2;
+          break;
+        }
+      }
+    }
+
+    if (action === "SCHEDULE_DELETE") {
+      if (foundRow > 1) sheet.deleteRow(foundRow);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } else {
+      if (foundRow > 1) sheet.getRange(foundRow, 1, 1, rowData.length).setValues([rowData]);
+      else sheet.appendRow(rowData);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+}

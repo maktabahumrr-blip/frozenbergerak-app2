@@ -37,6 +37,7 @@ import { FeedbackModal } from "./components/FeedbackModal";
 import { TeamScheduleModal } from "./components/TeamScheduleModal";
 import { AnimatedNotificationBanner, LiveNotificationPayload } from "./components/AnimatedNotificationBanner";
 import { usePWA } from "./hooks/usePWA";
+import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "./config/googleSheets";
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -230,20 +231,52 @@ export default function App() {
       setCategories(catalogCategories);
       setCatalogSource(catalogSourceStr);
 
-      // 2. Concurrently fetch extra configurations, promos and seasonal promos
-      const urlParams = forceRefresh ? "?refresh=true" : "";
+      // 2. Concurrently fetch extra configurations, promos and seasonal promos (no-store + cache-buster)
+      const cacheBuster = `_t=${Date.now()}`;
+      const queryPrefix = forceRefresh ? `?refresh=true&${cacheBuster}` : `?${cacheBuster}`;
       const [confRes, promoRes, seasonalRes] = await Promise.all([
-        fetch("/api/config").catch(() => null),
-        fetch(`/api/promos${urlParams}`).catch(() => null),
-        fetch(`/api/seasonal-promos${urlParams}`).catch(() => null),
+        fetch(`/api/config?${cacheBuster}`, { cache: "no-store" }).catch(() => null),
+        fetch(`/api/promos${queryPrefix}`, { cache: "no-store" }).catch(() => null),
+        fetch(`/api/seasonal-promos${queryPrefix}`, { cache: "no-store" }).catch(() => null),
       ]);
 
-      const confData = confRes ? await confRes.json().catch(() => ({})) : {};
-      const promoData = promoRes ? await promoRes.json().catch(() => ({})) : {};
-      const seasonalData = seasonalRes ? await seasonalRes.json().catch(() => ({})) : {};
+      const confData = confRes && confRes.ok ? await confRes.json().catch(() => ({})) : {};
+      let promoData = promoRes && promoRes.ok ? await promoRes.json().catch(() => ({})) : {};
+      let seasonalData = seasonalRes && seasonalRes.ok ? await seasonalRes.json().catch(() => ({})) : {};
+
+      // Fallback to Apps Script Web App directly if backend promo endpoint failed
+      if ((!promoRes || !promoRes.ok) && GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
+        try {
+          const gasPromoRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getPromos&${cacheBuster}`, {
+            cache: "no-store",
+            redirect: "follow"
+          });
+          if (gasPromoRes.ok) {
+            promoData = await gasPromoRes.json().catch(() => ({}));
+          }
+        } catch {}
+      }
+
+      if ((!seasonalRes || !seasonalRes.ok) && GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
+        try {
+          const gasSeasonalRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getSeasonalPromos&${cacheBuster}`, {
+            cache: "no-store",
+            redirect: "follow"
+          });
+          if (gasSeasonalRes.ok) {
+            seasonalData = await gasSeasonalRes.json().catch(() => ({}));
+          }
+        } catch {}
+      }
 
       setPromos(Array.isArray(promoData?.promos) ? promoData.promos : []);
-      setSeasonalPromos(Array.isArray(seasonalData?.promos) ? seasonalData.promos : []);
+      setSeasonalPromos(
+        Array.isArray(seasonalData?.promos)
+          ? seasonalData.promos
+          : Array.isArray(seasonalData?.seasonalPromos)
+          ? seasonalData.seasonalPromos
+          : []
+      );
       
       setStoreConfig(confData || null);
 

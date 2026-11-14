@@ -49,7 +49,7 @@ import {
   deleteScheduleFromFirestore
 } from "../lib/firebase";
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
-import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
+import { GOOGLE_APPS_SCRIPT_WEB_APP_URL, UNIFIED_APPS_SCRIPT_CODE } from "../config/googleSheets";
 
 interface TeamScheduleModalProps {
   isOpen: boolean;
@@ -928,93 +928,41 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setTeamEmailsList(teamEmailsList.filter((e) => e !== emailToRemove));
   };
 
-  const copyAppsScript = () => {
-    const code = `/**
- * FrozenBergerak - Google Apps Script Webhook untuk Tab JADUAL & Notifikasi Email Admin
- * Penerima Notifikasi: maktabahumrr@gmail.com
- */
-function doPost(e) {
-  try {
-    var rawText = e.postData.contents;
-    var data = JSON.parse(rawText);
-    var action = data.action || "";
-
-    // 1. PENGHANTARAN NOTIFIKASI EMAIL KEPADA ADMIN (maktabahumrr@gmail.com)
-    if (action === "send_email_notification" || action === "team_approval_request" || data.type === "team_approval_request") {
-      var recipient = data.recipient || data.adminEmail || "maktabahumrr@gmail.com";
-      var subject = data.subject || "[FrozenBergerak] Permohonan Kelulusan Akses Team";
-      var teamEmail = data.teamEmail || data.email || "Ahli Pasukan";
-      var body = data.body || ("Salam Admin,\\n\\nAhli Pasukan (" + teamEmail + ") telah memohon akses log masuk ke FrozenBergerak.\\nSila buka aplikasi untuk meluluskan permohonan.\\n\\nTerima kasih.");
-      
-      try {
-        MailApp.sendEmail({
-          to: recipient,
-          subject: subject,
-          body: body,
-          htmlBody: data.htmlBody || undefined
-        });
-        return ContentService.createTextOutput(JSON.stringify({ 
-          success: true, 
-          message: "Email notifikasi berjaya dihantar ke " + recipient 
-        })).setMimeType(ContentService.MimeType.JSON);
-      } catch (mailErr) {
-        return ContentService.createTextOutput(JSON.stringify({ 
-          success: false, 
-          error: "Gagal hantar email: " + mailErr.toString() 
-        })).setMimeType(ContentService.MimeType.JSON);
-      }
-    }
-    
-    // 2. PENGURUSAN REKOD JADUAL DALAM TAB GOOGLE SHEETS
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName("JADUAL");
-    
-    if (!sheet) {
-      sheet = ss.insertSheet("JADUAL");
-      sheet.appendRow(["ID JADUAL", "NAMA TEAM", "TARIKH", "MASA", "KAWASAN", "CATATAN", "STATUS"]);
-      sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#1e40af").setFontColor("#ffffff");
-    }
-    
-    var rowData = data.row;
-    var id = (rowData && rowData[0]) || (data.data && data.data.id) || data.id;
-    
-    var lastRow = sheet.getLastRow();
-    var foundRow = -1;
-    
-    if (lastRow > 1) {
-      var idValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (var i = 0; i < idValues.length; i++) {
-        if (String(idValues[i][0]).trim() === String(id).trim()) {
-          foundRow = i + 2;
-          break;
-        }
-      }
-    }
-    
-    if (action === "SCHEDULE_DELETE") {
-      if (foundRow > 1) {
-        sheet.deleteRow(foundRow);
-        return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Deleted row " + foundRow }))
-          .setMimeType(ContentService.MimeType.JSON);
-      }
-    } else if (rowData && Array.isArray(rowData)) {
-      if (foundRow > 1) {
-        sheet.getRange(foundRow, 1, 1, rowData.length).setValues([rowData]);
+  const copyAppsScript = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(UNIFIED_APPS_SCRIPT_CODE);
       } else {
-        sheet.appendRow(rowData);
+        throw new Error("Clipboard API unavailable");
+      }
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = UNIFIED_APPS_SCRIPT_CODE;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        document.body.removeChild(ta);
       }
     }
-    
-    return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}`;
-    navigator.clipboard.writeText(code);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 2500);
+  };
+
+  const downloadAppsScript = () => {
+    const blob = new Blob([UNIFIED_APPS_SCRIPT_CODE], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Code.gs";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -2202,127 +2150,38 @@ function doPost(e) {
                   Pastikan Tetapan Deployment di Google Apps Script:
                 </h4>
                 <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-slate-600">
-                  <li>Buka Google Sheet FrozenBergerak anda &gt; Klik <strong>Extensions &gt; Apps Script</strong>.</li>
-                  <li>Salin kod lengkap <code>doGet</code> &amp; <code>doPost</code> di bawah ke dalam editor Apps Script.</li>
-                  <li>Klik butang biru <strong>Deploy &gt; Manage deployments</strong> (atau <i>New deployment</i>).</li>
-                  <li>Pastikan tetapan: <strong>Execute as: Me</strong> dan <strong>Who has access: Anyone</strong> (Siapa sahaja).</li>
-                  <li>Simpan perubahan (Save / Deploy). Data jadual akan disegerakkan terus ke aplikasi secara masa nyata!</li>
+                  <li>Buka Google Sheet <strong>&quot;Jadual Team&quot;</strong> (atau <strong>&quot;Frozen Bergerak&quot;</strong>) &gt; Klik <strong>Extensions &gt; Apps Script</strong>.</li>
+                  <li>Tampal kod lengkap di bawah ke dalam satu fail <code>Code.gs</code> (menguruskan baca produk dari <strong>&quot;Frozen Bergerak&quot;</strong> &amp; baca/tulis jadual dari <strong>&quot;Jadual Team&quot;</strong> serentak).</li>
+                  <li>Simpan (Ctrl+S), kemudian pilih fungsi <code>authorizePermissions</code> dan klik <strong>Run</strong> sekali untuk meluluskan akses Google Sheets, Drive &amp; Gmail.</li>
+                  <li>Klik <strong>Deploy &gt; Manage deployments</strong> (atau <i>New deployment</i>), tetapkan <strong>Execute as: Me</strong> dan <strong>Who has access: Anyone</strong>.</li>
+                  <li>Simpan / Deploy. Semua data produk, promo, dan jadual akan naik ke PWA secara serentak!</li>
                 </ol>
               </div>
 
               <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 text-[11px]">Kod Lengkap Google Apps Script (doGet &amp; doPost):</span>
-                  <button
-                    type="button"
-                    onClick={copyAppsScript}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors"
-                  >
-                    <Copy className="w-3 h-3" />
-                    <span>{copiedScript ? "Disalin!" : "Salin Kod Lengkap"}</span>
-                  </button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800 text-[11px]">Kod Lengkap Google Apps Script (2 Fail: Frozen Bergerak + Jadual Team):</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={downloadAppsScript}
+                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Muat Turun Code.gs</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={copyAppsScript}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>{copiedScript ? "Disalin!" : "Salin Kod Lengkap"}</span>
+                    </button>
+                  </div>
                 </div>
                 <pre className="p-3 bg-slate-900 text-slate-200 rounded-xl font-mono text-[10px] overflow-x-auto max-h-48 scrollbar-thin">
-{`// ==========================================
-// 1. FUNGSI MEMBACA DATA JADUAL (GET / fetch)
-// ==========================================
-function doGet(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName("JADUAL");
-  if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({ schedules: [] }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-  var data = sheet.getDataRange().getValues();
-  if (data.length <= 1) {
-    return ContentService.createTextOutput(JSON.stringify({ schedules: [] }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-  var headers = data[0];
-  var schedules = [];
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    if (row.join("").trim() === "") continue;
-    schedules.push({
-      id: row[0] || ("JAD-" + i),
-      teamName: row[1] || "Team Frozen 1",
-      date: row[2] || "Hari Ini",
-      timeSlot: row[3] || "Waktu Operasi",
-      locations: row[4] || "",
-      notes: row[5] || "",
-      status: row[6] || "Akan Datang"
-    });
-  }
-  return ContentService.createTextOutput(JSON.stringify({ schedules: schedules }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-// ==========================================
-// 2. FUNGSI KEMASKINI / TAMBAH / PADAM (POST)
-// ==========================================
-function doPost(e) {
-  try {
-    var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "";
-    var data = {};
-    if (typeof raw === "string" && raw.trim() !== "") {
-      try {
-        data = JSON.parse(raw);
-      } catch (pe) {
-        data = (e && e.parameter) || {};
-      }
-    } else {
-      data = (e && e.parameter) || {};
-    }
-    
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName("JADUAL");
-    if (!sheet) {
-      sheet = ss.insertSheet("JADUAL");
-      sheet.appendRow(["ID JADUAL", "NAMA TEAM", "TARIKH", "MASA", "KAWASAN", "CATATAN", "STATUS"]);
-      sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#1e40af").setFontColor("#ffffff");
-    }
-    
-    var action = data.action || "SCHEDULE_CREATE";
-    var id = data.idJadual || data.id || (data.data && (data.data.idJadual || data.data.id)) || "JAD-01";
-    var namaTeam = data.namaTeam || data.teamName || (data.data && (data.data.namaTeam || data.data.teamName)) || "Team Frozen 1";
-    var tarikh = data.tarikh || data.date || (data.data && (data.data.tarikh || data.data.date)) || "Hari Ini";
-    var masa = data.masa || data.timeSlot || (data.data && (data.data.masa || data.data.timeSlot)) || "Waktu Operasi";
-    var kawasan = data.kawasan || data.locations || (data.data && (data.data.kawasan || data.data.locations)) || "";
-    var catatan = data.catatan || data.notes || (data.data && (data.data.catatan || data.data.notes)) || "";
-    var status = data.status || (data.data && data.data.status) || "Akan Datang";
-
-    var rowData = data.row;
-    if (!rowData || !Array.isArray(rowData)) {
-      rowData = [id, namaTeam, tarikh, masa, kawasan, catatan, status];
-    }
-    
-    var id = (rowData && rowData[0]) || data.id || (data.data && data.data.id);
-    var lastRow = sheet.getLastRow();
-    var foundRow = -1;
-    if (lastRow > 1) {
-      var idValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (var i = 0; i < idValues.length; i++) {
-        if (String(idValues[i][0]).trim() === String(id).trim()) {
-          foundRow = i + 2; break;
-        }
-      }
-    }
-    
-    if (action === "SCHEDULE_DELETE") {
-      if (foundRow > 1) sheet.deleteRow(foundRow);
-      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
-        .setMimeType(ContentService.MimeType.JSON);
-    } else {
-      if (foundRow > 1) sheet.getRange(foundRow, 1, 1, rowData.length).setValues([rowData]);
-      else sheet.appendRow(rowData);
-      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}`}
+                  {UNIFIED_APPS_SCRIPT_CODE}
                 </pre>
               </div>
             </div>

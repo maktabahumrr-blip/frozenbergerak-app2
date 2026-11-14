@@ -4,6 +4,7 @@ import fs from "fs";
 import crypto from "crypto";
 import webpush from "web-push";
 import { createServer as createViteServer } from "vite";
+import { buildUnifiedAppsScriptCode } from "./src/config/appsScriptTemplate";
 
 const app = express();
 const PORT = 3000;
@@ -647,7 +648,7 @@ function saveSchedule(items: ScheduleRecord[]) {
 }
 
 // Google Apps Script Web App URL for JADUAL tab synchronization
-const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyzICLTsVsxPFAn8tdGDh8QPvANzMf8qpXJX4ZD2ZbUSckFv6xPpZqCboQXiPvyq27H/exec";
+const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwU5wJU-Qyyp-U7Bvf5mXmLaH6Ve8VnQFD0Pf4ZxZdhczySdx8NU-XRFFq8J8DNwb4P/exec";
 
 function getAppsScriptUrl(): string {
   return process.env.GOOGLE_SHEET_WEBHOOK_URL?.trim() || 
@@ -1516,12 +1517,25 @@ async function fetchServerTabCsv(sheetId: string, tabAliases: string[], allowDef
   return null;
 }
 
+function findServerHeaderRowIndex(rows: string[][]): number {
+  const limit = Math.min(rows.length, 5);
+  for (let r = 0; r < limit; r++) {
+    const row = rows[r].map(h => (h || "").trim().toUpperCase());
+    const matches = row.some(h =>
+      /^(id|kod|code|no|id promo|id produk|produk|nama|name|item|tajuk|title|tajuk promo|nama promo|kategori|category|jenis|harga|price|gambar|image|foto|photo|status|stok|promo)/i.test(h)
+    );
+    if (matches) return r;
+  }
+  return 0;
+}
+
 function parseServerTabRows(
   rows: string[][],
   tabType: "produk" | "alltimepromo" | "seasonal"
 ): ParsedProduct[] {
   if (!rows || rows.length === 0) return [];
-  const headerRow = rows[0].map(h => (h || "").trim().toUpperCase());
+  const headerIdx = findServerHeaderRowIndex(rows);
+  const headerRow = rows[headerIdx].map(h => (h || "").trim().toUpperCase());
 
   const findExactOrIncludes = (possibleNames: string[], excludeWords: string[] = []): number => {
     for (const name of possibleNames) {
@@ -1540,10 +1554,10 @@ function parseServerTabRows(
   };
 
   const isHeaderRow = headerRow.some(h =>
-    /^(id|kod|code|no|produk|nama|name|item|tajuk|title|kategori|category|jenis|harga|price|gambar|image|foto|photo|status|stok|promo)/i.test(h)
+    /^(id|kod|code|no|id promo|id produk|produk|nama|name|item|tajuk|title|tajuk promo|nama promo|kategori|category|jenis|harga|price|gambar|image|foto|photo|status|stok|promo)/i.test(h)
   );
 
-  const startRow = isHeaderRow ? 1 : 0;
+  const startRow = isHeaderRow ? headerIdx + 1 : 0;
 
   // Flexible column matching with Column Index Fallback
   // Column A = ID/Code, Column B = Name, Column C = Category/Promo, Column D = Price, Column E = Image
@@ -1553,8 +1567,8 @@ function parseServerTabRows(
   let nameIdx = isHeaderRow ? findExactOrIncludes(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "PRODUCT NAME", "ITEM", "ITEM NAME", "TAJUK", "TITLE", "TAJUK PROMO", "NAMA PROMO"]) : -1;
   if (nameIdx === -1) nameIdx = 1; // Fallback to Column B
 
-  let catIdx = isHeaderRow ? findExactOrIncludes(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN", "SEGMEN", "PROMO", "PROMOSI", "TYPE", "TAG", "SEASONAL"]) : -1;
-  if (catIdx === -1) catIdx = 2; // Fallback to Column C
+  let catIdx = isHeaderRow ? findExactOrIncludes(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN", "SEGMEN", "TYPE", "TAG", "SEASONAL"], ["HARGA", "ID", "GAMBAR", "TAJUK"]) : -1;
+  if (catIdx === -1 && tabType === "produk") catIdx = 2; // Fallback to Column C only on Produk tab
 
   let priceIdx = isHeaderRow ? findExactOrIncludes(["HARGA", "PRICE", "HARGA ASAL", "HARGA BIASA", "HARGA (RM)", "HARGA RM", "RATE"], ["PROMO", "DISKAUN"]) : -1;
   if (priceIdx === -1) priceIdx = 3; // Fallback to Column D
@@ -1595,7 +1609,7 @@ function parseServerTabRows(
       rawId = `${prefix}-${String(r).padStart(3, "0")}`;
     }
 
-    let rawCategory = (catIdx !== -1 && row[catIdx]?.trim()) ? row[catIdx].trim() : (row[2]?.trim() || "");
+    let rawCategory = (catIdx !== -1 && row[catIdx]?.trim()) ? row[catIdx].trim() : (tabType === "produk" ? (row[2]?.trim() || "") : "");
     if (!rawCategory || ["KATEGORI", "CATEGORY", "JENIS"].includes(rawCategory.toUpperCase())) {
       if (tabType === "alltimepromo") {
         rawCategory = "All Time Promo";
@@ -1606,8 +1620,8 @@ function parseServerTabRows(
       }
     }
 
-    const rawPriceVal = (priceIdx !== -1 && row[priceIdx]) ? formatPriceNumber(row[priceIdx]) : (row[3] ? formatPriceNumber(row[3]) : 0);
-    const rawPromoPriceVal = (promoPriceIdx !== -1 && row[promoPriceIdx]) ? formatPriceNumber(row[promoPriceIdx]) : 0;
+    const rawPriceVal = priceIdx !== -1 ? formatPriceNumber(row[priceIdx]) : (row[3] ? formatPriceNumber(row[3]) : 0);
+    const rawPromoPriceVal = promoPriceIdx !== -1 ? formatPriceNumber(row[promoPriceIdx]) : 0;
 
     let finalPrice = rawPriceVal;
     let origPrice: number | undefined = undefined;
@@ -1707,12 +1721,50 @@ function mergeServerProducts(
   return merged;
 }
 
+async function fetchAppsScriptActionJson(action: "getProducts" | "getPromos" | "getSeasonalPromos" | "getAll"): Promise<any | null> {
+  const webAppUrl = getAppsScriptUrl();
+  if (!webAppUrl) return null;
+  try {
+    const response = await fetch(`${webAppUrl}?action=${action}&_t=${Date.now()}`, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json, text/plain, */*",
+        "Cache-Control": "no-cache"
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(6000),
+      redirect: "follow"
+    });
+    if (!response.ok) return null;
+    const text = (await response.text()).trim();
+    if (!text || text.startsWith("<") || text.toLowerCase().includes("<html")) return null;
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 async function fetchProductsFromGoogleSheet(
   forceRefresh = false,
   customSheetIdOrUrl?: string
 ): Promise<{ products: ParsedProduct[]; source: string }> {
   const sheetIdRaw = customSheetIdOrUrl || process.env.GOOGLE_SHEET_ID;
   const now = Date.now();
+
+  if (!forceRefresh && cachedProducts && (now - lastFetchTime < CACHE_TTL_MS)) {
+    return { products: cachedProducts, source: "cache" };
+  }
+
+  // Try Google Apps Script Web App (?action=getProducts) if no custom sheet override was passed
+  if (!customSheetIdOrUrl) {
+    const gasJson = await fetchAppsScriptActionJson("getProducts");
+    const gasProducts = Array.isArray(gasJson?.products) ? gasJson.products : (Array.isArray(gasJson) && gasJson.length > 0 && gasJson[0]?.name ? gasJson : null);
+    if (Array.isArray(gasProducts) && gasProducts.length > 0) {
+      cachedProducts = gasProducts;
+      lastFetchTime = now;
+      return { products: gasProducts, source: "google_apps_script" };
+    }
+  }
 
   // If no sheet ID is provided, load the default parsed products
   if (!sheetIdRaw || !sheetIdRaw.trim()) {
@@ -1725,10 +1777,6 @@ async function fetchProductsFromGoogleSheet(
   }
 
   const sheetId = extractSheetId(sheetIdRaw);
-
-  if (!forceRefresh && cachedProducts && (now - lastFetchTime < CACHE_TTL_MS)) {
-    return { products: cachedProducts, source: "cache" };
-  }
 
   let produkItems: ParsedProduct[] = [];
   let alltimeItems: ParsedProduct[] = [];
@@ -1822,17 +1870,27 @@ async function fetchProductsFromGoogleSheet(
 }
 
 async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promos: ParsedPromo[]; source: string }> {
+  const now = Date.now();
+
+  if (!forceRefresh && cachedPromos && (now - lastPromoFetchTime < CACHE_TTL_MS)) {
+    return { promos: cachedPromos, source: "cache" };
+  }
+
+  // Try Google Apps Script Web App (?action=getPromos)
+  const gasJson = await fetchAppsScriptActionJson("getPromos");
+  const gasPromos = Array.isArray(gasJson?.promos) ? gasJson.promos : null;
+  if (Array.isArray(gasPromos) && gasPromos.length > 0) {
+    cachedPromos = gasPromos;
+    lastPromoFetchTime = now;
+    return { promos: gasPromos, source: "google_apps_script" };
+  }
+
   const sheetIdRaw = process.env.GOOGLE_SHEET_ID;
   if (!sheetIdRaw || !sheetIdRaw.trim()) {
     return { promos: [], source: "none" };
   }
 
   const sheetId = extractSheetId(sheetIdRaw);
-  const now = Date.now();
-
-  if (!forceRefresh && cachedPromos && (now - lastPromoFetchTime < CACHE_TTL_MS)) {
-    return { promos: cachedPromos, source: "cache" };
-  }
 
 // Attempt to fetch from tab names: "Alltimepromo", "All Time Promo", etc.
   const tabNames = [
@@ -1920,7 +1978,8 @@ async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promo
     return { promos: [], source: "empty" };
   }
 
-  const headerRow = rows[0].map(h => h.trim().toUpperCase());
+  const headerIdx = findServerHeaderRowIndex(rows);
+  const headerRow = rows[headerIdx].map(h => h.trim().toUpperCase());
 
   const findExactOrIncludes = (possibleNames: string[], excludeWords: string[] = []): number => {
     for (const name of possibleNames) {
@@ -1949,7 +2008,7 @@ async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promo
 
   const promos: ParsedPromo[] = [];
 
-  for (let r = 1; r < rows.length; r++) {
+  for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length === 0 || row.every(cell => !cell.trim())) continue;
 
@@ -2018,17 +2077,27 @@ async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promo
 }
 
 async function fetchSeasonalPromosFromGoogleSheet(forceRefresh = false): Promise<{ promos: ParsedPromo[]; source: string }> {
+  const now = Date.now();
+
+  if (!forceRefresh && cachedSeasonalPromos && (now - lastSeasonalPromoFetchTime < CACHE_TTL_MS)) {
+    return { promos: cachedSeasonalPromos, source: "cache" };
+  }
+
+  // Try Google Apps Script Web App (?action=getSeasonalPromos)
+  const gasJson = await fetchAppsScriptActionJson("getSeasonalPromos");
+  const gasSeasonal = Array.isArray(gasJson?.seasonalPromos) ? gasJson.seasonalPromos : (Array.isArray(gasJson?.promos) ? gasJson.promos : null);
+  if (Array.isArray(gasSeasonal) && gasSeasonal.length > 0) {
+    cachedSeasonalPromos = gasSeasonal;
+    lastSeasonalPromoFetchTime = now;
+    return { promos: gasSeasonal, source: "google_apps_script" };
+  }
+
   const sheetIdRaw = process.env.GOOGLE_SHEET_ID;
   if (!sheetIdRaw || !sheetIdRaw.trim()) {
     return { promos: [], source: "none" };
   }
 
   const sheetId = extractSheetId(sheetIdRaw);
-  const now = Date.now();
-
-  if (!forceRefresh && cachedSeasonalPromos && (now - lastSeasonalPromoFetchTime < CACHE_TTL_MS)) {
-    return { promos: cachedSeasonalPromos, source: "cache" };
-  }
 
   const tabNames = [
     "Seasonalpromo",
@@ -2113,7 +2182,8 @@ async function fetchSeasonalPromosFromGoogleSheet(forceRefresh = false): Promise
     return { promos: [], source: "empty" };
   }
 
-  const headerRow = rows[0].map(h => h.trim().toUpperCase());
+  const headerIdx = findServerHeaderRowIndex(rows);
+  const headerRow = rows[headerIdx].map(h => h.trim().toUpperCase());
 
   // Distinguish if Google Sheets returned a dedicated promo tab or fell back to the main products table
   const isDedicatedPromoTab = headerRow.some(h => 
@@ -2378,8 +2448,81 @@ app.all(["/api/reset-banner", "/api/banner/reset"], requireAdminOnlyAuth, async 
   }
 });
 
-// All Time Promos endpoint strictly from Alltimepromo Google Sheet tab
+// Unified endpoint: Fetch Produk, All-Time Promo, Seasonal Promo ("Frozen Bergerak") + Jadual ("Jadual Team") serentak
+app.get("/api/all", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  try {
+    const forceRefresh = req.query.refresh === "true";
+    const deletedIds = loadDeletedScheduleIds();
+
+    // 1. Try single unified Apps Script call (?action=getAll) first
+    const gasAll = await fetchAppsScriptActionJson("getAll");
+    if (
+      gasAll &&
+      typeof gasAll === "object" &&
+      Array.isArray(gasAll.products) &&
+      gasAll.products.length > 0 &&
+      Array.isArray(gasAll.schedules)
+    ) {
+      const normalizedSchedules: ScheduleRecord[] = gasAll.schedules
+        .filter((item: any) => item && (item.locations || item.kawasan))
+        .map((item: any, i: number) => {
+          const id = String(item.id || item.idJadual || `JAD-${String(i + 1).padStart(2, "0")}`).trim();
+          const teamName = String(item.teamName || item.team || item.namaTeam || "Team Frozen 1").trim();
+          return {
+            id,
+            teamName,
+            driverName: teamName,
+            date: String(item.date || item.tarikh || "Hari Ini").trim(),
+            timeSlot: String(item.timeSlot || item.masa || "Waktu Operasi").trim(),
+            locations: String(item.locations || item.kawasan || "").trim(),
+            notes: String(item.notes || item.catatan || "").trim(),
+            status: normalizeScheduleStatus(item.status || "Akan Datang"),
+            lastUpdated: new Date().toISOString()
+          };
+        })
+        .filter((s: ScheduleRecord) => !deletedIds.includes(s.id));
+
+      res.json({
+        success: true,
+        source: "google_apps_script_unified",
+        products: gasAll.products,
+        promos: Array.isArray(gasAll.promos) ? gasAll.promos : [],
+        seasonalPromos: Array.isArray(gasAll.seasonalPromos) ? gasAll.seasonalPromos : [],
+        schedules: normalizedSchedules,
+        deletedIds
+      });
+      return;
+    }
+
+    // 2. Hybrid fallback: resolve both Frozen Bergerak & Jadual Team concurrently
+    const [prodRes, promoRes, seasonalRes, schedRes] = await Promise.all([
+      fetchProductsFromGoogleSheet(forceRefresh),
+      fetchPromosFromGoogleSheet(forceRefresh),
+      fetchSeasonalPromosFromGoogleSheet(forceRefresh),
+      fetchScheduleFromGoogleSheet()
+    ]);
+
+    res.json({
+      success: true,
+      source: `hybrid:${prodRes.source}+${schedRes.source}`,
+      products: prodRes.products,
+      promos: promoRes.promos,
+      seasonalPromos: seasonalRes.promos,
+      schedules: schedRes.schedules,
+      deletedIds
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || "Gagal menyegerakkan data produk dan jadual secara serentak."
+    });
+  }
+});
+
+// All Time Promos endpoint strictly from Alltimepromo Google Sheet tab / Apps Script
 app.get("/api/promos", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   try {
     const { refresh } = req.query;
     const { promos, source } = await fetchPromosFromGoogleSheet(refresh === "true");
@@ -2395,8 +2538,9 @@ app.get("/api/promos", async (req: Request, res: Response) => {
   }
 });
 
-// Seasonal Promos endpoint from Seasonalpromo Google Sheet tab
+// Seasonal Promos endpoint from Seasonalpromo Google Sheet tab / Apps Script
 app.get("/api/seasonal-promos", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   try {
     const { refresh } = req.query;
     const { promos, source } = await fetchSeasonalPromosFromGoogleSheet(refresh === "true");
@@ -2414,6 +2558,7 @@ app.get("/api/seasonal-promos", async (req: Request, res: Response) => {
 
 // Dynamic Categories endpoint derived directly from Google Sheet products
 app.get("/api/categories", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   try {
     const { refresh, sheetUrl, sheetId } = req.query;
     const targetSheet = (typeof sheetUrl === "string" && sheetUrl) || (typeof sheetId === "string" && sheetId) || undefined;
@@ -2453,8 +2598,9 @@ app.get("/api/categories", async (req: Request, res: Response) => {
   }
 });
 
-// Products endpoint strictly from Google Sheet
+// Products endpoint strictly from Google Sheet / Apps Script
 app.get("/api/products", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   try {
     const { category, search, popularOnly, refresh, sheetUrl, sheetId } = req.query;
     const targetSheet = (typeof sheetUrl === "string" && sheetUrl) || (typeof sheetId === "string" && sheetId) || undefined;
@@ -3642,83 +3788,10 @@ app.post("/api/schedule/delete", requireAdminOrTeamAuth, async (req: Request, re
   }
 });
 
-// Helper endpoint: Returns Google Apps Script ready code for copy-paste
+// Helper endpoint: Returns unified 2-spreadsheet Google Apps Script ready code (doGet & doPost)
 app.get("/api/schedule/apps-script-code", (_req: Request, res: Response) => {
-  const scriptCode = `/**
- * FrozenBergerak - Google Apps Script Webhook untuk Tab JADUAL
- * Lajur yang ditetapkan: ID JADUAL | NAMA TEAM | TARIKH | MASA | KAWASAN | CATATAN | STATUS
- */
-function doPost(e) {
-  try {
-    var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "";
-    var data = {};
-    if (typeof raw === "string" && raw.trim() !== "") {
-      try {
-        data = JSON.parse(raw);
-      } catch (pe) {
-        data = (e && e.parameter) || {};
-      }
-    } else {
-      data = (e && e.parameter) || {};
-    }
-    
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName("JADUAL");
-    if (!sheet) {
-      sheet = ss.insertSheet("JADUAL");
-      sheet.appendRow(["ID JADUAL", "NAMA TEAM", "TARIKH", "MASA", "KAWASAN", "CATATAN", "STATUS"]);
-      sheet.getRange("A1:G1").setFontWeight("bold").setBackground("#1e40af").setFontColor("#ffffff");
-    }
-    
-    var action = data.action || "SCHEDULE_CREATE";
-    var id = data.idJadual || data.id || (data.data && (data.data.idJadual || data.data.id)) || "JAD-01";
-    var namaTeam = data.namaTeam || data.teamName || (data.data && (data.data.namaTeam || data.data.teamName)) || "Team Frozen 1";
-    var tarikh = data.tarikh || data.date || (data.data && (data.data.tarikh || data.data.date)) || "Hari Ini";
-    var masa = data.masa || data.timeSlot || (data.data && (data.data.masa || data.data.timeSlot)) || "Waktu Operasi";
-    var kawasan = data.kawasan || data.locations || (data.data && (data.data.kawasan || data.data.locations)) || "";
-    var catatan = data.catatan || data.notes || (data.data && (data.data.catatan || data.data.notes)) || "";
-    var status = data.status || (data.data && data.data.status) || "Akan Datang";
-
-    var rowData = data.row;
-    if (!rowData || !Array.isArray(rowData)) {
-      rowData = [id, namaTeam, tarikh, masa, kawasan, catatan, status];
-    }
-    
-    var id = (rowData && rowData[0]) || data.id || (data.data && data.data.id);
-    var lastRow = sheet.getLastRow();
-    var foundRow = -1;
-    if (lastRow > 1) {
-      var idValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (var i = 0; i < idValues.length; i++) {
-        if (String(idValues[i][0]).trim() === String(id).trim()) {
-          foundRow = i + 2;
-          break;
-        }
-      }
-    }
-    
-    if (action === "SCHEDULE_DELETE") {
-      if (foundRow > 1) {
-        sheet.deleteRow(foundRow);
-        return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Deleted row " + foundRow, id: id }))
-          .setMimeType(ContentService.MimeType.JSON);
-      }
-    } else {
-      // UPDATE OR CREATE
-      if (foundRow > 1) {
-        sheet.getRange(foundRow, 1, 1, rowData.length).setValues([rowData]);
-      } else {
-        sheet.appendRow(rowData);
-      }
-    }
-    
-    return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}`;
+  const frozenSheetId = process.env.GOOGLE_SHEET_ID?.trim() || "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw";
+  const scriptCode = buildUnifiedAppsScriptCode(frozenSheetId, "");
   res.json({ scriptCode });
 });
 

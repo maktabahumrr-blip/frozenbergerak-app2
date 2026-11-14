@@ -1,11 +1,11 @@
 /**
  * Service Worker for FrozenBergerak PWA
- * Version: 2.2.0 (Strict Live Schedule Sync & Auto-updating cache)
+ * Version: 2.3.0 (Unified 2-Spreadsheet Live Sync & Auto-updating cache)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v8';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v8';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v8';
+const CACHE_NAME = 'frozenbergerak-static-v9';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v9';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v9';
 
 const STATIC_ASSETS = [
   '/',

@@ -1,5 +1,6 @@
 import { Product, Category } from "../types";
 import { extractGoogleDriveFileId, formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
 
 export const RAW_CATALOG_CSV = `ID,PRODUK,KATEGORI,HARGA,HARGA PROMO,GAMBAR SIAP MASAK,GAMBAR PACKAGING,PENERANGAN,STATUS
 FB001,Pau Mini Kacang Merah,Pau,RM 15,,https://drive.google.com/file/d/15bXjrNxiC5quFRZVPPjdbLAUhPdOcJH5/view?usp=drivesdk,https://drive.google.com/file/d/1naFQ3aOaPHVSeY-xmFtkveQ1yyShvilI/view?usp=drivesdk,1 pek 12 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
@@ -246,45 +247,59 @@ export function parseTabRowsSafely(
   try {
     if (!rows || rows.length === 0) return [];
 
-    const headerRow = rows[0].map((h) => (h || "").trim().toUpperCase());
+    // Scan first 5 rows for the true header row (some tabs like Alltimepromo have a title/divider row above headers)
+    let headerRowIdx = -1;
+    const scanLimit = Math.min(rows.length, 5);
+    for (let r = 0; r < scanLimit; r++) {
+      const candidate = (rows[r] || []).map((h) => (h || "").trim().toUpperCase());
+      const matchesHeader = candidate.some((h) =>
+        /^(id|id produk|id promo|kod|code|no|produk|nama produk|nama|name|item|tajuk|tajuk promo|nama promo|title|kategori|category|jenis|harga|harga asal|price|gambar|gambar promo|image|foto|photo|status|stok|promo)$/i.test(h)
+      );
+      if (matchesHeader) {
+        headerRowIdx = r;
+        break;
+      }
+    }
+
+    const isHeaderRow = headerRowIdx !== -1;
+    const headerRow = (isHeaderRow ? rows[headerRowIdx] : rows[0]).map((h) => (h || "").trim().toUpperCase());
 
     // Helper for flexible header matching
-    const findIdx = (possibleNames: string[]): number => {
+    const findIdx = (possibleNames: string[], excludeWords: string[] = []): number => {
       for (const name of possibleNames) {
         const idx = headerRow.findIndex((h) => h === name.toUpperCase());
         if (idx !== -1) return idx;
       }
       for (const name of possibleNames) {
-        const idx = headerRow.findIndex((h) => h.includes(name.toUpperCase()));
+        const idx = headerRow.findIndex(
+          (h) =>
+            h.includes(name.toUpperCase()) &&
+            !excludeWords.some((ex) => h.includes(ex.toUpperCase()))
+        );
         if (idx !== -1) return idx;
       }
       return -1;
     };
 
-    // Check if row 0 looks like a header row
-    const isHeaderRow = headerRow.some((h) =>
-      /^(id|kod|code|no|produk|nama|name|item|tajuk|title|kategori|category|jenis|harga|price|gambar|image|foto|photo|status|stok|promo)/i.test(h)
-    );
-
-    const startRow = isHeaderRow ? 1 : 0;
+    const startRow = isHeaderRow ? headerRowIdx + 1 : 0;
 
     // Flexible column matching with Column Index Fallback:
     // Column A = ID/Code, Column B = Name, Column C = Category/Promo, Column D = Price, Column E = Image
-    let idIdx = isHeaderRow ? findIdx(["ID", "KOD", "CODE", "NO", "ITEM ID", "PROMO ID", "ID PRODUK", "KOD PRODUK", "SKU"]) : -1;
+    let idIdx = isHeaderRow ? findIdx(["ID", "KOD", "CODE", "NO", "ITEM ID", "PROMO ID", "ID PROMO", "ID PRODUK", "KOD PRODUK", "SKU"]) : -1;
     if (idIdx === -1) idIdx = 0; // Fallback to Column A
 
     let nameIdx = isHeaderRow ? findIdx(["PRODUK", "NAMA PRODUK", "NAMA", "PRODUCT", "PRODUCT NAME", "ITEM", "ITEM NAME", "TAJUK", "TITLE", "TAJUK PROMO", "NAMA PROMO"]) : -1;
     if (nameIdx === -1) nameIdx = 1; // Fallback to Column B
 
-    let catIdx = isHeaderRow ? findIdx(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN", "SEGMEN", "PROMO", "PROMOSI", "TYPE", "TAG", "SEASONAL"]) : -1;
-    if (catIdx === -1) catIdx = 2; // Fallback to Column C
+    let catIdx = isHeaderRow ? findIdx(["KATEGORI", "CATEGORY", "JENIS", "KUMPULAN", "SEGMEN", "TYPE", "TAG", "SEASONAL"]) : -1;
+    if (catIdx === -1 && tabType === "produk") catIdx = 2; // Fallback to Column C only on Produk tab
 
-    let priceIdx = isHeaderRow ? findIdx(["HARGA", "PRICE", "HARGA ASAL", "HARGA BIASA", "HARGA (RM)", "HARGA RM", "RATE"]) : -1;
+    let priceIdx = isHeaderRow ? findIdx(["HARGA ASAL", "HARGA BIASA", "HARGA", "PRICE", "HARGA (RM)", "HARGA RM", "RATE"], ["PROMO", "DISKAUN", "TAWARAN"]) : -1;
     if (priceIdx === -1) priceIdx = 3; // Fallback to Column D
 
     const promoPriceIdx = isHeaderRow ? findIdx(["HARGA PROMO", "PROMO PRICE", "HARGA DISKAUN", "DISKAUN", "HARGA TAWARAN"]) : -1;
 
-    let imageIdx = isHeaderRow ? findIdx(["GAMBAR", "IMAGE", "GAMBAR SIAP MASAK", "GAMBAR PACKAGING", "GAMBAR MASAK", "COOKED IMAGE", "PACKAGING IMAGE", "FOTO", "PHOTO", "PICTURE", "URL", "LINK", "LINK GAMBAR", "URL GAMBAR"]) : -1;
+    let imageIdx = isHeaderRow ? findIdx(["GAMBAR", "GAMBAR PROMO", "IMAGE", "GAMBAR SIAP MASAK", "GAMBAR PACKAGING", "GAMBAR MASAK", "COOKED IMAGE", "PACKAGING IMAGE", "FOTO", "PHOTO", "PICTURE", "URL", "LINK", "LINK GAMBAR", "URL GAMBAR"]) : -1;
     if (imageIdx === -1) imageIdx = 4; // Fallback to Column E
 
     const cookedImgIdx = isHeaderRow ? findIdx(["GAMBAR SIAP MASAK", "GAMBAR MASAK", "COOKED IMAGE", "GAMBAR 1"]) : -1;
@@ -310,19 +325,19 @@ export function parseTabRowsSafely(
       if (!rawName) continue;
 
       // Skip repeated header words
-      if (["PRODUK", "PRODUCT", "NAMA", "NAME", "TAJUK", "TITLE", "ITEM"].includes(rawName.toUpperCase())) {
+      if (["PRODUK", "PRODUCT", "NAMA", "NAME", "TAJUK", "TITLE", "ITEM", "TAJUK PROMO", "NAMA PROMO"].includes(rawName.toUpperCase())) {
         continue;
       }
 
       // Extract ID
       let rawId = (idIdx !== -1 && row[idIdx]) ? String(row[idIdx]).trim() : (row[0] ? String(row[0]).trim() : "");
-      if (!rawId || ["ID", "KOD", "CODE", "NO"].includes(rawId.toUpperCase())) {
+      if (!rawId || ["ID", "KOD", "CODE", "NO", "ID PROMO", "ID PRODUK"].includes(rawId.toUpperCase())) {
         const prefix = tabType === "seasonal" ? "SEA" : tabType === "alltimepromo" ? "ATP" : "FB";
         rawId = `${prefix}-${String(r).padStart(3, "0")}`;
       }
 
       // Extract Category
-      let rawCategory = (catIdx !== -1 && row[catIdx]) ? String(row[catIdx]).trim() : (row[2] ? String(row[2]).trim() : "");
+      let rawCategory = (catIdx !== -1 && row[catIdx]) ? String(row[catIdx]).trim() : "";
       if (!rawCategory || ["KATEGORI", "CATEGORY", "JENIS"].includes(rawCategory.toUpperCase())) {
         if (tabType === "alltimepromo") {
           rawCategory = "All Time Promo";
@@ -677,22 +692,73 @@ export async function fetchLiveCatalog(
       }
     }
 
-    // 2. Try backend /api/products
+    // 2. Try backend /api/products with no-store cache busting
     try {
       const params = new URLSearchParams();
       if (forceRefresh) params.set("refresh", "true");
       if (targetSheet) params.set("sheetUrl", targetSheet);
+      params.set("_t", String(Date.now()));
 
-      const apiRes = await fetch(`/api/products${params.toString() ? `?${params.toString()}` : ""}`);
+      const apiRes = await fetch(`/api/products?${params.toString()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" }
+      });
       if (apiRes.ok) {
         const data = await apiRes.json();
         if (data && Array.isArray(data.products) && data.products.length > 0) {
           const cats = buildCategoriesFromProducts(data.products);
+          try {
+            if (typeof window !== "undefined" && window.localStorage) {
+              localStorage.setItem("cached_catalog_products", JSON.stringify(data.products));
+              localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
+            }
+          } catch {}
           return { products: data.products, categories: cats, source: data.source || "server_google_sheet" };
         }
       }
     } catch (err) {
       console.warn("Server /api/products fetch error:", err);
+    }
+
+    // 2b. Direct Google Apps Script Web App fallback (?action=getProducts)
+    if (GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
+      try {
+        const gasRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getProducts&_t=${Date.now()}`, {
+          cache: "no-store",
+          redirect: "follow"
+        });
+        if (gasRes.ok) {
+          const gasData = await gasRes.json();
+          const rawProducts = Array.isArray(gasData?.products) ? gasData.products : Array.isArray(gasData) ? gasData : [];
+          if (rawProducts.length > 0) {
+            const normalized: Product[] = rawProducts.map((p: any, idx: number) => {
+              const cat = String(p.category || "Lain-lain").trim();
+              const cooked = p.cookedImageUrl ? parseGoogleDriveDirectUrl(p.cookedImageUrl) : undefined;
+              const pack = p.packagingImageUrl ? parseGoogleDriveDirectUrl(p.packagingImageUrl) : undefined;
+              const img = p.imageUrl ? parseGoogleDriveDirectUrl(p.imageUrl) : undefined;
+              return {
+                id: String(p.id || `FB-${idx + 1}`),
+                name: String(p.name || p.title || "Produk"),
+                category: cat,
+                price: Number(p.price) || 0,
+                originalPrice: p.originalPrice ? Number(p.originalPrice) : undefined,
+                promoPrice: p.promoPrice ? Number(p.promoPrice) : undefined,
+                unit: String(p.unit || "1 pek"),
+                description: String(p.description || ""),
+                imageUrl: cooked || img || pack || getCategoryFallbackImage(cat, String(p.name || "")),
+                cookedImageUrl: cooked,
+                packagingImageUrl: pack,
+                inStock: p.inStock !== false,
+                halalCertified: true
+              };
+            });
+            const cats = buildCategoriesFromProducts(normalized);
+            return { products: normalized, categories: cats, source: "google_apps_script_direct" };
+          }
+        }
+      } catch (gasErr) {
+        console.warn("Direct Apps Script getProducts fallback notice:", gasErr);
+      }
     }
 
     // 3. Fallback to cached products in localStorage
