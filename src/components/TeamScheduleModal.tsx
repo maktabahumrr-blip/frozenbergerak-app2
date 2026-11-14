@@ -60,8 +60,11 @@ interface TeamScheduleModalProps {
 }
 
 export interface TeamApprovalItem {
+  id?: string;
   email: string;
+  nama?: string;
   name?: string;
+  tarikh?: string;
   status: "approved" | "pending" | "rejected";
   requestedAt: string;
   reviewedAt?: string;
@@ -81,6 +84,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authToken, setAuthToken] = useState<string>("");
   const [authMode, setAuthMode] = useState<"login" | "signup" | "forgot">("login");
+  const [fullNameInput, setFullNameInput] = useState<string>("");
   const [googleEmailInput, setGoogleEmailInput] = useState<string>("");
   const [passwordInput, setPasswordInput] = useState<string>("");
   const [confirmPasswordInput, setConfirmPasswordInput] = useState<string>("");
@@ -89,6 +93,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const [authError, setAuthError] = useState<string>("");
   const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
   const [pendingApprovalNotice, setPendingApprovalNotice] = useState<string | null>(null);
+  const [pendingApplicantEmail, setPendingApplicantEmail] = useState<string>("");
+  const [pendingApplicantName, setPendingApplicantName] = useState<string>("");
+  const [isCheckingPendingStatus, setIsCheckingPendingStatus] = useState<boolean>(false);
   const [isResendingApproval, setIsResendingApproval] = useState<boolean>(false);
   const [resendApprovalSuccess, setResendApprovalSuccess] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
@@ -100,6 +107,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const [teamApprovals, setTeamApprovals] = useState<TeamApprovalItem[]>([]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState<number>(0);
   const [isLoadingApprovals, setIsLoadingApprovals] = useState<boolean>(false);
+  const [approvalsSource, setApprovalsSource] = useState<string>("");
+  const [approvalsErrorMsg, setApprovalsErrorMsg] = useState<string | null>(null);
+  const [updatingApprovalEmail, setUpdatingApprovalEmail] = useState<string | null>(null);
   const [isTestingEmail, setIsTestingEmail] = useState<boolean>(false);
   const [emailTestResult, setEmailTestResult] = useState<string | null>(null);
   const [approvalsSuccessMsg, setApprovalsSuccessMsg] = useState<string | null>(null);
@@ -287,44 +297,293 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Load Team Approvals list for admin from local storage
-  const loadApprovals = () => {
-    setIsLoadingApprovals(true);
+  // Helper: check if an email is Admin
+  const isAdminEmail = (email: string): boolean => {
+    const clean = email.trim().toLowerCase();
+    if (!clean) return false;
+    if (clean === "maktabahumrr@gmail.com") return true;
     try {
-      const stored = localStorage.getItem("fb_team_approvals");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setTeamApprovals(parsed);
-          setPendingApprovalCount(parsed.filter((a: any) => a.status === "pending").length);
+      const storedAdmins = localStorage.getItem("fb_admin_emails");
+      if (storedAdmins) {
+        const parsed = JSON.parse(storedAdmins);
+        if (Array.isArray(parsed) && parsed.map((e) => String(e).toLowerCase()).includes(clean)) {
+          return true;
         }
       }
     } catch {}
-    setIsLoadingApprovals(false);
+    return adminEmailsList.map((e) => e.toLowerCase()).includes(clean);
   };
 
-  // Firebase Auth State Listener (Restores session directly from Firebase client SDK)
+  // Helper: normalize AKSES TEAM status
+  const normalizeAccessStatus = (raw: any): "approved" | "pending" | "rejected" | "unregistered" => {
+    const s = String(raw || "").trim().toLowerCase();
+    if (s === "approved" || s === "lulus" || s === "diluluskan" || s === "aktif" || s === "active") return "approved";
+    if (s === "rejected" || s === "tolak" || s === "ditolak" || s === "batal" || s === "sekat") return "rejected";
+    if (s === "unregistered" || s === "tiada") return "unregistered";
+    return "pending";
+  };
+
+  // Helper: verify user's AKSES TEAM approval status via server API (or direct Google Apps Script fallback)
+  const checkTeamAccessStatus = async (email: string): Promise<{
+    status: "approved" | "pending" | "rejected" | "unregistered";
+    isAdmin: boolean;
+    record?: TeamApprovalItem | null;
+  }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (isAdminEmail(cleanEmail)) {
+      return { status: "approved", isAdmin: true, record: null };
+    }
+
+    try {
+      const res = await fetch(`/api/team-access/status?email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`, {
+        cache: "no-store"
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.success) {
+          return {
+            status: normalizeAccessStatus(data.status || data.sheetStatus),
+            isAdmin: Boolean(data.isAdmin),
+            record: data.record || null
+          };
+        }
+      }
+    } catch {}
+
+    // Direct Google Apps Script fallback
+    try {
+      const gasRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=checkTeamAccess&email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`, {
+        cache: "no-store"
+      });
+      if (gasRes.ok) {
+        const gasData = await gasRes.json();
+        if (gasData && typeof gasData.found === "boolean" && "status" in gasData) {
+          return {
+            status: gasData.found ? normalizeAccessStatus(gasData.status) : "unregistered",
+            isAdmin: false,
+            record: gasData.record || null
+          };
+        }
+      }
+    } catch {}
+
+    // Offline cache check
+    try {
+      const stored = localStorage.getItem("fb_team_approvals");
+      if (stored) {
+        const list = JSON.parse(stored);
+        if (Array.isArray(list)) {
+          const matched = list.find((a: any) => String(a.email || "").toLowerCase() === cleanEmail);
+          if (matched) {
+            return { status: normalizeAccessStatus(matched.status), isAdmin: false, record: matched };
+          }
+        }
+      }
+    } catch {}
+
+    return { status: "pending", isAdmin: false, record: null };
+  };
+
+  // Helper: register new team member directly to AKSES TEAM (Status: Pending) + trigger email to maktabahumrr@gmail.com
+  const registerTeamAccessToSheet = async (email: string, nama: string): Promise<{
+    success: boolean;
+    status: "approved" | "pending" | "rejected";
+    record?: TeamApprovalItem;
+    message?: string;
+  }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = nama.trim() || cleanEmail.split("@")[0];
+
+    try {
+      const res = await fetch("/api/team-access/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail, nama: cleanName, name: cleanName, sendEmail: true })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.success) {
+          const normalized = normalizeAccessStatus(data.status || "Pending");
+          const finalStatus = normalized === "unregistered" ? "pending" : normalized;
+          if (data.record) {
+            try {
+              const stored = localStorage.getItem("fb_team_approvals");
+              const arr = stored ? JSON.parse(stored) : [];
+              const next = Array.isArray(arr) ? arr.filter((x: any) => String(x.email || "").toLowerCase() !== cleanEmail) : [];
+              next.unshift({ ...data.record, status: finalStatus });
+              localStorage.setItem("fb_team_approvals", JSON.stringify(next));
+              window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
+            } catch {}
+          }
+          return {
+            success: true,
+            status: finalStatus,
+            record: data.record,
+            message: data.message
+          };
+        }
+      }
+    } catch {}
+
+    // Direct Google Apps Script fallback if backend proxy is unavailable
+    await postToGoogleAppsScript({
+      action: "TEAM_ACCESS_REGISTER",
+      email: cleanEmail,
+      nama: cleanName,
+      name: cleanName,
+      status: "Pending",
+      sendEmail: true
+    });
+
+    return {
+      success: true,
+      status: "pending",
+      message: `Permohonan akses untuk ${cleanName} (${cleanEmail}) telah dihantar ke tab AKSES TEAM dengan status Pending.`
+    };
+  };
+
+  // Load Team Approvals list for admin directly from Google Sheets tab AKSES TEAM (via server proxy + direct GAS fallback)
+  const loadApprovals = async (explicitToken?: string) => {
+    setIsLoadingApprovals(true);
+    setApprovalsErrorMsg(null);
+    const token = explicitToken || authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+
+    try {
+      if (token) {
+        const res = await fetch(`/api/team-access/list?_t=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.success && Array.isArray(data.approvals)) {
+            const normalized: TeamApprovalItem[] = data.approvals.map((item: any) => ({
+              id: item.id,
+              email: String(item.email || "").trim().toLowerCase(),
+              nama: item.nama || item.name || "",
+              name: item.nama || item.name || "",
+              tarikh: item.tarikh || item.requestedAt || "",
+              status: normalizeAccessStatus(item.status) === "unregistered" ? "pending" : (normalizeAccessStatus(item.status) as "approved" | "pending" | "rejected"),
+              requestedAt: item.tarikh || item.requestedAt || "",
+              reviewedAt: item.reviewedAt,
+              reviewedBy: item.reviewedBy,
+              notes: item.notes,
+              hasPassword: true
+            }));
+            setTeamApprovals(normalized);
+            setPendingApprovalCount(normalized.filter((a) => a.status === "pending").length);
+            setApprovalsSource(data.source === "google_sheets_akses_team" ? "Tab AKSES TEAM (Google Sheets)" : "Cache Pelayan");
+            try {
+              localStorage.setItem("fb_team_approvals", JSON.stringify(normalized));
+              window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
+            } catch {}
+            setIsLoadingApprovals(false);
+            return;
+          }
+        }
+      }
+
+      // Direct Google Apps Script fallback
+      const gasRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getTeamAccess&_t=${Date.now()}`, {
+        cache: "no-store"
+      });
+      if (gasRes.ok) {
+        const gasData = await gasRes.json();
+        if (gasData?.success && Array.isArray(gasData.teamAccess)) {
+          const normalized: TeamApprovalItem[] = gasData.teamAccess.map((item: any) => ({
+            id: item.id,
+            email: String(item.email || "").trim().toLowerCase(),
+            nama: item.nama || item.name || "",
+            name: item.nama || item.name || "",
+            tarikh: item.tarikh || item.requestedAt || "",
+            status: normalizeAccessStatus(item.status) === "unregistered" ? "pending" : (normalizeAccessStatus(item.status) as "approved" | "pending" | "rejected"),
+            requestedAt: item.tarikh || item.requestedAt || "",
+            hasPassword: true
+          }));
+          setTeamApprovals(normalized);
+          setPendingApprovalCount(normalized.filter((a) => a.status === "pending").length);
+          setApprovalsSource("Tab AKSES TEAM (Google Sheets)");
+          try {
+            localStorage.setItem("fb_team_approvals", JSON.stringify(normalized));
+            window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
+          } catch {}
+          setIsLoadingApprovals(false);
+          return;
+        }
+      }
+
+      throw new Error("Tidak dapat membaca data daripada tab AKSES TEAM. Pastikan Code.gs terbaru telah di-deploy.");
+    } catch (err: any) {
+      // Fallback to localStorage cache if offline
+      try {
+        const stored = localStorage.getItem("fb_team_approvals");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setTeamApprovals(parsed);
+            setPendingApprovalCount(parsed.filter((a: any) => a.status === "pending").length);
+          }
+        }
+      } catch {}
+      setApprovalsErrorMsg(err?.message || "Gagal memuatkan senarai daripada tab AKSES TEAM.");
+    } finally {
+      setIsLoadingApprovals(false);
+    }
+  };
+
+  // Firebase Auth State Listener (Restores session ONLY if Admin or Approved in AKSES TEAM)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser && fbUser.email) {
         const cleanEmail = fbUser.email.toLowerCase();
         try {
           const token = await fbUser.getIdToken();
-          const isPrimaryAdmin = cleanEmail === "maktabahumrr@gmail.com";
-          const role: "admin" | "team" = isPrimaryAdmin ? "admin" : "team";
-          const userObj: AuthUser = {
-            email: fbUser.email,
-            name: fbUser.displayName || cleanEmail.split("@")[0],
-            role,
-            token
-          };
-          setCurrentUser(userObj);
-          setAuthToken(token);
-          localStorage.setItem("fb_auth_token", token);
-          localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
-          if (role === "admin") {
+          const adminUser = isAdminEmail(cleanEmail);
+          if (adminUser) {
+            const userObj: AuthUser = {
+              email: fbUser.email,
+              name: fbUser.displayName || cleanEmail.split("@")[0],
+              role: "admin",
+              token
+            };
+            setCurrentUser(userObj);
+            setAuthToken(token);
+            localStorage.setItem("fb_auth_token", token);
+            localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
             loadRoles();
-            loadApprovals();
+            loadApprovals(token);
+            return;
+          }
+
+          // For non-admin team member: enforce AKSES TEAM status check before restoring session!
+          const access = await checkTeamAccessStatus(cleanEmail);
+          if (access.status === "approved") {
+            const userObj: AuthUser = {
+              email: fbUser.email,
+              name: access.record?.nama || fbUser.displayName || cleanEmail.split("@")[0],
+              role: "team",
+              token
+            };
+            setCurrentUser(userObj);
+            setAuthToken(token);
+            localStorage.setItem("fb_auth_token", token);
+            localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
+          } else {
+            // Block Pending / Rejected / Unregistered team member
+            localStorage.removeItem("fb_auth_token");
+            localStorage.removeItem("fb_auth_user");
+            setCurrentUser(null);
+            setAuthToken("");
+            if (access.status === "rejected") {
+              setPendingApprovalNotice(null);
+              setAuthError(`Akses Ditolak: Akaun (${cleanEmail}) berstatus Rejected dalam tab AKSES TEAM. Sila hubungi Admin (maktabahumrr@gmail.com).`);
+            } else if (access.status === "pending") {
+              setPendingApplicantEmail(cleanEmail);
+              setPendingApplicantName(access.record?.nama || cleanEmail.split("@")[0]);
+              setPendingApprovalNotice(
+                `Akaun anda (${cleanEmail}) masih berstatus Pending dalam tab AKSES TEAM. Akses mengubah jadual disekat sehingga Admin (maktabahumrr@gmail.com) menukar status anda kepada Approved.`
+              );
+            }
           }
         } catch {
           // ignore
@@ -334,14 +593,29 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // Test Admin Email Notification
+  // Test Admin Email Notification (sends real email to maktabahumrr@gmail.com + Web Push)
   const handleTestEmailNotification = async () => {
     setIsTestingEmail(true);
     setEmailTestResult(null);
-    setTimeout(() => {
-      setEmailTestResult("✅ Notifikasi ujian telah berjaya direkodkan!");
+    try {
+      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+      const res = await fetch("/api/team-access/test-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        }
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Gagal menghantar emel ujian.");
+      }
+      setEmailTestResult(`✅ ${data.message}`);
+    } catch (err: any) {
+      setEmailTestResult(`❌ ${err?.message || "Gagal menghantar emel ujian ke maktabahumrr@gmail.com"}`);
+    } finally {
       setIsTestingEmail(false);
-    }, 500);
+    }
   };
 
   useEffect(() => {
@@ -350,39 +624,42 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         setActiveTab(initialTab);
       }
 
-      // Check cached user from localStorage or Firebase
+      // Check cached user and strictly verify non-admin status against AKSES TEAM
       const cachedUserStr = localStorage.getItem("fb_auth_user");
       const storedToken = localStorage.getItem("fb_auth_token");
       if (cachedUserStr && storedToken) {
         try {
           const parsed = JSON.parse(cachedUserStr);
           if (parsed && parsed.email) {
-            setCurrentUser(parsed);
-            setAuthToken(storedToken);
-            if (parsed.role === "admin") {
+            if (isAdminEmail(parsed.email)) {
+              setCurrentUser({ ...parsed, role: "admin" });
+              setAuthToken(storedToken);
               loadRoles();
-              loadApprovals();
+              loadApprovals(storedToken);
+            } else {
+              checkTeamAccessStatus(parsed.email).then((access) => {
+                if (access.status === "approved") {
+                  setCurrentUser({ ...parsed, role: "team" });
+                  setAuthToken(storedToken);
+                } else {
+                  localStorage.removeItem("fb_auth_token");
+                  localStorage.removeItem("fb_auth_user");
+                  setCurrentUser(null);
+                  setAuthToken("");
+                  if (access.status === "pending") {
+                    setPendingApplicantEmail(parsed.email.toLowerCase());
+                    setPendingApplicantName(access.record?.nama || parsed.name || parsed.email.split("@")[0]);
+                    setPendingApprovalNotice(
+                      `Akaun anda (${parsed.email}) masih berstatus Pending dalam tab AKSES TEAM. Akses disekat sehingga Admin meluluskan permohonan anda.`
+                    );
+                  } else if (access.status === "rejected") {
+                    setAuthError(`Akses Ditolak: Akaun (${parsed.email}) berstatus Rejected dalam tab AKSES TEAM.`);
+                  }
+                }
+              }).catch(() => {});
             }
           }
         } catch {}
-      }
-
-      // If Firebase Auth currentUser is already available
-      if (auth.currentUser && auth.currentUser.email) {
-        const email = auth.currentUser.email.toLowerCase();
-        auth.currentUser.getIdToken().then((t) => {
-          const isPrimary = email === "maktabahumrr@gmail.com";
-          const userObj: AuthUser = {
-            email: auth.currentUser!.email || email,
-            name: auth.currentUser!.displayName || email.split("@")[0],
-            role: isPrimary ? "admin" : "team",
-            token: t
-          };
-          setCurrentUser(userObj);
-          setAuthToken(t);
-          localStorage.setItem("fb_auth_token", t);
-          localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
-        }).catch(() => {});
       }
 
       fetchScheduleList();
@@ -390,7 +667,6 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       setSubmitSuccess(null);
       setSubmitError(null);
       setAuthError("");
-      setPendingApprovalNotice(null);
       setResendApprovalSuccess(null);
       setEmailTestResult(null);
     }
@@ -404,10 +680,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Single Unified Form: Firebase Email/Password Authentication
+  // Single Unified Form: Firebase Authentication + AKSES TEAM Pending/Approved/Rejected Gate
   const handleUnifiedLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = googleEmailInput.trim().toLowerCase();
+    const cleanName = fullNameInput.trim();
     const cleanPassword = passwordInput.trim();
     const cleanConfirm = confirmPasswordInput.trim();
 
@@ -435,6 +712,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       } finally {
         setIsAuthenticating(false);
       }
+      return;
+    }
+
+    if (authMode === "signup" && !cleanName) {
+      setAuthError("Sila masukkan Nama Penuh atau Nama Team anda.");
       return;
     }
 
@@ -477,17 +759,88 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
       const idToken = await fbUser.getIdToken();
       const userEmail = (fbUser.email || cleanEmail).toLowerCase();
-      const isPrimaryAdmin = userEmail === "maktabahumrr@gmail.com";
-      const role: "admin" | "team" = (isPrimaryAdmin || adminEmailsList.map((e) => e.toLowerCase()).includes(userEmail)) ? "admin" : "team";
+      const adminUser = isAdminEmail(userEmail);
+      const role: "admin" | "team" = adminUser ? "admin" : "team";
+
+      // 1. If TEAM (non-admin): verify or register in Google Sheets tab AKSES TEAM
+      if (role === "team") {
+        const applicantName = cleanName || fbUser.displayName || userEmail.split("@")[0];
+
+        if (authMode === "signup") {
+          // New registration: write directly to tab AKSES TEAM as Pending + email maktabahumrr@gmail.com
+          const regRes = await registerTeamAccessToSheet(userEmail, applicantName);
+          if (regRes.status !== "approved") {
+            await firebaseSignOut(auth).catch(() => {});
+            localStorage.removeItem("fb_auth_token");
+            localStorage.removeItem("fb_auth_user");
+            setCurrentUser(null);
+            setAuthToken("");
+            setPasswordInput("");
+            setConfirmPasswordInput("");
+            setPendingApplicantEmail(userEmail);
+            setPendingApplicantName(applicantName);
+            if (regRes.status === "rejected") {
+              setAuthError(`Akses Ditolak: Akaun (${userEmail}) berstatus Rejected dalam tab AKSES TEAM.`);
+            } else {
+              setPendingApprovalNotice(
+                `Pendaftaran berjaya! Permohonan anda (${applicantName} - ${userEmail}) telah dihantar terus ke tab AKSES TEAM dengan status Pending dan notifikasi emel telah dihantar ke maktabahumrr@gmail.com. Akses ke jadual disekat sehingga Admin meluluskan permohonan anda.`
+              );
+            }
+            return;
+          }
+        } else {
+          // Login mode: check AKSES TEAM status strictly
+          const accessCheck = await checkTeamAccessStatus(userEmail);
+          if (accessCheck.status === "unregistered") {
+            // Existing Firebase account not yet recorded in AKSES TEAM -> register as Pending and block
+            await registerTeamAccessToSheet(userEmail, applicantName);
+            await firebaseSignOut(auth).catch(() => {});
+            localStorage.removeItem("fb_auth_token");
+            localStorage.removeItem("fb_auth_user");
+            setCurrentUser(null);
+            setAuthToken("");
+            setPasswordInput("");
+            setPendingApplicantEmail(userEmail);
+            setPendingApplicantName(applicantName);
+            setPendingApprovalNotice(
+              `Akaun anda (${userEmail}) telah direkodkan ke tab AKSES TEAM dengan status Pending dan notifikasi telah dihantar ke Admin (maktabahumrr@gmail.com). Sila tunggu kelulusan (Approved) sebelum mengubah jadual.`
+            );
+            return;
+          }
+          if (accessCheck.status === "pending") {
+            await firebaseSignOut(auth).catch(() => {});
+            localStorage.removeItem("fb_auth_token");
+            localStorage.removeItem("fb_auth_user");
+            setCurrentUser(null);
+            setAuthToken("");
+            setPasswordInput("");
+            setPendingApplicantEmail(userEmail);
+            setPendingApplicantName(accessCheck.record?.nama || applicantName);
+            setPendingApprovalNotice(
+              `Akaun anda (${userEmail}) masih berstatus Pending dalam tab AKSES TEAM. Akses mengakses atau mengubah jadual disekat sehingga Admin meluluskan permohonan anda (Approved).`
+            );
+            return;
+          }
+          if (accessCheck.status === "rejected") {
+            await firebaseSignOut(auth).catch(() => {});
+            localStorage.removeItem("fb_auth_token");
+            localStorage.removeItem("fb_auth_user");
+            setCurrentUser(null);
+            setAuthToken("");
+            setPasswordInput("");
+            setAuthError(`Akses Ditolak: Permohonan akaun (${userEmail}) telah ditolak (Rejected) oleh Admin dalam tab AKSES TEAM.`);
+            return;
+          }
+        }
+      }
 
       const authenticatedUser: AuthUser = {
         email: fbUser.email || cleanEmail,
-        name: fbUser.displayName || cleanEmail.split("@")[0],
-        role: role,
+        name: cleanName || fbUser.displayName || cleanEmail.split("@")[0],
+        role,
         token: idToken
       };
 
-      // Set authentication state directly from Firebase Client SDK and update local state upon success, nothing else
       setCurrentUser(authenticatedUser);
       setAuthToken(idToken);
       localStorage.setItem("fb_auth_token", idToken);
@@ -499,7 +852,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
       if (role === "admin") {
         loadRoles();
-        loadApprovals();
+        loadApprovals(idToken);
       }
     } catch (err: any) {
       let msg = err.message || "Ralat log masuk.";
@@ -522,30 +875,120 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Admin Approve / Reject Team Member (Local State & Storage)
-  const handleApproveTeamMember = async (email: string, status: "approved" | "rejected" | "pending") => {
+  // Admin Approve / Reject Team Member -> Writes directly to Google Sheets tab AKSES TEAM
+  const handleApproveTeamMember = async (itemOrEmail: TeamApprovalItem | string, status: "approved" | "rejected" | "pending") => {
+    const item = typeof itemOrEmail === "string"
+      ? teamApprovals.find((a) => a.email.toLowerCase() === itemOrEmail.toLowerCase()) || { email: itemOrEmail, status: "pending", requestedAt: "" }
+      : itemOrEmail;
+    const targetEmail = item.email.trim().toLowerCase();
+    const sheetStatus = status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Pending";
+
+    setUpdatingApprovalEmail(targetEmail);
+    setApprovalsSuccessMsg(null);
+    setApprovalsErrorMsg(null);
+
     try {
-      setApprovalsSuccessMsg(null);
-      const updated = teamApprovals.map((a) => a.email.toLowerCase() === email.toLowerCase() ? { ...a, status } : a);
+      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+      const res = await fetch("/api/team-access/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          id: item.id,
+          email: targetEmail,
+          nama: item.nama || item.name,
+          status: sheetStatus
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Gagal mengemaskini status dalam tab AKSES TEAM.");
+      }
+
+      if (!data.sheetsSynced) {
+        await postToGoogleAppsScript({
+          action: "TEAM_ACCESS_UPDATE",
+          id: item.id,
+          email: targetEmail,
+          nama: item.nama || item.name,
+          status: sheetStatus
+        });
+      }
+
+      const updated = teamApprovals.map((a) =>
+        a.email.toLowerCase() === targetEmail ? { ...a, status } : a
+      );
       setTeamApprovals(updated);
       setPendingApprovalCount(updated.filter((a) => a.status === "pending").length);
-      localStorage.setItem("fb_team_approvals", JSON.stringify(updated));
-      setApprovalsSuccessMsg(`Status akses untuk ${email} berjaya ditukar kepada ${status.toUpperCase()}.`);
+      try {
+        localStorage.setItem("fb_team_approvals", JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
+      } catch {}
+
+      setApprovalsSuccessMsg(
+        `Status untuk ${item.nama || targetEmail} dalam tab AKSES TEAM berjaya ditukar kepada ${sheetStatus}.`
+      );
+      setTimeout(() => setApprovalsSuccessMsg(null), 4000);
     } catch (err: any) {
-      alert(err.message || "Ralat kelulusan.");
+      setApprovalsErrorMsg(err?.message || "Ralat semasa mengemaskini kelulusan AKSES TEAM.");
+    } finally {
+      setUpdatingApprovalEmail(null);
     }
   };
 
-  // Team Member: Re-send approval email request to Admin
+  // Team Member: Check live AKSES TEAM status from Pending notice card
+  const handleCheckPendingApprovalStatus = async () => {
+    const cleanEmail = (pendingApplicantEmail || googleEmailInput).trim().toLowerCase();
+    if (!cleanEmail) return;
+    setIsCheckingPendingStatus(true);
+    setResendApprovalSuccess(null);
+    try {
+      const access = await checkTeamAccessStatus(cleanEmail);
+      if (access.status === "approved") {
+        setPendingApprovalNotice(null);
+        setAuthError("");
+        setForgotSuccess(`Tahniah! Akaun anda (${cleanEmail}) telah DILULUSKAN (Approved) oleh Admin. Sila masukkan kata laluan untuk log masuk.`);
+        setAuthMode("login");
+      } else if (access.status === "rejected") {
+        setPendingApprovalNotice(null);
+        setAuthError(`Akses Ditolak: Akaun (${cleanEmail}) telah ditukar kepada Rejected oleh Admin dalam tab AKSES TEAM.`);
+      } else {
+        setResendApprovalSuccess("Status dalam tab AKSES TEAM masih Pending. Sila tunggu Admin meluluskan permohonan anda.");
+      }
+    } finally {
+      setIsCheckingPendingStatus(false);
+    }
+  };
+
+  // Team Member: Re-send approval email request to Admin maktabahumrr@gmail.com
   const handleResendApprovalNotification = async () => {
-    const cleanEmail = googleEmailInput.trim().toLowerCase();
+    const cleanEmail = (pendingApplicantEmail || googleEmailInput).trim().toLowerCase();
+    const cleanName = pendingApplicantName || fullNameInput.trim() || cleanEmail.split("@")[0];
     if (!cleanEmail) return;
     setIsResendingApproval(true);
     setResendApprovalSuccess(null);
-    setTimeout(() => {
-      setResendApprovalSuccess("Notifikasi permohonan telah direkodkan untuk pihak Admin!");
+    try {
+      const res = await fetch("/api/team-access/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail, nama: cleanName })
+      });
+      if (!res.ok) {
+        await postToGoogleAppsScript({
+          action: "TEAM_ACCESS_RESEND",
+          email: cleanEmail,
+          nama: cleanName
+        });
+      }
+      setResendApprovalSuccess("Notifikasi emel permohonan telah dihantar ke maktabahumrr@gmail.com!");
+    } catch {
+      setResendApprovalSuccess("Permintaan notifikasi telah dihantar ke pihak Admin (maktabahumrr@gmail.com).");
+    } finally {
       setIsResendingApproval(false);
-    }, 500);
+    }
   };
 
   // Handle Changing Password for Logged In User
@@ -613,6 +1056,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setAuthError("");
     setForgotSuccess(null);
     setPendingApprovalNotice(null);
+    setPendingApplicantEmail("");
+    setPendingApplicantName("");
     setResendApprovalSuccess(null);
     setPasswordInput("");
     setConfirmPasswordInput("");
@@ -621,6 +1066,22 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   // Submit Schedule (Create or Update) to Google Apps Script Web App
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) {
+      setSubmitError("Sila log masuk terlebih dahulu.");
+      return;
+    }
+    if (currentUser.role !== "admin") {
+      const access = await checkTeamAccessStatus(currentUser.email);
+      if (access.status !== "approved") {
+        await handleLogout();
+        setAuthError(
+          access.status === "rejected"
+            ? `Akses Ditolak: Akaun (${currentUser.email}) berstatus Rejected dalam tab AKSES TEAM.`
+            : `Akses Disekat: Akaun (${currentUser.email}) berstatus Pending dalam tab AKSES TEAM.`
+        );
+        return;
+      }
+    }
     if (!locations.trim()) {
       setSubmitError("Sila masukkan kawasan pergerakan.");
       return;
@@ -731,7 +1192,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       });
 
       // 2. Persist to Server Database (/api/schedule/update) globally
-      const token = authToken || localStorage.getItem("fb_auth_token") || "";
+      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
       try {
         const updateRes = await fetch("/api/schedule/update", {
           method: "POST",
@@ -748,8 +1209,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             notes: finalNotes,
             status: finalStatus,
             sendPushNotification,
-            token,
-            pin: "frozen888"
+            token
           })
         });
         if (updateRes.ok) {
@@ -761,6 +1221,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             } catch {}
           }
           console.log("[ScheduleSync] ✅ Rekod jadual disimpan secara global pada server:", scheduleId);
+        } else if (updateRes.status === 403) {
+          const errBody = await updateRes.json().catch(() => ({}));
+          setSubmitError(errBody.error || "Akses disekat: Akaun belum diluluskan oleh Admin.");
+          setIsSubmitting(false);
+          return;
         }
       } catch (serverUpErr) {
         console.warn("[ScheduleSync] Server update call note:", serverUpErr);
@@ -783,7 +1248,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
   // Delete Schedule globally across all devices (Server, Firebase Database, & Google Sheets)
   const handleDelete = async () => {
-    if (!selectedId) return;
+    if (!selectedId || !currentUser) return;
+    if (currentUser.role !== "admin") {
+      const access = await checkTeamAccessStatus(currentUser.email);
+      if (access.status !== "approved") {
+        await handleLogout();
+        setAuthError("Akses disekat: Akaun anda belum diluluskan oleh Admin dalam tab AKSES TEAM.");
+        return;
+      }
+    }
     if (!window.confirm("Adakah anda pasti mahu memadam slot jadual ini daripada sistem & Google Sheets tab JADUAL?")) return;
 
     setIsSubmitting(true);
@@ -800,7 +1273,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
     try {
       // 1. Delete from Server Database globally (/api/schedule/delete)
-      const token = authToken || localStorage.getItem("fb_auth_token") || "";
+      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
       try {
         const delRes = await fetch("/api/schedule/delete", {
           method: "POST",
@@ -808,7 +1281,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             "Content-Type": "application/json",
             ...(token ? { "Authorization": `Bearer ${token}` } : {})
           },
-          body: JSON.stringify({ id: targetIdToDelete, token, pin: "frozen888" })
+          body: JSON.stringify({ id: targetIdToDelete, token })
         });
         if (delRes.ok) {
           const resData = await delRes.json();
@@ -819,6 +1292,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             } catch {}
           }
           console.log("[ScheduleSync] ✅ Rekod jadual dipadam secara global dari server:", targetIdToDelete);
+        } else if (delRes.status === 403) {
+          const errBody = await delRes.json().catch(() => ({}));
+          setSubmitError(errBody.error || "Akses disekat: Akaun belum diluluskan oleh Admin.");
+          setIsSubmitting(false);
+          return;
         }
       } catch (serverErr) {
         console.warn("[ScheduleSync] Server delete call note:", serverErr);
@@ -1137,11 +1615,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-3">
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0 mt-0.5">
-                      <Mail className="w-5 h-5" />
+                      <Clock3 className="w-5 h-5" />
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-xs font-bold text-amber-950">
-                        Permohonan Akses Sedang Diproses
+                        Status Akaun: Pending (Menunggu Kelulusan Admin)
                       </h4>
                       <p className="text-xs text-amber-900 leading-relaxed">
                         {pendingApprovalNotice}
@@ -1151,7 +1629,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
                   <div className="p-2.5 bg-white/80 rounded-xl border border-amber-200/80 text-[11px] text-amber-950 space-y-1">
                     <p className="text-amber-800">
-                      Selepas pihak pentadbir meluluskan akaun anda, anda boleh terus log masuk menggunakan kata laluan Firebase yang telah didaftarkan.
+                      Permohonan anda direkodkan di tab <strong>AKSES TEAM</strong> dan notifikasi telah dihantar ke <strong>maktabahumrr@gmail.com</strong>. Sebaik sahaja status anda ditukar kepada <strong>Approved</strong>, anda boleh log masuk dan menguruskan jadual.
                     </p>
                   </div>
 
@@ -1165,28 +1643,55 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                   <div className="flex flex-col sm:flex-row gap-2 pt-1">
                     <button
                       type="button"
+                      onClick={handleCheckPendingApprovalStatus}
+                      disabled={isCheckingPendingStatus}
+                      className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingPendingStatus ? "animate-spin" : ""}`} />
+                      <span>{isCheckingPendingStatus ? "Menyemak..." : "Semak Status Terkini"}</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleResendApprovalNotification}
                       disabled={isResendingApproval}
                       className="flex-1 py-2 px-3 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       <Mail className="w-3.5 h-3.5" />
-                      <span>{isResendingApproval ? "Menghantar..." : "Hantar Semula Notifikasi Email"}</span>
+                      <span>{isResendingApproval ? "Menghantar..." : "Hantar Semula Notifikasi"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         setPendingApprovalNotice(null);
                         setResendApprovalSuccess(null);
+                        setAuthMode("login");
                       }}
                       className="py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
-                      Cuba Log Masuk Semula
+                      Kembali
                     </button>
                   </div>
                 </div>
               ) : (
                 /* Login / Sign Up / Forgot Password Form */
                 <form onSubmit={handleUnifiedLogin} className="space-y-3.5 pt-1">
+
+                  {/* Field 0: Nama (For Sign-Up mode -> written to AKSES TEAM column NAMA) */}
+                  {authMode === "signup" && (
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Nama Penuh / Nama Team:
+                      </label>
+                      <input
+                        type="text"
+                        value={fullNameInput}
+                        onChange={(e) => setFullNameInput(e.target.value)}
+                        placeholder="Contoh: Izyan / Team Frozen 2"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
+                        required
+                      />
+                    </div>
+                  )}
                   
                   {/* Field 1: Email */}
                   <div className="space-y-1">
@@ -1199,7 +1704,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                       onChange={(e) => setGoogleEmailInput(e.target.value)}
                       placeholder="Masukkan alamat email anda..."
                       className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
-                      autoFocus
+                      autoFocus={authMode !== "signup"}
                       required
                     />
                   </div>
@@ -1660,14 +2165,14 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             </form>
           ) : activeTab === "approvals" ? (
             /* =========================================================================
-               TAB: TEAM ACCESS APPROVALS MANAGEMENT (ADMIN ONLY)
+               TAB: TEAM ACCESS APPROVALS MANAGEMENT (ADMIN ONLY -> Tab AKSES TEAM)
                ========================================================================= */
             <div className="space-y-4 py-1">
               <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-amber-50 border border-blue-200/80 p-4 rounded-2xl text-xs space-y-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="font-bold flex items-center gap-1.5 text-blue-950 text-sm">
-                    <Mail className="w-4 h-4 text-blue-600" />
-                    <span>Pengurusan Kelulusan Akses Pasukan (Team Approvals)</span>
+                    <UserCheck className="w-4 h-4 text-blue-600" />
+                    <span>Kelulusan Team (Tab AKSES TEAM)</span>
                   </div>
                   <button
                     type="button"
@@ -1680,28 +2185,34 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] leading-relaxed text-slate-600">
-                  Setiap kali ahli pasukan baharu mendaftar, permohonan kebenaran akses dihantar terus kepada pentadbir. Anda boleh meluluskan atau menolak akses mereka di bawah:
+                  Senarai permohonan di bawah ditarik terus daripada tab <code className="bg-white px-1 rounded font-bold text-blue-900">AKSES TEAM</code> dalam Google Sheets Jadual Team. Tukar status kepada <strong>Approved</strong> untuk membenarkan akses jadual atau <strong>Rejected</strong> untuk menyekat.
                 </p>
+                {approvalsSource && (
+                  <div className="inline-flex items-center gap-1.5 text-[10px] font-bold text-blue-800 bg-white/80 border border-blue-200 px-2 py-0.5 rounded-full">
+                    <FileSpreadsheet className="w-3 h-3 text-blue-600" />
+                    <span>Sumber: {approvalsSource}</span>
+                  </div>
+                )}
               </div>
 
               {/* Status Summary Counters */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
-                  <span className="block text-[11px] font-bold text-amber-800">Menunggu Kelulusan</span>
+                  <span className="block text-[11px] font-bold text-amber-800">Pending</span>
                   <span className="text-lg font-black text-amber-900">
                     {teamApprovals.filter((a) => a.status === "pending").length}
                   </span>
                 </div>
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
-                  <span className="block text-[11px] font-bold text-emerald-800">Telah Diluluskan</span>
+                  <span className="block text-[11px] font-bold text-emerald-800">Approved</span>
                   <span className="text-lg font-black text-emerald-900">
                     {teamApprovals.filter((a) => a.status === "approved").length}
                   </span>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
-                  <span className="block text-[11px] font-bold text-slate-700">Jumlah Permohonan</span>
-                  <span className="text-lg font-black text-slate-900">
-                    {teamApprovals.length}
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-center">
+                  <span className="block text-[11px] font-bold text-rose-800">Rejected</span>
+                  <span className="text-lg font-black text-rose-900">
+                    {teamApprovals.filter((a) => a.status === "rejected").length}
                   </span>
                 </div>
               </div>
@@ -1711,8 +2222,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-blue-600 shrink-0" />
                   <div>
-                    <span className="font-bold text-slate-800 block">Notifikasi Email Pentadbir</span>
-                    <span className="text-[11px] text-slate-500 font-mono">{currentUser?.email || "Admin"}</span>
+                    <span className="font-bold text-slate-800 block">Notifikasi Emel Admin</span>
+                    <span className="text-[11px] text-slate-500 font-mono">maktabahumrr@gmail.com</span>
                   </div>
                 </div>
                 <button
@@ -1722,7 +2233,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
                 >
                   <Send className={`w-3.5 h-3.5 ${isTestingEmail ? "animate-pulse" : ""}`} />
-                  <span>{isTestingEmail ? "Menghantar Ujian..." : "Uji Hantar Email & Push"}</span>
+                  <span>{isTestingEmail ? "Menghantar Ujian..." : "Uji Hantar Emel & Push"}</span>
                 </button>
               </div>
 
@@ -1736,6 +2247,13 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                 </div>
               )}
 
+              {approvalsErrorMsg && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{approvalsErrorMsg}</span>
+                </div>
+              )}
+
               {approvalsSuccessMsg && (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-bold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1746,7 +2264,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
               {/* Approvals List */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-800 pb-1">
-                  <span>Senarai Permohonan Akses Team:</span>
+                  <span>Senarai Pemohon (Tab AKSES TEAM):</span>
                   <span className="text-[10px] text-slate-400 font-normal">
                     {teamApprovals.length} Rekod
                   </span>
@@ -1755,96 +2273,105 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                 {isLoadingApprovals ? (
                   <div className="p-8 text-center text-xs text-slate-400">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-600" />
-                    <span>Memuatkan senarai permohonan...</span>
+                    <span>Memuatkan senarai daripada tab AKSES TEAM...</span>
                   </div>
                 ) : teamApprovals.length === 0 ? (
                   <div className="p-6 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-xs text-slate-500 space-y-1">
                     <Clock3 className="w-6 h-6 mx-auto text-slate-400 mb-1" />
-                    <p className="font-semibold text-slate-700">Tiada Permohonan Akses Pasukan</p>
-                    <p className="text-[11px]">Permohonan pendaftaran daripada ahli pasukan akan dipaparkan di sini secara automatik.</p>
+                    <p className="font-semibold text-slate-700">Tiada Permohonan Dalam Tab AKSES TEAM</p>
+                    <p className="text-[11px]">Setiap pendaftaran baharu akan dihantar terus ke tab AKSES TEAM dan dipaparkan di sini.</p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {teamApprovals.map((item) => (
-                      <div
-                        key={item.email}
-                        className={`p-3.5 rounded-2xl border transition-all ${
-                          item.status === "pending"
-                            ? "bg-amber-50/60 border-amber-300 ring-1 ring-amber-300/50"
-                            : item.status === "approved"
-                            ? "bg-white border-slate-200"
-                            : "bg-rose-50/40 border-rose-200"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                          <div className="space-y-1 min-w-[200px]">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-xs text-slate-900 break-all">{item.email}</span>
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
-                                  item.status === "approved"
-                                    ? "bg-emerald-100 text-emerald-800"
+                    {teamApprovals.map((item) => {
+                      const isRowUpdating = updatingApprovalEmail === item.email.toLowerCase();
+                      return (
+                        <div
+                          key={item.email + (item.id || "")}
+                          className={`p-3.5 rounded-2xl border transition-all ${
+                            item.status === "pending"
+                              ? "bg-amber-50/60 border-amber-300 ring-1 ring-amber-300/50"
+                              : item.status === "approved"
+                              ? "bg-white border-slate-200"
+                              : "bg-rose-50/40 border-rose-200"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 flex-wrap">
+                            <div className="space-y-1 min-w-[200px]">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {item.id && (
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono text-[10px] font-bold">
+                                    {item.id}
+                                  </span>
+                                )}
+                                <span className="font-bold text-xs text-slate-900">
+                                  {item.nama || item.name || item.email.split("@")[0]}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                    item.status === "approved"
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : item.status === "pending"
+                                      ? "bg-amber-200 text-amber-900 animate-pulse"
+                                      : "bg-rose-100 text-rose-800"
+                                  }`}
+                                >
+                                  {item.status === "approved"
+                                    ? "✅ Approved"
                                     : item.status === "pending"
-                                    ? "bg-amber-200 text-amber-900 animate-pulse"
-                                    : "bg-rose-100 text-rose-800"
-                                }`}
-                              >
-                                {item.status === "approved"
-                                  ? "✅ DILULUSKAN"
-                                  : item.status === "pending"
-                                  ? "⏳ MENUNGGU KELULUSAN"
-                                  : "❌ DITOLAK"}
-                              </span>
+                                    ? "⏳ Pending"
+                                    : "❌ Rejected"}
+                                </span>
+                              </div>
+                              <div className="text-xs text-blue-700 font-medium break-all">{item.email}</div>
+                              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                                <span>
+                                  Tarikh: {item.tarikh || item.requestedAt || "-"}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                              <span>
-                                Dimohon: {new Date(item.requestedAt).toLocaleString("ms-MY", { dateStyle: "short", timeStyle: "short" })}
-                              </span>
-                              <span>&bull;</span>
-                              <span className="text-slate-600">
-                                {item.hasPassword ? "🔑 Password Ditetapkan" : "⚠️ Belum Set Password"}
-                              </span>
-                            </div>
-                          </div>
 
-                          {/* Action Buttons */}
-                          <div className="flex items-center gap-1.5 shrink-0 pt-1 sm:pt-0">
-                            {item.status !== "approved" && (
+                            {/* Action Buttons */}
+                            <div className="flex items-center gap-1.5 shrink-0 pt-1 sm:pt-0">
+                              {item.status !== "approved" && (
+                                <button
+                                  type="button"
+                                  disabled={isRowUpdating}
+                                  onClick={() => handleApproveTeamMember(item, "approved")}
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                                  title="Tukar status kepada Approved"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>{isRowUpdating ? "..." : "Approved"}</span>
+                                </button>
+                              )}
+
+                              {item.status !== "rejected" && (
+                                <button
+                                  type="button"
+                                  disabled={isRowUpdating}
+                                  onClick={() => handleApproveTeamMember(item, "rejected")}
+                                  className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                                  title="Tukar status kepada Rejected"
+                                >
+                                  <UserX className="w-3.5 h-3.5" />
+                                  <span>{isRowUpdating ? "..." : "Rejected"}</span>
+                                </button>
+                              )}
+
                               <button
                                 type="button"
-                                onClick={() => handleApproveTeamMember(item.email, "approved")}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                title="Luluskan akses team ini"
+                                onClick={() => handleAdminResetPassword(item.email)}
+                                className="p-1.5 text-amber-700 hover:bg-amber-100 rounded-xl transition-colors border border-amber-200 cursor-pointer"
+                                title="Hantar email reset password Firebase"
                               >
-                                <Check className="w-3.5 h-3.5" />
-                                <span>Luluskan</span>
+                                <KeyRound className="w-3.5 h-3.5" />
                               </button>
-                            )}
-
-                            {item.status !== "rejected" && (
-                              <button
-                                type="button"
-                                onClick={() => handleApproveTeamMember(item.email, "rejected")}
-                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                                title="Tolak akses akaun ini"
-                              >
-                                <UserX className="w-3.5 h-3.5" />
-                                <span>Tolak</span>
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => handleAdminResetPassword(item.email)}
-                              className="p-1.5 text-amber-700 hover:bg-amber-100 rounded-xl transition-colors border border-amber-200"
-                              title="Reset Password/PIN akaun ini"
-                            >
-                              <KeyRound className="w-3.5 h-3.5" />
-                            </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2138,10 +2665,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                   {GOOGLE_APPS_SCRIPT_WEB_APP_URL}
                 </p>
                 <p className="text-[11px] text-blue-800">
-                  Google Sheet anda mestilah mempunyai tab bernama <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-blue-950">JADUAL</code> dengan 7 lajur berikut:
+                  Fail <strong>Jadual Team</strong> mestilah mempunyai tab <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-blue-950">JADUAL</code> dan <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-blue-950">AKSES TEAM</code>:
                 </p>
-                <div className="bg-white p-2.5 rounded-xl border border-blue-150 font-mono text-[11px] text-slate-800 overflow-x-auto whitespace-nowrap">
-                  ID JADUAL | NAMA TEAM | TARIKH | MASA | KAWASAN | CATATAN | STATUS
+                <div className="bg-white p-2.5 rounded-xl border border-blue-150 font-mono text-[10px] text-slate-800 overflow-x-auto whitespace-nowrap space-y-1">
+                  <div><strong>JADUAL:</strong> ID JADUAL | NAMA TEAM | TARIKH | MASA | KAWASAN | CATATAN | STATUS</div>
+                  <div><strong>AKSES TEAM:</strong> ID | NAMA | EMAIL | TARIKH | STATUS</div>
                 </div>
               </div>
 
@@ -2150,11 +2678,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                   Pastikan Tetapan Deployment di Google Apps Script:
                 </h4>
                 <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-slate-600">
-                  <li>Buka Google Sheet <strong>&quot;Jadual Team&quot;</strong> (atau <strong>&quot;Frozen Bergerak&quot;</strong>) &gt; Klik <strong>Extensions &gt; Apps Script</strong>.</li>
-                  <li>Tampal kod lengkap di bawah ke dalam satu fail <code>Code.gs</code> (menguruskan baca produk dari <strong>&quot;Frozen Bergerak&quot;</strong> &amp; baca/tulis jadual dari <strong>&quot;Jadual Team&quot;</strong> serentak).</li>
-                  <li>Simpan (Ctrl+S), kemudian pilih fungsi <code>authorizePermissions</code> dan klik <strong>Run</strong> sekali untuk meluluskan akses Google Sheets, Drive &amp; Gmail.</li>
-                  <li>Klik <strong>Deploy &gt; Manage deployments</strong> (atau <i>New deployment</i>), tetapkan <strong>Execute as: Me</strong> dan <strong>Who has access: Anyone</strong>.</li>
-                  <li>Simpan / Deploy. Semua data produk, promo, dan jadual akan naik ke PWA secara serentak!</li>
+                  <li>Buka Google Sheet <strong>&quot;Jadual Team&quot;</strong> &gt; Klik <strong>Extensions &gt; Apps Script</strong>.</li>
+                  <li>Tampal kod lengkap di bawah ke dalam fail <code>Code.gs</code> (menguruskan Produk, Jadual, <code>AKSES TEAM</code> &amp; notifikasi emel ke <code>maktabahumrr@gmail.com</code>).</li>
+                  <li>Simpan (Ctrl+S), kemudian pilih fungsi <code>authorizePermissions</code> dan klik <strong>Run</strong> sekali untuk meluluskan akses Google Sheets, Drive &amp; Gmail (MailApp).</li>
+                  <li>Klik <strong>Deploy &gt; Manage deployments</strong> &gt; ikon pensel (Edit) &gt; pilih <strong>Version: New version</strong> &gt; <strong>Deploy</strong>.</li>
+                  <li>Semua pendaftaran ahli team, kelulusan, jadual, dan produk akan segerak secara langsung!</li>
                 </ol>
               </div>
 

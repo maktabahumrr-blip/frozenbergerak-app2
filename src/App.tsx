@@ -166,30 +166,44 @@ export default function App() {
     }
   }, [cart]);
 
-  // Live polling for pending team access approvals from local storage
-  useEffect(() => {
-    const fetchApprovalsStatus = () => {
-      try {
-        const stored = localStorage.getItem("fb_team_approvals");
-        if (stored) {
-          const list = JSON.parse(stored);
-          if (Array.isArray(list)) {
-            const pending = list.filter((a: any) => a.status === "pending");
-            setPendingApprovalsCount(pending.length);
-            setPendingApprovalsList(pending);
-          }
+  // Live polling for pending team access approvals directly from AKSES TEAM (with local cache fallback)
+  const refreshPendingApprovals = async () => {
+    try {
+      const res = await fetch(`/api/team-access/pending-count?_t=${Date.now()}`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.success && Array.isArray(data.pendingList)) {
+          setPendingApprovalsCount(Number(data.pendingCount ?? data.pendingList.length) || 0);
+          setPendingApprovalsList(data.pendingList);
+          return;
         }
-      } catch {}
-    };
+      }
+    } catch {}
+    try {
+      const stored = localStorage.getItem("fb_team_approvals");
+      if (stored) {
+        const list = JSON.parse(stored);
+        if (Array.isArray(list)) {
+          const pending = list.filter((a: any) => a.status === "pending");
+          setPendingApprovalsCount(pending.length);
+          setPendingApprovalsList(pending);
+        }
+      }
+    } catch {}
+  };
 
-    fetchApprovalsStatus();
-    const interval = setInterval(fetchApprovalsStatus, 8000);
-    const handleFocus = () => fetchApprovalsStatus();
+  useEffect(() => {
+    refreshPendingApprovals();
+    const interval = setInterval(refreshPendingApprovals, 15000);
+    const handleFocus = () => refreshPendingApprovals();
+    const handleCustomUpdate = () => refreshPendingApprovals();
     window.addEventListener("focus", handleFocus);
+    window.addEventListener("fb_approvals_updated", handleCustomUpdate);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("fb_approvals_updated", handleCustomUpdate);
     };
   }, []);
 
@@ -999,17 +1013,7 @@ export default function App() {
         initialTab={adminTeamModalTab}
         onClose={() => {
           setIsAdminTeamModalOpen(false);
-          try {
-            const stored = localStorage.getItem("fb_team_approvals");
-            if (stored) {
-              const list = JSON.parse(stored);
-              if (Array.isArray(list)) {
-                const pending = list.filter((a: any) => a.status === "pending");
-                setPendingApprovalsCount(pending.length);
-                setPendingApprovalsList(pending);
-              }
-            }
-          } catch {}
+          refreshPendingApprovals();
         }}
         onScheduleUpdated={() => {
           fetchData(true);

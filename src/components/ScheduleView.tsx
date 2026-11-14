@@ -90,8 +90,18 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   useEffect(() => {
     loadSchedules();
 
-    // Check approvals status from local storage
-    const checkApprovals = () => {
+    // Check live approvals status from AKSES TEAM backend (with local cache fallback)
+    const checkApprovals = async () => {
+      try {
+        const res = await fetch(`/api/team-access/pending-count?_t=${Date.now()}`, { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.success && typeof data.pendingCount === "number") {
+            setPendingApprovalsCount(data.pendingCount);
+            return;
+          }
+        }
+      } catch {}
       try {
         const stored = localStorage.getItem("fb_team_approvals");
         if (stored) {
@@ -105,7 +115,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
     };
 
     checkApprovals();
-    const interval = setInterval(checkApprovals, 8000);
+    const interval = setInterval(checkApprovals, 15000);
+    window.addEventListener("fb_approvals_updated", checkApprovals);
 
     if (isPushNotificationSupported()) {
       getExistingPushSubscription().then((sub) => {
@@ -113,7 +124,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
       });
     }
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("fb_approvals_updated", checkApprovals);
+    };
   }, []);
 
   const handleQuickSubscribe = async () => {

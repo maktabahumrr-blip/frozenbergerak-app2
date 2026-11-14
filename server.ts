@@ -319,8 +319,11 @@ interface UserPasswordRecord {
 type UserPasswordsMap = Record<string, UserPasswordRecord>;
 
 export interface TeamApprovalRecord {
+  id?: string;
   email: string;
+  nama?: string;
   name?: string;
+  tarikh?: string;
   status: "approved" | "pending" | "rejected";
   requestedAt: string;
   reviewedAt?: string;
@@ -368,16 +371,195 @@ function saveTeamApprovals(map: TeamApprovalsMap) {
   }
 }
 
+function normalizeTeamAccessStatus(raw: any): "approved" | "pending" | "rejected" {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "approved" || s === "lulus" || s === "diluluskan" || s === "aktif" || s === "active") {
+    return "approved";
+  }
+  if (s === "rejected" || s === "tolak" || s === "ditolak" || s === "batal" || s === "sekat") {
+    return "rejected";
+  }
+  return "pending";
+}
+
+function toSheetTeamAccessStatus(status: "approved" | "pending" | "rejected"): "Approved" | "Pending" | "Rejected" {
+  if (status === "approved") return "Approved";
+  if (status === "rejected") return "Rejected";
+  return "Pending";
+}
+
+async function postToAppsScriptJson(payload: any): Promise<any | null> {
+  const webhookUrl = getAppsScriptUrl();
+  if (!webhookUrl) return null;
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(7500),
+      redirect: "follow"
+    });
+    const text = (await response.text()).trim();
+    if (!text || text.startsWith("<") || text.toLowerCase().includes("<html")) {
+      return null;
+    }
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTeamAccessFromGoogleSheets(): Promise<{
+  records: TeamApprovalRecord[];
+  source: "google_sheets_akses_team" | "local_cache";
+}> {
+  const gasRes = await fetchAppsScriptActionJson("getTeamAccess");
+  const localApprovals = loadTeamApprovals();
+
+  if (gasRes && gasRes.success && Array.isArray(gasRes.teamAccess)) {
+    const nextMap: TeamApprovalsMap = {};
+    const records: TeamApprovalRecord[] = [];
+
+    for (let i = 0; i < gasRes.teamAccess.length; i++) {
+      const item = gasRes.teamAccess[i];
+      const email = String(item?.email || "").trim().toLowerCase();
+      if (!email) continue;
+
+      const status = normalizeTeamAccessStatus(item.status);
+      const nama = String(item.nama || item.name || email.split("@")[0]).trim();
+      const tarikh = String(item.tarikh || item.requestedAt || new Date().toLocaleString("ms-MY", { timeZone: "Asia/Kuala_Lumpur" })).trim();
+      const id = String(item.id || `AKS-${String(i + 1).padStart(2, "0")}`).trim();
+      const prevLocal = localApprovals[email];
+
+      const rec: TeamApprovalRecord = {
+        id,
+        email,
+        nama,
+        name: nama,
+        tarikh,
+        requestedAt: tarikh,
+        status,
+        reviewedAt: prevLocal?.reviewedAt,
+        reviewedBy: prevLocal?.reviewedBy,
+        notes: prevLocal?.notes
+      };
+      records.push(rec);
+      nextMap[email] = rec;
+    }
+
+    // Preserve any local pending items that have not yet been written to sheet (offline fallback safety)
+    Object.values(localApprovals).forEach((loc) => {
+      const em = String(loc.email || "").trim().toLowerCase();
+      if (em && !nextMap[em]) {
+        nextMap[em] = loc;
+        records.push(loc);
+      }
+    });
+
+    saveTeamApprovals(nextMap);
+
+    // Keep roles_config teamEmails synced with Approved entries
+    const rolesConfig = loadRolesConfig();
+    const approvedEmails = records.filter((r) => r.status === "approved").map((r) => r.email);
+    const rejectedEmails = new Set(records.filter((r) => r.status === "rejected" || r.status === "pending").map((r) => r.email));
+    rolesConfig.teamEmails = Array.from(new Set([
+      ...rolesConfig.teamEmails.filter((e) => !rejectedEmails.has(e.toLowerCase())),
+      ...approvedEmails
+    ]));
+    saveRolesConfig(rolesConfig);
+
+    records.sort((a, b) => {
+      if (a.status === "pending" && b.status !== "pending") return -1;
+      if (a.status !== "pending" && b.status === "pending") return 1;
+      return String(b.id || "").localeCompare(String(a.id || ""));
+    });
+
+    return { records, source: "google_sheets_akses_team" };
+  }
+
+  const fallbackRecords = Object.values(localApprovals);
+  fallbackRecords.sort((a, b) => {
+    if (a.status === "pending" && b.status !== "pending") return -1;
+    if (a.status !== "pending" && b.status === "pending") return 1;
+    return new Date(b.requestedAt || 0).getTime() - new Date(a.requestedAt || 0).getTime();
+  });
+  return { records: fallbackRecords, source: "local_cache" };
+}
+
+async function checkSingleTeamAccessStatus(email: string): Promise<{
+  status: "approved" | "pending" | "rejected" | "unregistered";
+  isAdmin: boolean;
+  record: TeamApprovalRecord | null;
+  source: string;
+}> {
+  const cleanEmail = (email || "").trim().toLowerCase();
+  if (!cleanEmail) {
+    return { status: "unregistered", isAdmin: false, record: null, source: "empty" };
+  }
+
+  const adminList = getMergedAdminEmails();
+  if (cleanEmail === PRIMARY_ADMIN_EMAIL.toLowerCase() || adminList.includes(cleanEmail)) {
+    return { status: "approved", isAdmin: true, record: null, source: "admin_role" };
+  }
+
+  // 1. Check live Google Sheets tab AKSES TEAM
+  const gasCheck = await fetchAppsScriptActionJson("checkTeamAccess", `&email=${encodeURIComponent(cleanEmail)}`);
+  if (gasCheck && gasCheck.success && typeof gasCheck.found === "boolean" && "status" in gasCheck) {
+    if (gasCheck.found && gasCheck.record) {
+      const normalizedStatus = normalizeTeamAccessStatus(gasCheck.record.status || gasCheck.status);
+      const rec: TeamApprovalRecord = {
+        id: gasCheck.record.id,
+        email: cleanEmail,
+        nama: gasCheck.record.nama || gasCheck.record.name || cleanEmail.split("@")[0],
+        name: gasCheck.record.nama || gasCheck.record.name || cleanEmail.split("@")[0],
+        tarikh: gasCheck.record.tarikh || "",
+        requestedAt: gasCheck.record.tarikh || new Date().toISOString(),
+        status: normalizedStatus
+      };
+      const approvals = loadTeamApprovals();
+      approvals[cleanEmail] = { ...approvals[cleanEmail], ...rec };
+      saveTeamApprovals(approvals);
+      return { status: normalizedStatus, isAdmin: false, record: rec, source: "google_sheets_akses_team" };
+    }
+
+    // Not found in AKSES TEAM sheet; check env TEAM_EMAILS whitelist if configured
+    const envTeams = (process.env.TEAM_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (envTeams.includes(cleanEmail)) {
+      return { status: "approved", isAdmin: false, record: null, source: "env_team_list" };
+    }
+
+    // Check if there's an unsynced local pending record
+    const localMap = loadTeamApprovals();
+    if (localMap[cleanEmail]) {
+      return { status: localMap[cleanEmail].status, isAdmin: false, record: localMap[cleanEmail], source: "local_cache" };
+    }
+
+    return { status: "unregistered", isAdmin: false, record: null, source: "google_sheets_akses_team" };
+  }
+
+  // 2. Fallback to local cache when GAS hasn't been redeployed or is unreachable
+  const approvals = loadTeamApprovals();
+  if (approvals[cleanEmail]) {
+    return { status: approvals[cleanEmail].status, isAdmin: false, record: approvals[cleanEmail], source: "local_cache" };
+  }
+  const teamEmails = getMergedTeamEmails();
+  if (teamEmails.includes(cleanEmail)) {
+    return { status: "approved", isAdmin: false, record: null, source: "roles_config" };
+  }
+  return { status: "unregistered", isAdmin: false, record: null, source: "local_cache" };
+}
+
 // Send Email & Web Push notification to maktabahumrr@gmail.com and Admin devices for Team approval
-async function sendTeamApprovalNotificationToAdmin(teamEmail: string, isNewPassword = false) {
+async function sendTeamApprovalNotificationToAdmin(teamEmail: string, isNewPassword = false, applicantName?: string, sendEmailWebhook = true) {
   const adminEmail = PRIMARY_ADMIN_EMAIL;
-  console.log(`[APPROVAL REQUEST] Permohonan log masuk team dari ${teamEmail} dihantar ke ${adminEmail}`);
+  const displayName = (applicantName || teamEmail.split("@")[0] || "Ahli Team").trim();
+  console.log(`[APPROVAL REQUEST] Permohonan akses team dari ${displayName} (${teamEmail}) dihantar ke ${adminEmail}`);
 
   // 1. Send Instant Web Push Notification to Admin devices (phone/laptop)
   try {
     await broadcastPushNotification({
       title: "FrozenBergerak 🔑 Permohonan Akses Team",
-      body: `Ahli Team (${teamEmail}) memohon kelulusan log masuk. Klik untuk buka panel Admin dan meluluskan akses.`,
+      body: `${displayName} (${teamEmail}) memohon kelulusan akses di tab AKSES TEAM. Klik untuk luluskan.`,
       url: "/#section-jadual-pergerakan",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png"
@@ -386,9 +568,9 @@ async function sendTeamApprovalNotificationToAdmin(teamEmail: string, isNewPassw
     console.warn("Failed to broadcast approval push notification:", err.message);
   }
 
-  // 2. Dispatch Email Webhook to Google Apps Script / Webhook Endpoint
+  // 2. Dispatch Email Webhook to Google Apps Script (if not already sent by TEAM_ACCESS_REGISTER)
   const webhookUrl = getAppsScriptUrl();
-  if (webhookUrl) {
+  if (sendEmailWebhook && webhookUrl) {
     try {
       const payload = {
         action: "send_email_notification",
@@ -397,18 +579,20 @@ async function sendTeamApprovalNotificationToAdmin(teamEmail: string, isNewPassw
         adminEmail: adminEmail,
         teamEmail: teamEmail,
         email: teamEmail,
-        subject: `[FrozenBergerak] Permohonan Kelulusan Akses Team: ${teamEmail}`,
-        body: `Salam Admin FrozenBergerak,\n\nAhli Pasukan dengan alamat email (${teamEmail}) telah ${isNewPassword ? "mencipta kata laluan baharu dan" : ""} memohon kebenaran untuk log masuk ke Panel Pengurusan Jadual FrozenBergerak.\n\nSila log masuk ke aplikasi FrozenBergerak menggunakan akaun ${adminEmail} dan buka tab 'Kelulusan Team' untuk meluluskan permohonan ini.\n\nTarikh Permohonan: ${new Date().toLocaleString("ms-MY", { timeZone: "Asia/Kuala_Lumpur" })}\n\nTerima kasih.`,
+        nama: displayName,
+        subject: `[FrozenBergerak] Permohonan Kelulusan Akses Team: ${displayName} (${teamEmail})`,
+        body: `Salam Admin FrozenBergerak,\n\nAhli Pasukan (${displayName} - ${teamEmail}) telah ${isNewPassword ? "mendaftar akaun baharu dan" : ""} memohon kebenaran untuk mengakses Panel Pengurusan Jadual FrozenBergerak.\n\nSila log masuk ke aplikasi FrozenBergerak menggunakan akaun ${adminEmail} dan buka tab 'Kelulusan Team' untuk menukar status kepada Approved atau Rejected di tab AKSES TEAM.\n\nTarikh Permohonan: ${new Date().toLocaleString("ms-MY", { timeZone: "Asia/Kuala_Lumpur" })}\n\nTerima kasih.`,
         htmlBody: `<div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
-          <h2 style="color: #1e40af; margin-top: 0;">FrozenBergerak 🚚 Permohonan Akses Pasukan</h2>
+          <h2 style="color: #1e40af; margin-top: 0;">FrozenBergerak 🚚 Permohonan Akses Team</h2>
           <p>Salam Admin FrozenBergerak,</p>
-          <p>Seorang ahli pasukan baru telah memohon kebenaran untuk log masuk ke panel pengurusan:</p>
+          <p>Seorang ahli pasukan baharu telah memohon kebenaran untuk mengakses panel pengurusan jadual:</p>
           <div style="background-color: #f1f5f9; padding: 15px; border-radius: 8px; margin: 15px 0;">
-            <p style="margin: 0; font-size: 16px;"><strong>Email Pasukan:</strong> <span style="color: #2563eb;">${teamEmail}</span></p>
-            <p style="margin: 5px 0 0 0; font-size: 13px; color: #64748b;">Tarikh: ${new Date().toLocaleString("ms-MY", { timeZone: "Asia/Kuala_Lumpur" })}</p>
+            <p style="margin: 0; font-size: 15px;"><strong>Nama:</strong> ${displayName}</p>
+            <p style="margin: 6px 0 0 0; font-size: 15px;"><strong>Email:</strong> <span style="color: #2563eb;">${teamEmail}</span></p>
+            <p style="margin: 6px 0 0 0; font-size: 13px; color: #64748b;">Tarikh: ${new Date().toLocaleString("ms-MY", { timeZone: "Asia/Kuala_Lumpur" })} &bull; Status: <strong>Pending</strong></p>
           </div>
-          <p>Sila log masuk ke akaun <strong>${adminEmail}</strong> dan buka tab <strong>Kelulusan Team</strong> untuk meluluskan atau menolak permohonan ini.</p>
-          <p style="font-size: 12px; color: #94a3b8; margin-top: 25px;">Notifikasi ini dijana secara automatik oleh sistem FrozenBergerak.</p>
+          <p>Sila log masuk ke akaun <strong>${adminEmail}</strong> dan buka tab <strong>Kelulusan Team</strong> untuk memilih <strong>Approved</strong> atau <strong>Rejected</strong>.</p>
+          <p style="font-size: 12px; color: #94a3b8; margin-top: 25px;">Notifikasi ini dijana secara automatik oleh sistem FrozenBergerak (Tab AKSES TEAM).</p>
         </div>`,
         timestamp: new Date().toISOString()
       };
@@ -510,8 +694,45 @@ function verifySessionToken(token: string): { valid: boolean; user?: { email: st
 }
 
 // Authentication middleware for Team & Admin write/delete operations
-function requireAdminOrTeamAuth(req: Request, res: Response, next: NextFunction) {
-  // 1. Check Team PIN in header or body
+async function requireAdminOrTeamAuth(req: Request, res: Response, next: NextFunction) {
+  // 1. Extract Bearer token or custom header/body token FIRST so real users cannot bypass AKSES TEAM guard
+  const authHeader = req.headers.authorization;
+  const token = (authHeader && authHeader.startsWith("Bearer ")) 
+    ? authHeader.slice(7) 
+    : (req.headers["x-auth-token"] as string)
+    || (req.body && req.body.token);
+
+  if (token) {
+    const { valid, user } = verifySessionToken(token);
+    if (!valid || !user || (user.role !== "admin" && user.role !== "team")) {
+      res.status(403).json({
+        error: "Akses Ditolak: Sesi anda telah tamat atau akaun anda tidak mempunyai kebenaran untuk menguruskan jadual.",
+        code: "FORBIDDEN"
+      });
+      return;
+    }
+
+    // Enforce AKSES TEAM approval status for non-admin team members
+    if (user.role === "team" && user.email !== "team@frozenbergerak.local") {
+      const accessCheck = await checkSingleTeamAccessStatus(user.email);
+      if (accessCheck.status !== "approved") {
+        res.status(403).json({
+          error: accessCheck.status === "rejected"
+            ? `Akses Ditolak: Akaun anda (${user.email}) telah ditolak oleh Admin.`
+            : `Akses Disekat: Akaun anda (${user.email}) masih berstatus Pending di tab AKSES TEAM. Sila tunggu kelulusan Admin (${PRIMARY_ADMIN_EMAIL}).`,
+          code: accessCheck.status === "rejected" ? "ACCESS_REJECTED" : "PENDING_APPROVAL",
+          approvalStatus: accessCheck.status
+        });
+        return;
+      }
+    }
+
+    (req as any).authUser = user;
+    next();
+    return;
+  }
+
+  // 2. Fallback: Check explicit Team PIN in header or body only when no user token was sent
   const pin = (req.headers["x-team-pin"] as string) || (req.body && req.body.pin);
   if (pin && (pin === "frozen888" || pin === process.env.TEAM_PIN)) {
     (req as any).authUser = {
@@ -522,32 +743,10 @@ function requireAdminOrTeamAuth(req: Request, res: Response, next: NextFunction)
     return next();
   }
 
-  // 2. Extract Bearer token or custom header/body token
-  const authHeader = req.headers.authorization;
-  const token = (authHeader && authHeader.startsWith("Bearer ")) 
-    ? authHeader.slice(7) 
-    : (req.headers["x-auth-token"] as string)
-    || (req.body && req.body.token);
-
-  if (!token) {
-    res.status(403).json({
-      error: "Akses Ditolak: Sila log masuk sebagai akaun ADMIN atau TEAM yang sah untuk menguruskan jadual.",
-      code: "UNAUTHORIZED"
-    });
-    return;
-  }
-
-  const { valid, user } = verifySessionToken(token);
-  if (!valid || !user || (user.role !== "admin" && user.role !== "team")) {
-    res.status(403).json({
-      error: "Akses Ditolak: Sesi anda telah tamat atau akaun anda tidak mempunyai kebenaran untuk menguruskan jadual.",
-      code: "FORBIDDEN"
-    });
-    return;
-  }
-
-  (req as any).authUser = user;
-  next();
+  res.status(403).json({
+    error: "Akses Ditolak: Sila log masuk sebagai akaun ADMIN atau TEAM yang telah diluluskan untuk menguruskan jadual.",
+    code: "UNAUTHORIZED"
+  });
 }
 
 function requireAdminOnlyAuth(req: Request, res: Response, next: NextFunction) {
@@ -648,7 +847,7 @@ function saveSchedule(items: ScheduleRecord[]) {
 }
 
 // Google Apps Script Web App URL for JADUAL tab synchronization
-const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwU5wJU-Qyyp-U7Bvf5mXmLaH6Ve8VnQFD0Pf4ZxZdhczySdx8NU-XRFFq8J8DNwb4P/exec";
+const DEFAULT_APPS_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwjh60yvGtO627Nc5zs24IThg_yHUVSEA2V60KK5ObQ7b2hM7OBPbojXJcHvVCjC620/exec";
 
 function getAppsScriptUrl(): string {
   return process.env.GOOGLE_SHEET_WEBHOOK_URL?.trim() || 
@@ -1721,11 +1920,14 @@ function mergeServerProducts(
   return merged;
 }
 
-async function fetchAppsScriptActionJson(action: "getProducts" | "getPromos" | "getSeasonalPromos" | "getAll"): Promise<any | null> {
+async function fetchAppsScriptActionJson(
+  action: "getProducts" | "getPromos" | "getSeasonalPromos" | "getAll" | "getTeamAccess" | "checkTeamAccess" | string,
+  extraQuery = ""
+): Promise<any | null> {
   const webAppUrl = getAppsScriptUrl();
   if (!webAppUrl) return null;
   try {
-    const response = await fetch(`${webAppUrl}?action=${action}&_t=${Date.now()}`, {
+    const response = await fetch(`${webAppUrl}?action=${encodeURIComponent(action)}${extraQuery}&_t=${Date.now()}`, {
       method: "GET",
       headers: {
         "Accept": "application/json, text/plain, */*",
@@ -3183,6 +3385,274 @@ app.post("/api/auth/test-email-notification", requireAdminOnlyAuth, async (req: 
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message || "Gagal menghantar notifikasi ujian." });
+  }
+});
+
+// ============================================================================
+// AKSES TEAM GOOGLE SHEETS API ENDPOINTS (Tab: AKSES TEAM)
+// Columns: ID | NAMA | EMAIL | TARIKH | STATUS (Pending / Approved / Rejected)
+// ============================================================================
+
+// Check Team Access status by email (used on login & session restore to block Pending/Rejected)
+app.get("/api/team-access/status", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  try {
+    const cleanEmail = String(req.query.email || "").trim().toLowerCase();
+    if (!cleanEmail) {
+      res.status(400).json({ success: false, error: "Email diperlukan." });
+      return;
+    }
+    const result = await checkSingleTeamAccessStatus(cleanEmail);
+    res.json({
+      success: true,
+      email: cleanEmail,
+      isAdmin: result.isAdmin,
+      status: result.status,
+      sheetStatus: result.status === "unregistered" ? "Unregistered" : toSheetTeamAccessStatus(result.status),
+      record: result.record,
+      source: result.source
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Ralat menyemak status AKSES TEAM." });
+  }
+});
+
+// Register new team member directly into tab AKSES TEAM (Status: Pending) + Email maktabahumrr@gmail.com
+app.post("/api/team-access/register", async (req: Request, res: Response) => {
+  try {
+    const { email, nama, name, sendEmail = true } = req.body;
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!cleanEmail) {
+      res.status(400).json({ success: false, error: "Alamat email diperlukan." });
+      return;
+    }
+
+    const cleanName = String(nama || name || cleanEmail.split("@")[0]).trim();
+    const nowMalay = new Date().toLocaleString("ms-MY", { timeZone: "Asia/Kuala_Lumpur" });
+
+    // 1. If admin email, auto-approved
+    const adminList = getMergedAdminEmails();
+    if (cleanEmail === PRIMARY_ADMIN_EMAIL.toLowerCase() || adminList.includes(cleanEmail)) {
+      res.json({
+        success: true,
+        isAdmin: true,
+        status: "approved",
+        sheetStatus: "Approved",
+        message: "Akaun Admin disahkan secara automatik."
+      });
+      return;
+    }
+
+    // 2. Post to Google Apps Script (writes to AKSES TEAM tab + sends MailApp email to maktabahumrr@gmail.com)
+    const gasRes = await postToAppsScriptJson({
+      action: "TEAM_ACCESS_REGISTER",
+      email: cleanEmail,
+      nama: cleanName,
+      name: cleanName,
+      tarikh: nowMalay,
+      status: "Pending",
+      sendEmail: sendEmail !== false
+    });
+
+    const resolvedStatus = gasRes?.status
+      ? normalizeTeamAccessStatus(gasRes.status)
+      : "pending";
+
+    const record: TeamApprovalRecord = {
+      id: gasRes?.record?.id || `AKS-${Date.now().toString().slice(-4)}`,
+      email: cleanEmail,
+      nama: gasRes?.record?.nama || cleanName,
+      name: gasRes?.record?.nama || cleanName,
+      tarikh: gasRes?.record?.tarikh || nowMalay,
+      requestedAt: gasRes?.record?.tarikh || nowMalay,
+      status: resolvedStatus
+    };
+
+    // 3. Mirror to local cache
+    const approvals = loadTeamApprovals();
+    approvals[cleanEmail] = record;
+    saveTeamApprovals(approvals);
+
+    // 4. Send Web Push (and fallback email webhook ONLY if GAS TEAM_ACCESS_REGISTER didn't send email itself)
+    const gasHandledEmail = Boolean(gasRes && gasRes.success && gasRes.record && gasRes.emailSent);
+    if (resolvedStatus === "pending" && sendEmail !== false) {
+      sendTeamApprovalNotificationToAdmin(cleanEmail, true, cleanName, !gasHandledEmail).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      status: resolvedStatus,
+      sheetStatus: toSheetTeamAccessStatus(resolvedStatus),
+      record,
+      sheetsSynced: Boolean(gasRes && gasRes.success && gasRes.record),
+      emailSent: gasHandledEmail || Boolean(getAppsScriptUrl()),
+      message: resolvedStatus === "approved"
+        ? `Akaun (${cleanEmail}) telah diluluskan dalam tab AKSES TEAM.`
+        : `Permohonan pendaftaran (${cleanName}) telah dihantar ke tab AKSES TEAM dengan status Pending. Emel notifikasi telah dihantar ke ${PRIMARY_ADMIN_EMAIL}.`
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Ralat mendaftar akses team." });
+  }
+});
+
+// Admin: Fetch full applicants list directly from tab AKSES TEAM
+app.get("/api/team-access/list", requireAdminOnlyAuth, async (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  try {
+    const { records, source } = await fetchTeamAccessFromGoogleSheets();
+    res.json({
+      success: true,
+      source,
+      approvals: records,
+      pendingCount: records.filter((r) => r.status === "pending").length,
+      approvedCount: records.filter((r) => r.status === "approved").length,
+      rejectedCount: records.filter((r) => r.status === "rejected").length,
+      adminEmail: PRIMARY_ADMIN_EMAIL
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Gagal memuat senarai daripada tab AKSES TEAM." });
+  }
+});
+
+// Admin: Update status in tab AKSES TEAM to Approved / Rejected / Pending
+app.post("/api/team-access/update", requireAdminOnlyAuth, async (req: Request, res: Response) => {
+  try {
+    const admin = (req as any).authUser;
+    const { email, id, nama, status } = req.body;
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    const cleanId = String(id || "").trim();
+
+    if (!cleanEmail && !cleanId) {
+      res.status(400).json({ success: false, error: "Email atau ID pemohon diperlukan." });
+      return;
+    }
+
+    const normalizedStatus = normalizeTeamAccessStatus(status);
+    const sheetStatus = toSheetTeamAccessStatus(normalizedStatus);
+
+    // 1. Update Google Sheets tab AKSES TEAM via Apps Script
+    const gasRes = await postToAppsScriptJson({
+      action: "TEAM_ACCESS_UPDATE",
+      email: cleanEmail,
+      id: cleanId,
+      nama,
+      status: sheetStatus
+    });
+
+    // 2. Update local approvals cache
+    const approvals = loadTeamApprovals();
+    const existing = approvals[cleanEmail] || {
+      id: cleanId || undefined,
+      email: cleanEmail,
+      nama: nama || cleanEmail.split("@")[0],
+      name: nama || cleanEmail.split("@")[0],
+      tarikh: new Date().toLocaleString("ms-MY", { timeZone: "Asia/Kuala_Lumpur" }),
+      requestedAt: new Date().toISOString(),
+      status: normalizedStatus
+    };
+
+    const updatedRec: TeamApprovalRecord = {
+      ...existing,
+      ...(gasRes?.record || {}),
+      email: cleanEmail || gasRes?.record?.email || existing.email,
+      status: normalizedStatus,
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: admin?.email || PRIMARY_ADMIN_EMAIL
+    };
+
+    if (updatedRec.email) {
+      approvals[updatedRec.email] = updatedRec;
+      saveTeamApprovals(approvals);
+
+      const rolesConfig = loadRolesConfig();
+      if (normalizedStatus === "approved") {
+        if (!rolesConfig.teamEmails.includes(updatedRec.email)) {
+          rolesConfig.teamEmails.push(updatedRec.email);
+          saveRolesConfig(rolesConfig);
+        }
+      } else {
+        rolesConfig.teamEmails = rolesConfig.teamEmails.filter((e) => e.toLowerCase() !== updatedRec.email);
+        saveRolesConfig(rolesConfig);
+      }
+    }
+
+    res.json({
+      success: true,
+      sheetsSynced: Boolean(gasRes && gasRes.success),
+      status: normalizedStatus,
+      sheetStatus,
+      record: updatedRec,
+      message: `Status akses untuk ${updatedRec.email} dalam tab AKSES TEAM berjaya dikemaskini kepada ${sheetStatus}.`
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Gagal mengemaskini status AKSES TEAM." });
+  }
+});
+
+// Resend Admin email notification for pending team member
+app.post("/api/team-access/resend", async (req: Request, res: Response) => {
+  try {
+    const cleanEmail = String(req.body?.email || "").trim().toLowerCase();
+    const cleanName = String(req.body?.nama || req.body?.name || (cleanEmail ? cleanEmail.split("@")[0] : "Ahli Team")).trim();
+    if (!cleanEmail) {
+      res.status(400).json({ success: false, error: "Alamat email diperlukan." });
+      return;
+    }
+
+    const gasRes = await postToAppsScriptJson({
+      action: "TEAM_ACCESS_RESEND",
+      email: cleanEmail,
+      nama: cleanName
+    });
+
+    const gasHandledEmail = Boolean(gasRes && gasRes.success);
+    await sendTeamApprovalNotificationToAdmin(cleanEmail, false, cleanName, !gasHandledEmail);
+
+    res.json({
+      success: true,
+      message: `Notifikasi emel telah dihantar ke ${PRIMARY_ADMIN_EMAIL}.`
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Gagal menghantar semula notifikasi emel." });
+  }
+});
+
+// Admin: Send real test email to maktabahumrr@gmail.com + Web Push
+app.post("/api/team-access/test-email", requireAdminOnlyAuth, async (_req: Request, res: Response) => {
+  try {
+    await sendTeamApprovalNotificationToAdmin("ujian-team@frozenbergerak.com", true, "Ujian Sistem", true);
+    res.json({
+      success: true,
+      message: `Emel ujian & notifikasi push telah dihantar ke ${PRIMARY_ADMIN_EMAIL}.`
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Gagal menghantar emel ujian." });
+  }
+});
+
+// Lightweight pending count for Admin header/schedule badge (reads AKSES TEAM)
+app.get("/api/team-access/pending-count", async (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  try {
+    const { records, source } = await fetchTeamAccessFromGoogleSheets();
+    const pendingList = records
+      .filter((r) => r.status === "pending")
+      .map((r) => ({
+        id: r.id,
+        nama: r.nama || r.name,
+        email: r.email,
+        tarikh: r.tarikh || r.requestedAt,
+        status: r.status
+      }));
+    res.json({
+      success: true,
+      source,
+      pendingCount: pendingList.length,
+      pendingList,
+      adminEmail: PRIMARY_ADMIN_EMAIL
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, pendingCount: 0, pendingList: [], error: error.message });
   }
 });
 

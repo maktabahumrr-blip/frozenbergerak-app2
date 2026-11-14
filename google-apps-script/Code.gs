@@ -2,21 +2,30 @@
 // FrozenBergerak - SATU FAIL GOOGLE APPS SCRIPT BERSEPADU (doGet & doPost)
 // Menguruskan 2 fail Google Sheets berasingan secara serentak:
 //   1. Fail "Frozen Bergerak" : Tab Produk, Alltimepromo, Seasonal
-//   2. Fail "Jadual Team"     : Tab JADUAL (baca & tulis jadual pergerakan)
+//   2. Fail "Jadual Team"     : Tab JADUAL & Tab AKSES TEAM (ID, NAMA, EMAIL, TARIKH, STATUS)
 // ============================================================================
 
 var FROZEN_BERGERAK_SHEET_ID = "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw";
 var JADUAL_TEAM_SHEET_ID = ""; // Pilihan: isi ID fail "Jadual Team" jika skrip dipasang di luar fail tersebut
+var ADMIN_NOTIFICATION_EMAIL = "maktabahumrr@gmail.com";
 
 /**
  * Jalankan fungsi ini sekali sahaja di editor Apps Script (Run > authorizePermissions)
- * untuk meluluskan kebenaran akses Google Sheets, Google Drive, dan Gmail.
+ * untuk meluluskan kebenaran akses Google Sheets, Google Drive, dan Gmail (MailApp).
  */
 function authorizePermissions() {
   var fb = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
-  var jt = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+  var jt = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual", "AKSES TEAM"]);
+  if (jt) {
+    getOrCreateAksesTeamSheet_(jt);
+  }
+  var quota = 0;
+  try {
+    quota = MailApp.getRemainingDailyQuota();
+  } catch (e) {}
   Logger.log("Frozen Bergerak: " + (fb ? fb.getName() + " (" + fb.getId() + ")" : "TIDAK DIJUMPAI"));
   Logger.log("Jadual Team: " + (jt ? jt.getName() + " (" + jt.getId() + ")" : "TIDAK DIJUMPAI"));
+  Logger.log("Kuota Emel Harian (MailApp): " + quota);
 }
 
 function openSheetFile_(sheetId, fileName, allowActiveFallback, expectedTabs) {
@@ -102,7 +111,7 @@ function findHeaderRowIdx_(values) {
     var row = values[r];
     for (var c = 0; c < row.length; c++) {
       var cell = String(row[c] || "").trim().toUpperCase();
-      if (/^(ID|ID PRODUK|KOD|PRODUK|NAMA PRODUK|ID PROMO|TAJUK PROMO|NAMA PROMO|ID JADUAL|NAMA TEAM|TEAM|KAWASAN|LOKASI|TARIKH|MASA)$/.test(cell)) {
+      if (/^(ID|ID PRODUK|KOD|PRODUK|NAMA PRODUK|ID PROMO|TAJUK PROMO|NAMA PROMO|ID JADUAL|NAMA TEAM|TEAM|KAWASAN|LOKASI|TARIKH|MASA|NAMA|EMAIL|E-MEL|STATUS)$/.test(cell)) {
         return r;
       }
     }
@@ -152,6 +161,330 @@ function normalizeDriveImg_(url) {
     return "https://lh3.googleusercontent.com/d/" + m[1] + "=w1000";
   }
   return raw;
+}
+
+function formatMalayDateTimeNow_() {
+  try {
+    return Utilities.formatDate(new Date(), "Asia/Kuala_Lumpur", "dd/MM/yyyy HH:mm");
+  } catch (e) {
+    return new Date().toISOString();
+  }
+}
+
+function normalizeAccessStatus_(rawStatus) {
+  var s = String(rawStatus || "").trim().toLowerCase();
+  if (s === "approved" || s === "lulus" || s === "diluluskan" || s === "aktif" || s === "active") {
+    return "Approved";
+  }
+  if (s === "rejected" || s === "tolak" || s === "ditolak" || s === "batal" || s === "sekat") {
+    return "Rejected";
+  }
+  return "Pending";
+}
+
+function getOrCreateAksesTeamSheet_(ss) {
+  if (!ss) return null;
+  var sheet = findTabByNames_(ss, ["AKSES TEAM", "Akses Team", "AKSES_TEAM", "AksesTeam"]);
+  if (!sheet) {
+    sheet = ss.insertSheet("AKSES TEAM");
+    sheet.appendRow(["ID", "NAMA", "EMAIL", "TARIKH", "STATUS"]);
+    sheet.getRange("A1:E1").setFontWeight("bold").setBackground("#1e40af").setFontColor("#ffffff");
+  } else if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["ID", "NAMA", "EMAIL", "TARIKH", "STATUS"]);
+    sheet.getRange("A1:E1").setFontWeight("bold").setBackground("#1e40af").setFontColor("#ffffff");
+  }
+  return sheet;
+}
+
+function getAksesTeamColumnMap_(sheet) {
+  var values = sheet.getDataRange().getDisplayValues();
+  var hIdx = values.length > 0 ? findHeaderRowIdx_(values) : 0;
+  var header = values.length > hIdx
+    ? values[hIdx].map(function(h) { return String(h || "").trim().toUpperCase(); })
+    : ["ID", "NAMA", "EMAIL", "TARIKH", "STATUS"];
+
+  var idIdx = findColIdx_(header, ["ID", "ID AKSES", "ID TEAM", "NO"]);
+  var nameIdx = findColIdx_(header, ["NAMA", "NAME", "NAMA TEAM", "PENGGUNA"]);
+  var emailIdx = findColIdx_(header, ["EMAIL", "E-MEL", "EMEL", "ALAMAT EMAIL"]);
+  var dateIdx = findColIdx_(header, ["TARIKH", "DATE", "TARIKH MOHON", "MASA", "TIMESTAMP"]);
+  var statusIdx = findColIdx_(header, ["STATUS", "KELULUSAN", "KEADAAN"]);
+
+  return {
+    values: values,
+    hIdx: hIdx,
+    idIdx: idIdx !== -1 ? idIdx : 0,
+    nameIdx: nameIdx !== -1 ? nameIdx : 1,
+    emailIdx: emailIdx !== -1 ? emailIdx : 2,
+    dateIdx: dateIdx !== -1 ? dateIdx : 3,
+    statusIdx: statusIdx !== -1 ? statusIdx : 4
+  };
+}
+
+function readTeamAccessFromSheet_(ss) {
+  if (!ss) return [];
+  var sheet = findTabByNames_(ss, ["AKSES TEAM", "Akses Team", "AKSES_TEAM", "AksesTeam"]);
+  if (!sheet) return [];
+  var map = getAksesTeamColumnMap_(sheet);
+  if (map.values.length <= map.hIdx + 1) return [];
+
+  var list = [];
+  for (var r = map.hIdx + 1; r < map.values.length; r++) {
+    var row = map.values[r];
+    if (row.join("").trim() === "") continue;
+    var email = String(row[map.emailIdx] || "").trim().toLowerCase();
+    var nama = String(row[map.nameIdx] || "").trim();
+    if (!email && !nama) continue;
+
+    var id = String(row[map.idIdx] || ("AKS-" + r)).trim();
+    var tarikh = String(row[map.dateIdx] || "").trim();
+    var status = normalizeAccessStatus_(row[map.statusIdx]);
+
+    list.push({
+      id: id,
+      nama: nama || (email ? email.split("@")[0] : "Ahli Team"),
+      name: nama || (email ? email.split("@")[0] : "Ahli Team"),
+      email: email,
+      tarikh: tarikh,
+      requestedAt: tarikh,
+      status: status,
+      statusLower: status.toLowerCase(),
+      rowNumber: r + 1
+    });
+  }
+  return list;
+}
+
+function sendTeamApprovalEmail_(record, isResend) {
+  var recipient = ADMIN_NOTIFICATION_EMAIL;
+  var applicantName = record.nama || record.name || (record.email ? record.email.split("@")[0] : "Ahli Baharu");
+  var prefix = isResend ? "[Peringatan] " : "";
+  var subject = prefix + "[FrozenBergerak] Permohonan Akses Team Baharu: " + applicantName + " (" + record.email + ")";
+  var textBody = "Salam Admin FrozenBergerak,\n\n"
+    + "Terdapat permohonan akses ahli team baharu yang direkodkan di tab AKSES TEAM:\n\n"
+    + "ID: " + record.id + "\n"
+    + "Nama: " + applicantName + "\n"
+    + "Email: " + record.email + "\n"
+    + "Tarikh: " + record.tarikh + "\n"
+    + "Status: " + record.status + "\n\n"
+    + "Sila buka aplikasi PWA FrozenBergerak > Akses Pasukan > tab Kelulusan Team untuk menukar status kepada Approved atau Rejected.\n\n"
+    + "Terima kasih.";
+
+  var htmlBody = '<div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">'
+    + '<h2 style="color: #1e40af; margin-top: 0;">FrozenBergerak \uD83D\uDE9A Permohonan Akses Team</h2>'
+    + '<p>Salam Admin FrozenBergerak,</p>'
+    + '<p>Ahli pasukan baharu telah mendaftar dan direkodkan ke dalam tab <strong>AKSES TEAM</strong> dengan status <strong>' + record.status + '</strong>:</p>'
+    + '<table style="width: 100%; border-collapse: collapse; margin: 16px 0; background: #f8fafc; border-radius: 8px;">'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569; width: 110px;">ID</td><td style="padding: 8px 12px;">' + record.id + '</td></tr>'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569;">Nama</td><td style="padding: 8px 12px;">' + applicantName + '</td></tr>'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569;">Email</td><td style="padding: 8px 12px; color: #2563eb; font-weight: bold;">' + record.email + '</td></tr>'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569;">Tarikh</td><td style="padding: 8px 12px;">' + record.tarikh + '</td></tr>'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569;">Status</td><td style="padding: 8px 12px;"><span style="background: #fef3c7; color: #92400e; padding: 3px 10px; border-radius: 999px; font-weight: bold; font-size: 12px;">' + record.status + '</span></td></tr>'
+    + '</table>'
+    + '<p>Sila log masuk ke akaun Admin (<strong>' + recipient + '</strong>) di PWA dan buka tab <strong>Kelulusan Team</strong> untuk memilih <strong>Approved</strong> atau <strong>Rejected</strong>.</p>'
+    + '</div>';
+
+  MailApp.sendEmail({
+    to: recipient,
+    subject: subject,
+    body: textBody,
+    htmlBody: htmlBody
+  });
+}
+
+function registerTeamAccessInSheet_(ss, data) {
+  var sheet = getOrCreateAksesTeamSheet_(ss);
+  if (!sheet) return { success: false, error: "Fail Jadual Team tidak dijumpai." };
+
+  var inner = data.data || {};
+  var cleanEmail = String(data.email || inner.email || "").trim().toLowerCase();
+  if (!cleanEmail) {
+    return { success: false, error: "Alamat email diperlukan untuk pendaftaran AKSES TEAM." };
+  }
+
+  var inputNama = String(data.nama || data.name || inner.nama || inner.name || "").trim();
+  var fallbackNama = cleanEmail.split("@")[0];
+  var finalNama = inputNama || fallbackNama;
+
+  var map = getAksesTeamColumnMap_(sheet);
+  var foundRowNum = -1;
+  var existingRecord = null;
+  var maxIdNum = 0;
+
+  for (var r = map.hIdx + 1; r < map.values.length; r++) {
+    var row = map.values[r];
+    var rowId = String(row[map.idIdx] || "").trim();
+    var m = rowId.match(/(\d+)$/);
+    if (m && m[1]) {
+      var n = parseInt(m[1], 10);
+      if (!isNaN(n) && n > maxIdNum) maxIdNum = n;
+    }
+
+    var rowEmail = String(row[map.emailIdx] || "").trim().toLowerCase();
+    if (rowEmail && rowEmail === cleanEmail) {
+      foundRowNum = r + 1;
+      existingRecord = {
+        id: rowId || ("AKS-" + r),
+        nama: String(row[map.nameIdx] || finalNama).trim(),
+        name: String(row[map.nameIdx] || finalNama).trim(),
+        email: cleanEmail,
+        tarikh: String(row[map.dateIdx] || formatMalayDateTimeNow_()).trim(),
+        status: normalizeAccessStatus_(row[map.statusIdx])
+      };
+    }
+  }
+
+  if (foundRowNum > 0 && existingRecord) {
+    if (inputNama && (!existingRecord.nama || existingRecord.nama === fallbackNama)) {
+      sheet.getRange(foundRowNum, map.nameIdx + 1).setValue(inputNama);
+      existingRecord.nama = inputNama;
+      existingRecord.name = inputNama;
+    }
+    var emailSentExisting = false;
+    if (existingRecord.status === "Pending" && data.sendEmail !== false) {
+      try {
+        sendTeamApprovalEmail_(existingRecord, true);
+        emailSentExisting = true;
+      } catch (mailErr) {}
+    }
+    return {
+      success: true,
+      alreadyExists: true,
+      emailSent: emailSentExisting,
+      status: existingRecord.status,
+      record: existingRecord
+    };
+  }
+
+  var nextNum = maxIdNum + 1;
+  var newId = "AKS-" + (nextNum < 10 ? "0" + nextNum : String(nextNum));
+  var nowStr = String(data.tarikh || inner.tarikh || formatMalayDateTimeNow_()).trim();
+  var statusStr = "Pending";
+
+  var maxColIdx = Math.max(map.idIdx, map.nameIdx, map.emailIdx, map.dateIdx, map.statusIdx, 4);
+  var newRow = [];
+  for (var c = 0; c <= maxColIdx; c++) newRow.push("");
+  newRow[map.idIdx] = newId;
+  newRow[map.nameIdx] = finalNama;
+  newRow[map.emailIdx] = cleanEmail;
+  newRow[map.dateIdx] = nowStr;
+  newRow[map.statusIdx] = statusStr;
+
+  sheet.appendRow(newRow);
+
+  var createdRecord = {
+    id: newId,
+    nama: finalNama,
+    name: finalNama,
+    email: cleanEmail,
+    tarikh: nowStr,
+    requestedAt: nowStr,
+    status: statusStr,
+    statusLower: "pending"
+  };
+
+  var emailSent = false;
+  var emailError = "";
+  if (data.sendEmail !== false) {
+    try {
+      sendTeamApprovalEmail_(createdRecord, false);
+      emailSent = true;
+    } catch (e) {
+      emailError = e.toString();
+    }
+  }
+
+  return {
+    success: true,
+    alreadyExists: false,
+    emailSent: emailSent,
+    emailError: emailError || undefined,
+    status: statusStr,
+    record: createdRecord
+  };
+}
+
+function updateTeamAccessStatusInSheet_(ss, data) {
+  var sheet = getOrCreateAksesTeamSheet_(ss);
+  if (!sheet) return { success: false, error: "Fail Jadual Team tidak dijumpai." };
+
+  var inner = data.data || {};
+  var targetEmail = String(data.email || inner.email || "").trim().toLowerCase();
+  var targetId = String(data.id || inner.id || "").trim();
+  var targetStatus = normalizeAccessStatus_(data.status || inner.status || "Pending");
+
+  if (!targetEmail && !targetId) {
+    return { success: false, error: "Email atau ID diperlukan untuk kemaskini status AKSES TEAM." };
+  }
+
+  var map = getAksesTeamColumnMap_(sheet);
+  var foundRowNum = -1;
+  var updatedRecord = null;
+  var maxIdNum = 0;
+
+  for (var r = map.hIdx + 1; r < map.values.length; r++) {
+    var row = map.values[r];
+    var rowId = String(row[map.idIdx] || "").trim();
+    var m = rowId.match(/(\d+)$/);
+    if (m && m[1]) {
+      var n = parseInt(m[1], 10);
+      if (!isNaN(n) && n > maxIdNum) maxIdNum = n;
+    }
+
+    var rowEmail = String(row[map.emailIdx] || "").trim().toLowerCase();
+    if ((targetEmail && rowEmail === targetEmail) || (targetId && rowId === targetId)) {
+      foundRowNum = r + 1;
+      sheet.getRange(foundRowNum, map.statusIdx + 1).setValue(targetStatus);
+      var nama = String(row[map.nameIdx] || (rowEmail ? rowEmail.split("@")[0] : "")).trim();
+      updatedRecord = {
+        id: rowId || ("AKS-" + r),
+        nama: nama,
+        name: nama,
+        email: rowEmail || targetEmail,
+        tarikh: String(row[map.dateIdx] || "").trim(),
+        requestedAt: String(row[map.dateIdx] || "").trim(),
+        status: targetStatus,
+        statusLower: targetStatus.toLowerCase()
+      };
+      break;
+    }
+  }
+
+  if (foundRowNum === -1 && targetEmail) {
+    var nextNum = maxIdNum + 1;
+    var newId = targetId || ("AKS-" + (nextNum < 10 ? "0" + nextNum : String(nextNum)));
+    var namaNew = String(data.nama || data.name || inner.nama || inner.name || targetEmail.split("@")[0]).trim();
+    var nowStr = formatMalayDateTimeNow_();
+    var maxColIdx = Math.max(map.idIdx, map.nameIdx, map.emailIdx, map.dateIdx, map.statusIdx, 4);
+    var newRow = [];
+    for (var c = 0; c <= maxColIdx; c++) newRow.push("");
+    newRow[map.idIdx] = newId;
+    newRow[map.nameIdx] = namaNew;
+    newRow[map.emailIdx] = targetEmail;
+    newRow[map.dateIdx] = nowStr;
+    newRow[map.statusIdx] = targetStatus;
+    sheet.appendRow(newRow);
+    updatedRecord = {
+      id: newId,
+      nama: namaNew,
+      name: namaNew,
+      email: targetEmail,
+      tarikh: nowStr,
+      requestedAt: nowStr,
+      status: targetStatus,
+      statusLower: targetStatus.toLowerCase()
+    };
+  }
+
+  if (!updatedRecord) {
+    return { success: false, error: "Rekod pemohon tidak ditemui di tab AKSES TEAM." };
+  }
+
+  return {
+    success: true,
+    status: targetStatus,
+    record: updatedRecord,
+    teamAccess: readTeamAccessFromSheet_(ss)
+  };
 }
 
 function readProductsFromSheet_(ss) {
@@ -337,6 +670,37 @@ function doGet(e) {
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
+  if (action === "getTeamAccess") {
+    var jtTeamSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
+    var accessList = readTeamAccessFromSheet_(jtTeamSS);
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      teamAccess: accessList,
+      adminEmail: ADMIN_NOTIFICATION_EMAIL
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === "checkTeamAccess") {
+    var jtCheckSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
+    var targetEmail = (e && e.parameter && e.parameter.email) ? String(e.parameter.email).trim().toLowerCase() : "";
+    var allAccess = readTeamAccessFromSheet_(jtCheckSS);
+    var matched = null;
+    for (var i = 0; i < allAccess.length; i++) {
+      if (allAccess[i].email === targetEmail) {
+        matched = allAccess[i];
+        break;
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      email: targetEmail,
+      found: Boolean(matched),
+      status: matched ? matched.status : "Unregistered",
+      statusLower: matched ? matched.statusLower : "unregistered",
+      record: matched
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
   // Lalai / action === "getAll": baca KEDUA-DUA fail ("Frozen Bergerak" + "Jadual Team") serentak
   var fbSSAll = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
   var jtSSAll = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
@@ -373,9 +737,54 @@ function doPost(e) {
 
     var action = data.action || "SCHEDULE_CREATE";
 
-    // Penghantaran notifikasi e-mel admin
+    // A. Pendaftaran Ahli Team Baharu -> Tab AKSES TEAM (Status: Pending) + Emel Admin
+    if (action === "TEAM_ACCESS_REGISTER") {
+      var jtRegSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
+      var regRes = registerTeamAccessInSheet_(jtRegSS, data);
+      return ContentService.createTextOutput(JSON.stringify(regRes))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // B. Kemaskini Status Kelulusan Team (Approved / Rejected / Pending) -> Tab AKSES TEAM
+    if (action === "TEAM_ACCESS_UPDATE") {
+      var jtUpdSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
+      var updRes = updateTeamAccessStatusInSheet_(jtUpdSS, data);
+      return ContentService.createTextOutput(JSON.stringify(updRes))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // C. Hantar Semula Notifikasi Permohonan ke Emel Admin (maktabahumrr@gmail.com)
+    if (action === "TEAM_ACCESS_RESEND") {
+      var jtResendSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
+      var resendEmail = String(data.email || (data.data && data.data.email) || "").trim().toLowerCase();
+      var listResend = readTeamAccessFromSheet_(jtResendSS);
+      var recResend = null;
+      for (var rIdx = 0; rIdx < listResend.length; rIdx++) {
+        if (listResend[rIdx].email === resendEmail) {
+          recResend = listResend[rIdx];
+          break;
+        }
+      }
+      if (!recResend) {
+        recResend = {
+          id: "AKS-BARU",
+          nama: String(data.nama || data.name || (resendEmail ? resendEmail.split("@")[0] : "Ahli Team")),
+          email: resendEmail,
+          tarikh: formatMalayDateTimeNow_(),
+          status: "Pending"
+        };
+      }
+      sendTeamApprovalEmail_(recResend, true);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "Notifikasi emel telah dihantar ke " + ADMIN_NOTIFICATION_EMAIL,
+        record: recResend
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // D. Penghantaran notifikasi e-mel admin umum / ujian
     if (action === "send_email_notification" || action === "team_approval_request" || data.type === "team_approval_request") {
-      var recipient = data.recipient || data.adminEmail || "maktabahumrr@gmail.com";
+      var recipient = data.recipient || data.adminEmail || ADMIN_NOTIFICATION_EMAIL;
       var subject = data.subject || "[FrozenBergerak] Permohonan Kelulusan Akses Team";
       var body = data.body || "Terdapat permohonan akses baharu.";
       MailApp.sendEmail({ to: recipient, subject: subject, body: body, htmlBody: data.htmlBody || undefined });
@@ -383,7 +792,7 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // Pengurusan Jadual dalam fail "Jadual Team" (Tab JADUAL)
+    // E. Pengurusan Jadual dalam fail "Jadual Team" (Tab JADUAL)
     var ss = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
     var sheet = findTabByNames_(ss, ["JADUAL", "Jadual", "jadual"]);
     if (!sheet) {
