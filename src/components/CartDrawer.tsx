@@ -13,13 +13,13 @@ import {
   Phone, 
   MapPin, 
   FileText,
-  ChevronDown,
   UserCheck
 } from "lucide-react";
 import { AgentContact, CartItem, CustomerOrderInfo, DeliveryArea } from "../types";
 import { formatCurrency, generateCartWhatsAppUrl } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
-import { DELIVERY_AREAS, DEFAULT_DELIVERY_AREA } from "../data/deliveryAgents";
+import { DEFAULT_DELIVERY_AREA } from "../data/deliveryAgents";
+import { AreaAgentSelector } from "./AreaAgentSelector";
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -64,8 +64,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   );
   const totalItemCount = safeItems.reduce((acc, item) => acc + (Number(item?.quantity) || 0), 0);
 
-  const handleAreaChange = (areaId: string) => {
-    const foundArea = DELIVERY_AREAS.find((a) => a.id === areaId) || DEFAULT_DELIVERY_AREA;
+  const handleAreaChange = (foundArea: DeliveryArea) => {
     const defaultAreaAgent = foundArea.agents[0];
     setSelectedArea(foundArea);
     setSelectedAgent(defaultAreaAgent);
@@ -77,8 +76,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }));
   };
 
-  const handleAgentChange = (agentId: string) => {
-    const foundAgent = selectedArea.agents.find((a) => a.id === agentId) || selectedArea.agents[0];
+  const handleAgentChange = (foundAgent: AgentContact) => {
     setSelectedAgent(foundAgent);
     setCustomer((prev) => ({
       ...prev,
@@ -109,10 +107,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       />
 
       <div className="fixed inset-y-0 right-0 max-w-full flex pl-6 sm:pl-10">
-        <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col">
+        <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col h-full">
           
           {/* Drawer Header */}
-          <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900 text-white">
+          <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900 text-white shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
                 <ShoppingBag className="w-4 h-4 text-white" />
@@ -134,7 +132,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           </div>
 
           {/* Drawer Body */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50/50">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4 bg-slate-50/50">
             {items.length === 0 ? (
               <div className="text-center py-12 space-y-3 bg-white rounded-2xl p-6 border border-slate-100 shadow-xs">
                 <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
@@ -284,57 +282,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         </div>
                       </div>
 
-                      {/* Delivery Area & Agent Linked Dropdowns in Form */}
-                      <div className="space-y-2.5">
-                        <div>
-                          <label htmlFor="form-delivery-area-select" className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Pilih Kawasan Penghantaran:</span>
-                          </label>
-                          <div className="relative">
-                            <select
-                              id="form-delivery-area-select"
-                              value={selectedArea.id}
-                              onChange={(e) => handleAreaChange(e.target.value)}
-                              className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white appearance-none cursor-pointer"
-                            >
-                              {DELIVERY_AREAS.map((area, index) => (
-                                <option key={area.id} value={area.id}>
-                                  {index + 1}. {area.name} ({area.agents.length} Agen)
-                                </option>
-                              ))}
-                            </select>
-                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
+                      {/* Note indicating selected area/agent sync */}
+                      <div className="p-2.5 rounded-lg bg-blue-50/70 border border-blue-100 text-[11px] text-slate-700 space-y-0.5">
+                        <div className="font-semibold text-blue-900">
+                          Kawasan &amp; Agen Dipilih:
                         </div>
-
-                        <div>
-                          <label htmlFor="form-delivery-agent-select" className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-                            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Pilih Agen Kawasan ({selectedArea.name}):</span>
-                          </label>
-                          <div className="relative">
-                            <select
-                              id="form-delivery-agent-select"
-                              value={selectedAgent.id}
-                              onChange={(e) => handleAgentChange(e.target.value)}
-                              className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white appearance-none cursor-pointer"
-                            >
-                              {selectedArea.agents.map((agent) => (
-                                <option key={agent.id} value={agent.id}>
-                                  {agent.name} (+{agent.phone})
-                                </option>
-                              ))}
-                            </select>
-                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                          <p className="text-[10px] text-blue-600 mt-1 font-medium">
-                            Agent Bertugas: {selectedAgent.name} (WhatsApp: +{selectedAgent.phone})
-                          </p>
+                        <div className="whitespace-normal break-words font-medium text-slate-800">
+                          {selectedArea.name} • <strong>{selectedAgent.name}</strong> (+{selectedAgent.phone})
                         </div>
                       </div>
 
@@ -402,80 +356,35 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Delivery Area & Agent Selector inside scrollable area so it never crowds small viewports */}
+                <AreaAgentSelector
+                  selectedArea={selectedArea}
+                  selectedAgent={selectedAgent}
+                  onSelectArea={handleAreaChange}
+                  onSelectAgent={handleAgentChange}
+                  showRequiredBadge={true}
+                  idPrefix="cart"
+                />
               </>
             )}
           </div>
 
-          {/* Drawer Footer / Checkout button */}
+          {/* Drawer Footer / Compact Checkout Action */}
           {items.length > 0 && (
-            <div className="p-4 sm:p-5 border-t border-slate-200 bg-white space-y-3.5 shadow-lg">
-              {/* Delivery Area & Agent Linked Selector Section */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2">
-                <label 
-                  htmlFor="checkout-delivery-area-select" 
-                  className="block text-xs font-bold text-slate-800 flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Pilih Kawasan / Agent Penghantaran</span>
-                  </span>
-                  <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                    Wajib
-                  </span>
-                </label>
-
-                {/* Step 1: Kawasan Dropdown */}
-                <div className="relative">
-                  <select
-                    id="checkout-delivery-area-select"
-                    value={selectedArea.id}
-                    onChange={(e) => handleAreaChange(e.target.value)}
-                    className="w-full pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs appearance-none cursor-pointer"
-                  >
-                    {DELIVERY_AREAS.map((area, index) => (
-                      <option key={area.id} value={area.id}>
-                        {index + 1}. {area.name} ({area.agents.length} Agen)
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
-                    <ChevronDown className="w-4 h-4" />
-                  </div>
-                </div>
-
-                {/* Step 2: Linked Agent Dropdown for Selected Area */}
-                <div className="relative">
-                  <select
-                    id="checkout-delivery-agent-select"
-                    aria-label="Pilih Agen Penghantaran"
-                    value={selectedAgent.id}
-                    onChange={(e) => handleAgentChange(e.target.value)}
-                    className="w-full pl-3 pr-8 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-2xs appearance-none cursor-pointer"
-                  >
-                    {selectedArea.agents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        Agen: {agent.name} (+{agent.phone})
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-500">
-                    <ChevronDown className="w-4 h-4" />
-                  </div>
-                </div>
-
-                {/* Assigned Agent Quick Info Badge */}
-                <div className="flex items-center justify-between text-[11px] pt-0.5 text-slate-600">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span className="truncate">
-                      {selectedArea.name} • <strong>{selectedAgent.name}</strong>
-                    </span>
-                  </div>
-                  <span className="font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2 py-0.5 rounded-md text-[10px] shrink-0 flex items-center gap-1">
-                    <MessageCircle className="w-3 h-3 text-emerald-600 fill-current" />
-                    +{selectedAgent.phone}
+            <div className="p-4 sm:p-5 border-t border-slate-200 bg-white space-y-2.5 shadow-lg shrink-0">
+              {/* Assigned Area & Agent Summary */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700">
+                <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span className="whitespace-normal break-words leading-snug">
+                    {selectedArea.name} • <strong>{selectedAgent.name}</strong>
                   </span>
                 </div>
+                <span className="font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2 py-0.5 rounded-md text-[10px] shrink-0 flex items-center gap-1">
+                  <MessageCircle className="w-3 h-3 text-emerald-600 fill-current" />
+                  +{selectedAgent.phone}
+                </span>
               </div>
 
               <div className="flex items-baseline justify-between pt-0.5">
@@ -484,9 +393,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   {formatCurrency(totalAmount)}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">
-                *Pesanan akan dihantar terus ke WhatsApp agen {selectedAgent.name} untuk kawasan {selectedArea.name}.
-              </p>
 
               {/* Main Green WhatsApp Order Button */}
               <button
