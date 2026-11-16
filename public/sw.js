@@ -3,9 +3,9 @@
  * Version: 2.4.0 (Unified 2-Spreadsheet Live Sync + AKSES TEAM Access Control)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v22';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v22';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v22';
+const CACHE_NAME = 'frozenbergerak-static-v23';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v23';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v23';
 
 const STATIC_ASSETS = [
   '/',
@@ -102,7 +102,7 @@ self.addEventListener('fetch', (event) => {
         return cache.match(event.request).then((cachedResponse) => {
           const fetchPromise = fetch(event.request)
             .then((networkResponse) => {
-              if (networkResponse && networkResponse.status === 200) {
+              if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
                 cache.put(event.request, networkResponse.clone());
               }
               return networkResponse;

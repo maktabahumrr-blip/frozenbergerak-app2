@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { AgentContact, CartItem, CustomerOrderInfo, DeliveryArea } from "../types";
 import { formatCurrency, generateCartWhatsAppUrl } from "../utils/formatters";
-import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { formatImageUrl, handleOptimizedImageError } from "../utils/googleDrive";
 import { DEFAULT_DELIVERY_AREA } from "../data/deliveryAgents";
 import { AreaAgentSelector } from "./AreaAgentSelector";
 
@@ -181,11 +181,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         className="flex gap-3 p-3 rounded-xl bg-white border border-slate-200/80 items-center justify-between shadow-2xs"
                       >
                         <img
-                          src={formatImageUrl(p?.cookedImageUrl || p?.imageUrl || p?.packagingImageUrl, p?.category, p?.name)}
+                          src={formatImageUrl(p?.cookedImageUrl || p?.imageUrl || p?.packagingImageUrl, p?.category, p?.name, "thumb")}
                           alt={p?.name || "Produk"}
                           referrerPolicy="no-referrer"
+                          loading="lazy"
+                          decoding="async"
                           onError={(e) => {
-                            (e.target as HTMLImageElement).src = getCategoryFallbackImage(p?.category, p?.name);
+                            handleOptimizedImageError(e.currentTarget, p?.category, p?.name, "thumb");
                           }}
                           className="w-14 h-14 rounded-lg object-cover border border-slate-100 flex-shrink-0"
                         />

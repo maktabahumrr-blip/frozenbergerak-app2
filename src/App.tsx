@@ -19,7 +19,8 @@ import {
   fetchLiveCatalog,
   fetchLivePromos,
   fetchLiveSeasonalPromos,
-  readCachedPromos
+  readCachedPromos,
+  buildCategoriesFromProducts
 } from "./data/catalogData";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
@@ -343,17 +344,27 @@ export default function App() {
     }
   }, [products, promos, seasonalPromos]);
 
+  // Derive accurate categories from merged products so counts & filters stay synced
+  const catalogCategories = useMemo(() => {
+    if (allMergedProducts.length > 0) {
+      return buildCategoriesFromProducts(allMergedProducts);
+    }
+    return categories;
+  }, [allMergedProducts, categories]);
+
   // Filtered products calculation for Catalog
   const filteredProducts = useMemo(() => {
     try {
       const safeMerged = Array.isArray(allMergedProducts) ? allMergedProducts : [];
       const safePromos = Array.isArray(promos) ? promos : [];
       const safeSeasonal = Array.isArray(seasonalPromos) ? seasonalPromos : [];
+      const normalizedActiveCat = String(activeCategoryId || "all").replace(/\s+/g, " ").trim().toLowerCase();
+      const queryTokens = searchQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
 
       return safeMerged.filter((item) => {
         if (!item) return false;
         const itemName = String(item?.name || "").toLowerCase();
-        const itemCategory = String(item?.category || "").toLowerCase();
+        const itemCategory = String(item?.category || "").replace(/\s+/g, " ").trim().toLowerCase();
         const itemId = String(item?.id || "").toLowerCase();
 
         // Promo filter (All Time Promo or Seasonal Promo)
@@ -400,8 +411,8 @@ export default function App() {
           }
         }
 
-        // Category filter (if not filtered by special promo mode or if specific cat is chosen)
-        if (activeCategoryId !== "all" && itemCategory !== String(activeCategoryId || "").toLowerCase()) {
+        // Category filter (normalized case-insensitive & trimmed)
+        if (normalizedActiveCat !== "all" && itemCategory !== normalizedActiveCat) {
           return false;
         }
 
@@ -410,14 +421,11 @@ export default function App() {
           return false;
         }
 
-        // Search query
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase().trim();
-          const matchesName = itemName.includes(q);
-          const matchesDesc = String(item.description || "").toLowerCase().includes(q);
-          const matchesCat = itemCategory.includes(q);
-          const matchesId = itemId.includes(q);
-          if (!matchesName && !matchesDesc && !matchesCat && !matchesId) {
+        // Multi-word token search across name, category, description, and ID
+        if (queryTokens.length > 0) {
+          const haystack = `${itemName} ${itemCategory} ${String(item.description || "").toLowerCase()} ${itemId}`;
+          const allTokensMatch = queryTokens.every((token) => haystack.includes(token));
+          if (!allTokensMatch) {
             return false;
           }
         }
@@ -597,9 +605,9 @@ export default function App() {
       {activeView === "catalog" && (
         <>
           {/* Mobile Category & Promo Filter Strip */}
-          {categories.length > 0 && (
+          {catalogCategories.length > 0 && (
             <CategoryBar
-              categories={categories}
+              categories={catalogCategories}
               activeCategoryId={activeCategoryId}
               onSelectCategory={(id) => {
                 setActiveCategoryId(id);
@@ -622,9 +630,9 @@ export default function App() {
           <div className="flex-1 flex max-w-7xl w-full mx-auto">
             
             {/* Desktop Sleek Sidebar */}
-            {categories.length > 0 && !error && (
+            {catalogCategories.length > 0 && !error && (
               <Sidebar
-                categories={categories}
+                categories={catalogCategories}
                 activeCategoryId={activeCategoryId}
                 onSelectCategory={(id) => {
                   setActiveCategoryId(id);
@@ -742,6 +750,63 @@ export default function App() {
                 </div>
               )}
 
+              {/* Catalog Search Bar & Quick Category Chips (Mobile + Desktop) */}
+              {!error && (
+                <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="catalog-search-input"
+                      type="search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Cari produk sejuk beku (cth: pau, karipap, dim sum, kambing)..."
+                      aria-label="Cari produk dalam katalog"
+                      className="w-full pl-10 pr-20 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-500 hover:text-slate-800 bg-slate-200/80 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Padam ×
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Quick Category Filter Pills (Desktop + Mobile shortcut) */}
+                  {catalogCategories.length > 1 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1">
+                        Tapis:
+                      </span>
+                      {catalogCategories.slice(0, 8).map((cat) => {
+                        const isCatActive = activeCategoryId === cat.id && !showPopularOnly && !activePromoFilter;
+                        return (
+                          <button
+                            key={`quick-cat-${cat.id}`}
+                            type="button"
+                            onClick={() => {
+                              if (showPopularOnly) setShowPopularOnly(false);
+                              if (activePromoFilter) setActivePromoFilter(null);
+                              setActiveCategoryId(cat.id);
+                            }}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition-colors shrink-0 cursor-pointer ${
+                              isCatActive
+                                ? "bg-blue-600 text-white shadow-2xs"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900"
+                            }`}
+                          >
+                            {cat.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Loading State */}
               {loading && (
                 <div className="py-24 text-center space-y-4">
@@ -793,21 +858,36 @@ export default function App() {
                   </h3>
                   <p className="text-xs text-slate-500">
                     {searchQuery
-                      ? `Tiada makanan beku yang sepadan dengan carian "${searchQuery}".`
+                      ? `Tiada makanan beku yang sepadan dengan carian "${searchQuery}"${activeCategoryId !== "all" ? ` dalam kategori ${activeCategoryId}` : ""}.`
                       : "Tiada produk dalam kategori atau tapisan yang dipilih pada masa ini."}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery("");
-                      setActiveCategoryId("all");
-                      setActivePromoFilter(null);
-                      setShowPopularOnly(false);
-                    }}
-                    className="mt-2 inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
-                  >
-                    Tunjukkan Semua Produk
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                    {searchQuery && (activeCategoryId !== "all" || activePromoFilter || showPopularOnly) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveCategoryId("all");
+                          setActivePromoFilter(null);
+                          setShowPopularOnly(false);
+                        }}
+                        className="inline-flex items-center px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
+                      >
+                        Cari &quot;{searchQuery}&quot; Dalam Semua Kategori
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setActiveCategoryId("all");
+                        setActivePromoFilter(null);
+                        setShowPopularOnly(false);
+                      }}
+                      className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
+                    >
+                      Tunjukkan Semua Produk
+                    </button>
+                  </div>
                 </div>
               )}
 

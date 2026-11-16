@@ -538,17 +538,23 @@ export function mergeTabProducts(
 }
 
 export function buildCategoriesFromProducts(products: Product[]): Category[] {
-  const categoryMap = new Map<string, number>();
+  const categoryMap = new Map<string, { displayName: string; count: number }>();
   products.forEach((p) => {
-    const cat = p.category || "Lain-lain";
-    categoryMap.set(cat, (categoryMap.get(cat) || 0) + 1);
+    const rawCat = String(p.category || "Lain-lain").replace(/\s+/g, " ").trim() || "Lain-lain";
+    const key = rawCat.toLowerCase();
+    const existing = categoryMap.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      categoryMap.set(key, { displayName: rawCat, count: 1 });
+    }
   });
 
   const categories: Category[] = [
     { id: "all", name: "Semua Produk", icon: "Grid", count: products.length },
-    ...Array.from(categoryMap.entries()).map(([name, count]) => {
+    ...Array.from(categoryMap.values()).map(({ displayName, count }) => {
       let icon = "Grid";
-      const lower = name.toLowerCase();
+      const lower = displayName.toLowerCase();
       if (lower.includes("pau") || lower.includes("dimsum") || lower.includes("dim sum")) icon = "Soup";
       else if (lower.includes("muffin") || lower.includes("kuih") || lower.includes("karipap")) icon = "Cookie";
       else if (lower.includes("corndough") || lower.includes("popia") || lower.includes("snek")) icon = "Utensils";
@@ -556,8 +562,8 @@ export function buildCategoriesFromProducts(products: Product[]): Category[] {
       else if (lower.includes("laut") || lower.includes("ikan") || lower.includes("udang")) icon = "Fish";
 
       return {
-        id: name,
-        name,
+        id: displayName,
+        name: displayName,
         icon,
         count
       };

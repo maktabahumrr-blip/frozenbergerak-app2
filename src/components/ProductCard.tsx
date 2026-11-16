@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { ShoppingBag, Eye, Check, ShieldCheck, Sparkles, Tag, Layers, Maximize2 } from "lucide-react";
 import { Product } from "../types";
 import { formatCurrency } from "../utils/formatters";
-import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { formatImageUrl, getCategoryFallbackImage, handleOptimizedImageError } from "../utils/googleDrive";
 import { ImageLightbox } from "./ImageLightbox";
 
 interface ProductCardProps {
@@ -45,10 +45,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const activeImageType = showPackaging ? "packaging" : "cooked";
 
   const currentImageSrc = showPackaging && product?.packagingImageUrl
-    ? formatImageUrl(product?.packagingImageUrl, product?.category, product?.name)
-    : formatImageUrl(product?.cookedImageUrl || product?.imageUrl || product?.packagingImageUrl, product?.category, product?.name);
+    ? formatImageUrl(product?.packagingImageUrl, product?.category, product?.name, "card")
+    : formatImageUrl(product?.cookedImageUrl || product?.imageUrl || product?.packagingImageUrl, product?.category, product?.name, "card");
 
-  const fallbackSrc = getCategoryFallbackImage(product?.category, product?.name);
   const badgeColor = getCategoryBadgeClass(product?.category);
   const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product?.promoPrice < product?.originalPrice);
 
@@ -68,8 +67,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           alt={product?.name || "Produk Frozen"}
           referrerPolicy="no-referrer"
           loading="lazy"
+          decoding="async"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = fallbackSrc;
+            handleOptimizedImageError(e.currentTarget, product?.category, product?.name, "card");
           }}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         />

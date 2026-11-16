@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { X, UtensilsCrossed, Package, ZoomIn } from "lucide-react";
-import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { formatImageUrl, getCategoryFallbackImage, handleOptimizedImageError } from "../utils/googleDrive";
 
 interface ImageLightboxProps {
   isOpen: boolean;
@@ -42,9 +42,9 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
 
   if (!isOpen) return null;
 
-  const fallbackSrc = getCategoryFallbackImage(category, productName);
-  const cookedSrc = cookedImageUrl ? formatImageUrl(cookedImageUrl, category, productName) : null;
-  const packagingSrc = packagingImageUrl ? formatImageUrl(packagingImageUrl, category, productName) : null;
+  const fallbackSrc = getCategoryFallbackImage(category, productName, "full");
+  const cookedSrc = cookedImageUrl ? formatImageUrl(cookedImageUrl, category, productName, "full") : null;
+  const packagingSrc = packagingImageUrl ? formatImageUrl(packagingImageUrl, category, productName, "full") : null;
 
   let currentImageSrc = cookedSrc || packagingSrc || fallbackSrc;
   if (activeType === "cooked" && cookedSrc) {
@@ -107,8 +107,9 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
             src={currentImageSrc}
             alt={`${productName} - Paparan Besar`}
             referrerPolicy="no-referrer"
+            decoding="async"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = fallbackSrc;
+              handleOptimizedImageError(e.currentTarget, category, productName, "full");
             }}
             className="max-w-full max-h-[68vh] sm:max-h-[74vh] object-contain rounded-xl shadow-2xl transition-transform duration-300"
           />

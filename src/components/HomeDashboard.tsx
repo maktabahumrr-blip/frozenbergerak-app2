@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { Product, Category, StoreConfig, PromoItem } from "../types";
 import { formatCurrency } from "../utils/formatters";
-import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { formatImageUrl, handleOptimizedImageError } from "../utils/googleDrive";
 
 interface HomeDashboardProps {
   products: Product[];
@@ -292,12 +292,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     className="relative aspect-4/3 bg-slate-100 overflow-hidden cursor-pointer"
                   >
                     <img
-                      src={formatImageUrl(promo.imageUrl, "promo", promo.title)}
+                      src={formatImageUrl(promo.imageUrl, "promo", promo.title, "card")}
                       alt={promo.title}
                       referrerPolicy="no-referrer"
                       loading="lazy"
+                      decoding="async"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = getCategoryFallbackImage("promo", promo.title);
+                        handleOptimizedImageError(e.currentTarget, "promo", promo.title, "card");
                       }}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
@@ -549,12 +550,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     className="relative aspect-4/3 bg-slate-100 overflow-hidden cursor-pointer"
                   >
                     <img
-                      src={formatImageUrl(product?.imageUrl, product?.category, product?.name)}
+                      src={formatImageUrl(product?.imageUrl, product?.category, product?.name, "card")}
                       alt={product?.name || "Produk Musim"}
                       referrerPolicy="no-referrer"
                       loading="lazy"
+                      decoding="async"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = getCategoryFallbackImage(product?.category, product?.name);
+                        handleOptimizedImageError(e.currentTarget, product?.category, product?.name, "card");
                       }}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />

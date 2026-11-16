@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, MessageCircle, ShoppingBag, ShieldCheck, ThermometerSnowflake, Sparkles, Plus, Minus, Check, Tag, UtensilsCrossed, Package, Maximize2 } from "lucide-react";
 import { AgentContact, DeliveryArea, Product } from "../types";
 import { formatCurrency, generateSingleProductWhatsAppUrl } from "../utils/formatters";
-import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { formatImageUrl, getCategoryFallbackImage, handleOptimizedImageError } from "../utils/googleDrive";
 import { ImageLightbox } from "./ImageLightbox";
 import { FormattedDescription } from "./FormattedDescription";
 import { DEFAULT_DELIVERY_AREA } from "../data/deliveryAgents";
@@ -48,12 +48,14 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   if (!isOpen || !product) return null;
 
-  const fallbackSrc = getCategoryFallbackImage(product.category, product.name);
-  const cookedSrc = product.cookedImageUrl ? formatImageUrl(product.cookedImageUrl, product.category, product.name) : null;
-  const packagingSrc = product.packagingImageUrl ? formatImageUrl(product.packagingImageUrl, product.category, product.name) : null;
+  const fallbackSrc = getCategoryFallbackImage(product.category, product.name, "medium");
+  const cookedSrc = product.cookedImageUrl ? formatImageUrl(product.cookedImageUrl, product.category, product.name, "medium") : null;
+  const packagingSrc = product.packagingImageUrl ? formatImageUrl(product.packagingImageUrl, product.category, product.name, "medium") : null;
+  const cookedThumbSrc = product.cookedImageUrl ? formatImageUrl(product.cookedImageUrl, product.category, product.name, "thumb") : null;
+  const packagingThumbSrc = product.packagingImageUrl ? formatImageUrl(product.packagingImageUrl, product.category, product.name, "thumb") : null;
   
   // Decide which image to show based on selected tab
-  let displayedImage = product.imageUrl ? formatImageUrl(product.imageUrl, product.category, product.name) : fallbackSrc;
+  let displayedImage = product.imageUrl ? formatImageUrl(product.imageUrl, product.category, product.name, "medium") : fallbackSrc;
   if (activeImageType === "cooked" && cookedSrc) {
     displayedImage = cookedSrc;
   } else if (activeImageType === "packaging" && packagingSrc) {
@@ -163,8 +165,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               src={displayedImage}
               alt={`${product?.name || "Produk"} - ${activeImageType === "cooked" ? "Siap Masak" : "Packaging"}`}
               referrerPolicy="no-referrer"
+              decoding="async"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = fallbackSrc;
+                handleOptimizedImageError(e.currentTarget, product.category, product.name, "medium");
               }}
               className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300 animate-fadeIn"
             />
@@ -186,7 +189,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           {/* Thumbnails row if both exist */}
           {hasBothImages && (
             <div className="flex items-center justify-center gap-2 pt-2 z-10">
-              {cookedSrc && (
+              {cookedThumbSrc && (
                 <button
                   type="button"
                   onClick={() => setActiveImageType("cooked")}
@@ -195,17 +198,19 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   }`}
                 >
                   <img
-                    src={cookedSrc}
+                    src={cookedThumbSrc}
                     alt="Thumbnail Siap Masak"
                     referrerPolicy="no-referrer"
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = fallbackSrc;
+                      handleOptimizedImageError(e.currentTarget, product.category, product.name, "thumb");
                     }}
                     className="w-full h-full object-cover"
                   />
                 </button>
               )}
-              {packagingSrc && (
+              {packagingThumbSrc && (
                 <button
                   type="button"
                   onClick={() => setActiveImageType("packaging")}
@@ -214,11 +219,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   }`}
                 >
                   <img
-                    src={packagingSrc}
+                    src={packagingThumbSrc}
                     alt="Thumbnail Packaging"
                     referrerPolicy="no-referrer"
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = fallbackSrc;
+                      handleOptimizedImageError(e.currentTarget, product.category, product.name, "thumb");
                     }}
                     className="w-full h-full object-cover"
                   />
