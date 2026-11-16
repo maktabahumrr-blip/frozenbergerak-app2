@@ -182,8 +182,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       animate="visible"
       className="w-full space-y-6 sm:space-y-8 pb-8 max-w-7xl mx-auto"
     >
-      {/* Top Home PWA Install CTA Card */}
-      {!isInstalled && onInstallApp && (
+      {/* Top Home PWA Install CTA Card — Permanent across all devices */}
+      {onInstallApp && (
         <section
           id="home-install-pwa-cta"
           className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white rounded-2xl p-4 sm:p-5 shadow-md border border-blue-500/40"
@@ -199,11 +199,11 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     Pasang Aplikasi FrozenBergerak ke Skrin Utama
                   </h3>
                   <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                    PWA
+                    APP
                   </span>
                 </div>
                 <p className="text-xs text-blue-100 mt-0.5 leading-snug">
-                  Akses katalog lebih pantas terus dari skrin utama telefon anda dengan sokongan luar talian.
+                  Klik butang di bawah untuk panduan mudah menambah aplikasi ke skrin utama telefon anda.
                 </p>
               </div>
             </div>
@@ -215,7 +215,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-xs sm:text-sm rounded-xl shadow-sm inline-flex items-center justify-center gap-2 transition-all shrink-0 cursor-pointer"
             >
               <Download className="w-4 h-4 shrink-0" />
-              <span>Pasang Sekarang</span>
+              <span>Cara Pasang Aplikasi</span>
             </button>
           </div>
         </section>

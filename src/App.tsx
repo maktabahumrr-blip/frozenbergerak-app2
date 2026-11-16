@@ -70,18 +70,7 @@ export default function App() {
   const [installGuideMode, setInstallGuideMode] = useState<"ios" | "browser" | null>(null);
 
   const handleRequestInstall = async (): Promise<boolean> => {
-    if (isIOS) {
-      setInstallGuideMode("ios");
-      return false;
-    }
-    if (isInstallable) {
-      const accepted = await promptInstall();
-      if (!accepted) {
-        setInstallGuideMode("browser");
-      }
-      return accepted;
-    }
-    setInstallGuideMode("browser");
+    setInstallGuideMode(isIOS ? "ios" : "browser");
     return false;
   };
 
@@ -548,9 +537,10 @@ export default function App() {
         {/* PWA Install Banner */}
         <InstallPwaBanner
           isInstallable={isInstallable}
-          isInstalled={isInstalled}
+          isInstalled={false}
           isIOS={isIOS}
           onInstall={handleRequestInstall}
+          onNativeInstall={promptInstall}
           guideMode={installGuideMode}
           onCloseGuide={() => setInstallGuideMode(null)}
         />

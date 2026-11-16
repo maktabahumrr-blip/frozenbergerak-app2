@@ -235,14 +235,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
 
-        {/* Install PWA Button -> Forced visible on mobile & desktop when not installed */}
-        {!isInstalled && onInstall && (
+        {/* Permanent Install PWA Button -> Always visible on mobile & desktop */}
+        {onInstall && (
           <button
             id="header-install-pwa-btn"
             type="button"
             onClick={onInstall}
             className="inline-flex items-center gap-1 sm:gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-full font-extrabold text-[11px] sm:text-xs shadow-sm transition-all active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
-            title="Pasang aplikasi FrozenBergerak ke skrin utama"
+            title="Panduan pasang aplikasi FrozenBergerak ke skrin utama"
           >
             <Download className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">Pasang App</span>
