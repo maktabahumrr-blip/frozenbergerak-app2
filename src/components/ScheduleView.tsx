@@ -73,7 +73,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
       setSchedules(Array.isArray(result.schedules) ? result.schedules : []);
       setScheduleSource(result.source);
       if (result.source === "sync_error" || result.error) {
-        setSyncError(result.error || "Gagal menyegerakkan jadual langsung daripada Google Sheets / Firebase.");
+        setSyncError("Gagal memuatkan jadual pergerakan terkini. Sila semak sambungan internet dan tekan Cuba Lagi.");
       } else {
         setSyncError(null);
       }
@@ -177,7 +177,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                 Jadual Pergerakan Pasukan
               </h1>
               <p className="text-xs sm:text-sm text-blue-200 mt-1">
-                Semak laluan, masa penghantaran dan status pergerakan kenderaan FrozenBergerak hari ini ({todayInfo.formattedLong}).
+                Semak lokasi terkini dan laluan penghantaran pasukan kami hari ini ({todayInfo.formattedLong}).
               </p>
             </div>
 
@@ -304,23 +304,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 <span className="text-xs text-slate-500">
                   {isScheduleLoading
-                    ? "Sedang menyegerakkan jadual langsung..."
-                    : scheduleSource === "firebase_database" 
-                    ? "Data diselaraskan bersama Firebase Database."
+                    ? "Sedang menyemak jadual terkini..."
                     : scheduleSource === "sync_error"
-                    ? "Gagal menyegerakkan jadual langsung dari pelayan."
-                    : "Data diselaraskan secara langsung bersama tab JADUAL Google Sheets."}
+                    ? "Gagal memuatkan jadual pergerakan terkini."
+                    : "Semak lokasi terkini dan laluan penghantaran pasukan kami hari ini."}
                 </span>
-                {scheduleSource === "firebase_database" && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                    Firebase DB
-                  </span>
-                )}
-                {(scheduleSource === "google_sheet_jadual" || scheduleSource === "google_apps_script") && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Google Sheets Tab JADUAL
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -330,7 +318,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             onClick={loadSchedules}
             disabled={isScheduleLoading}
             className="p-2 text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors cursor-pointer"
-            title="Muat semula jadual dari Firebase / Google Sheets"
+            title="Muat semula jadual terkini"
           >
             <RefreshCw className={`w-4 h-4 ${isScheduleLoading ? "animate-spin text-blue-600" : ""}`} />
           </button>
@@ -343,10 +331,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               <RefreshCw className="w-6 h-6 animate-spin" />
             </div>
             <h3 className="font-bold text-base text-slate-800">
-              Menyegerakkan Jadual Langsung...
+              Menyemak Jadual Terkini...
             </h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              Sedang mengambil data jadual pergerakan terkini daripada Google Sheets tab JADUAL dan Firebase.
+              Sedang mengambil data jadual pergerakan pasukan kami hari ini.
             </p>
           </div>
         ) : syncError && displayedSchedules.length === 0 ? (
@@ -456,7 +444,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               Tiada Jadual Pergerakan Aktif Buat Masa Ini
             </h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              Belum ada rekod pergerakan pasukan dimasukkan ke dalam tab JADUAL hari ini. Pasukan beroperasi setiap hari ({storeConfig?.operatingHours || "8:00 PG - 10:00 MLM"}). Sila tekan butang di bawah untuk semak semula atau tempah slot kawasan anda.
+              Belum ada rekod pergerakan pasukan dikemaskini buat masa ini. Pasukan beroperasi setiap hari ({storeConfig?.operatingHours || "8:00 PG - 10:00 MLM"}). Sila tekan butang di bawah untuk semak semula atau tempah slot kawasan anda.
             </p>
             <button
               type="button"

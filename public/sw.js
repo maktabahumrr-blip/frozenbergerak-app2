@@ -3,9 +3,9 @@
  * Version: 2.4.0 (Unified 2-Spreadsheet Live Sync + AKSES TEAM Access Control)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v20';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v20';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v20';
+const CACHE_NAME = 'frozenbergerak-static-v21';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v21';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v21';
 
 const STATIC_ASSETS = [
   '/',
