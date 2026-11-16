@@ -9,9 +9,6 @@ import {
   AlertCircle, 
   RefreshCw, 
   Sparkles, 
-  Plus, 
-  FileSpreadsheet, 
-  HelpCircle, 
   WifiOff, 
   ArrowLeft,
   Flame,
@@ -24,7 +21,6 @@ import {
   fetchLiveSeasonalPromos,
   readCachedPromos
 } from "./data/catalogData";
-import { GoogleSheetSyncModal } from "./components/GoogleSheetSyncModal";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { CategoryBar } from "./components/CategoryBar";
@@ -52,8 +48,6 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [catalogSource, setCatalogSource] = useState<string>("google_sheet");
-  const [isSheetSyncModalOpen, setIsSheetSyncModalOpen] = useState<boolean>(false);
 
   // Team Approvals Live Sync State across all devices
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
@@ -240,12 +234,10 @@ export default function App() {
 
       const catalogProducts = Array.isArray(catalogResult?.products) ? catalogResult.products : [];
       const catalogCategories = Array.isArray(catalogResult?.categories) ? catalogResult.categories : [];
-      const catalogSourceStr = catalogResult?.source || "google_sheet";
 
       if (catalogProducts.length > 0) {
         setProducts(catalogProducts);
         setCategories(catalogCategories);
-        setCatalogSource(catalogSourceStr);
       } else {
         setProducts((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
         setCategories((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
@@ -697,17 +689,6 @@ export default function App() {
                           🔥 Paling Laris
                         </span>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() => setIsSheetSyncModalOpen(true)}
-                        className="text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                        title="Klik untuk lihat atau ubah pautan Google Sheet"
-                      >
-                        <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
-                        <span>Google Sheets Live</span>
-                        <span className="text-[9px] bg-emerald-200/90 text-emerald-900 px-1 py-0.2 rounded font-mono">Pautan Sheet</span>
-                      </button>
                     </div>
 
                     <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
@@ -737,7 +718,7 @@ export default function App() {
                       onClick={() => fetchData(true)}
                       disabled={isRefreshing}
                       className="text-xs font-semibold text-slate-600 hover:text-blue-600 bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg shadow-2xs hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      title="Segarkan data daripada Google Sheet"
+                      title="Segarkan semula katalog produk"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-blue-600" : ""}`} />
                       <span>Segar Semula</span>
@@ -766,7 +747,7 @@ export default function App() {
                 <div className="py-24 text-center space-y-4">
                   <div className="w-10 h-10 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
                   <p className="text-sm font-semibold text-slate-600">
-                    Menyambung dan memuatkan produk daripada Google Sheet...
+                    Memuatkan produk terkini FrozenBergerak...
                   </p>
                 </div>
               )}
@@ -780,23 +761,12 @@ export default function App() {
                     </div>
                     <div>
                       <h3 className="font-bold text-red-900 text-base">
-                        Gagal Membaca Data Google Sheet
+                        Gagal Memuatkan Katalog Produk
                       </h3>
                       <p className="text-xs text-red-700 mt-1 leading-relaxed">
                         {error}
                       </p>
                     </div>
-                  </div>
-
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs text-slate-600">
-                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <HelpCircle className="w-4 h-4 text-blue-600" />
-                      <span>Panduan Menyambungkan Google Sheet:</span>
-                    </div>
-                    <ul className="space-y-1.5 pl-5 list-disc text-slate-600">
-                      <li>Pastikan GOOGLE_SHEET_ID telah dimasukkan dalam Secrets.</li>
-                      <li>Akses Google Sheet mestilah "Anyone with the link can view".</li>
-                    </ul>
                   </div>
 
                   <div className="flex items-center gap-3 pt-2">
@@ -859,19 +829,6 @@ export default function App() {
                       />
                     );
                   })}
-
-                  {/* Info card */}
-                  <div className="bg-white rounded-2xl shadow-xs border border-slate-200 border-dashed overflow-hidden flex flex-col justify-center items-center p-8 text-center text-slate-400 min-h-[340px] hover:border-blue-300 transition-colors">
-                    <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center mb-3 text-slate-400">
-                      <Plus className="w-6 h-6" />
-                    </div>
-                    <h4 className="font-bold text-sm text-slate-600 mb-1">
-                      Produk Tambahan Dari Google Sheet
-                    </h4>
-                    <p className="text-xs text-slate-400 max-w-xs">
-                      Sebarang produk baharu yang anda tambah ke Google Sheet akan terpapar di sini secara automatik.
-                    </p>
-                  </div>
                 </div>
               )}
 
@@ -1004,17 +961,6 @@ export default function App() {
         }}
         onScheduleUpdated={() => {
           fetchData(true);
-        }}
-      />
-
-      {/* Google Sheet Live Sync & Link Settings Modal */}
-      <GoogleSheetSyncModal
-        isOpen={isSheetSyncModalOpen}
-        onClose={() => setIsSheetSyncModalOpen(false)}
-        currentSource={catalogSource}
-        totalProducts={products.length}
-        onSyncComplete={async () => {
-          await fetchData(true);
         }}
       />
 

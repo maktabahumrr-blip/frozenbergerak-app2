@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { X, MessageCircle, ShoppingBag, ShieldCheck, ThermometerSnowflake, Sparkles, Plus, Minus, Check, Tag, UtensilsCrossed, Package, Maximize2, MapPin, ChevronDown } from "lucide-react";
-import { Product, DeliveryAgent } from "../types";
+import { AgentContact, DeliveryArea, Product } from "../types";
 import { formatCurrency, generateSingleProductWhatsAppUrl } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
 import { ImageLightbox } from "./ImageLightbox";
 import { FormattedDescription } from "./FormattedDescription";
-import { DELIVERY_AGENTS, DEFAULT_DELIVERY_AGENT } from "../data/deliveryAgents";
+import { DELIVERY_AREAS, DEFAULT_DELIVERY_AREA } from "../data/deliveryAgents";
 
 interface ProductModalProps {
   product: Product | null;
@@ -26,7 +26,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [justAdded, setJustAdded] = useState<boolean>(false);
   const [activeImageType, setActiveImageType] = useState<"cooked" | "packaging">("cooked");
   const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
-  const [selectedAgent, setSelectedAgent] = useState<DeliveryAgent>(DEFAULT_DELIVERY_AGENT);
+  const [selectedArea, setSelectedArea] = useState<DeliveryArea>(DEFAULT_DELIVERY_AREA);
+  const [selectedAgent, setSelectedAgent] = useState<AgentContact>(DEFAULT_DELIVERY_AREA.agents[0]);
 
   useEffect(() => {
     if (isOpen) {
@@ -69,7 +70,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     product, 
     quantity, 
     selectedAgent.phone || whatsappNumber,
-    { area: selectedAgent.area, agentName: selectedAgent.name }
+    { area: selectedArea.name, agentName: selectedAgent.name }
   );
   const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice);
 
@@ -357,8 +358,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               )}
             </button>
 
-            {/* Delivery Area / Agent Selection */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-1 text-left">
+            {/* Delivery Area & Linked Agent Selection */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-1.5 text-left">
               <label htmlFor={`modal-delivery-area-${product?.id || "item"}`} className="block text-[11px] font-bold text-slate-700 flex items-center justify-between">
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5 text-blue-600" />
@@ -368,19 +369,45 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   +{selectedAgent.phone}
                 </span>
               </label>
+
+              {/* Step 1: Area Dropdown */}
               <div className="relative">
                 <select
                   id={`modal-delivery-area-${product?.id || "item"}`}
-                  value={selectedAgent.id}
+                  value={selectedArea.id}
                   onChange={(e) => {
-                    const found = DELIVERY_AGENTS.find((a) => a.id === e.target.value) || DEFAULT_DELIVERY_AGENT;
-                    setSelectedAgent(found);
+                    const foundArea = DELIVERY_AREAS.find((a) => a.id === e.target.value) || DEFAULT_DELIVERY_AREA;
+                    setSelectedArea(foundArea);
+                    setSelectedAgent(foundArea.agents[0]);
                   }}
                   className="w-full pl-2.5 pr-7 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
                 >
-                  {DELIVERY_AGENTS.map((agent) => (
+                  {DELIVERY_AREAS.map((area, index) => (
+                    <option key={area.id} value={area.id}>
+                      {index + 1}. {area.name} ({area.agents.length} Agen)
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              {/* Step 2: Agent Dropdown filtered for selected area */}
+              <div className="relative">
+                <select
+                  id={`modal-delivery-agent-${product?.id || "item"}`}
+                  aria-label="Pilih Agen Penghantaran"
+                  value={selectedAgent.id}
+                  onChange={(e) => {
+                    const foundAgent = selectedArea.agents.find((a) => a.id === e.target.value) || selectedArea.agents[0];
+                    setSelectedAgent(foundAgent);
+                  }}
+                  className="w-full pl-2.5 pr-7 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
+                >
+                  {selectedArea.agents.map((agent) => (
                     <option key={agent.id} value={agent.id}>
-                      {agent.area} ({agent.name})
+                      Agen: {agent.name} (+{agent.phone})
                     </option>
                   ))}
                 </select>

@@ -43,6 +43,18 @@ export interface CartItem {
   notes?: string;
 }
 
+export interface AgentContact {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+export interface DeliveryArea {
+  id: string;
+  name: string;
+  agents: AgentContact[];
+}
+
 export interface DeliveryAgent {
   id: string;
   name: string;

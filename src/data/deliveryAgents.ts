@@ -1,34 +1,125 @@
-import { DeliveryAgent } from "../types";
+import { AgentContact, DeliveryAgent, DeliveryArea } from "../types";
 
-export const DELIVERY_AGENTS: DeliveryAgent[] = [
+const AGENT_CONTACTS: Record<"HUSNA" | "AHDA" | "IZYAN" | "ALIA", AgentContact> = {
+  HUSNA: { id: "husna", name: "HUSNA", phone: "60136863099" },
+  AHDA: { id: "ahda", name: "AHDA", phone: "60198754912" },
+  IZYAN: { id: "izyan", name: "IZYAN", phone: "60132036230" },
+  ALIA: { id: "alia", name: "ALIA", phone: "60148377488" },
+};
+
+export const DELIVERY_AREAS: DeliveryArea[] = [
   {
-    id: "area-putrajaya-cyberjaya",
-    name: "Team Putrajaya & Cyberjaya",
-    area: "Kawasan Putrajaya & Cyberjaya",
-    phone: "60123456789",
-    coverage: "Presint 1-20, Cyberjaya, Dengkil & Sepang",
+    id: "nilai",
+    name: "NILAI",
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
   },
   {
-    id: "area-shahalam-klang",
-    name: "Team Shah Alam & Klang",
-    area: "Kawasan Shah Alam & Klang",
-    phone: "60198765432",
-    coverage: "Seksyen 1-36, Setia Alam, Bukit Raja & Kota Kemuning",
+    id: "seremban-senawang",
+    name: "SEREMBAN/SENAWANG",
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN],
   },
   {
-    id: "area-bangi-kajang",
-    name: "Team Bangi & Kajang",
-    area: "Kawasan Bangi, Kajang & Semenyih",
-    phone: "60112345678",
-    coverage: "Bandar Baru Bangi, Kajang Perdana, Sg Ramal & Semenyih",
+    id: "seri-putra-bukit-mahkota",
+    name: "SERI PUTRA/BUKIT MAHKOTA",
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
   },
   {
-    id: "area-kl-pj",
-    name: "Team KL & Petaling Jaya",
-    area: "Kawasan Kuala Lumpur & Petaling Jaya",
-    phone: "60187654321",
-    coverage: "Cheras, Ampang, Wangsa Maju, Bangsar & Petaling Jaya",
+    id: "salak-bbst-sepang",
+    name: "SALAK/BBST/SEPANG",
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
+  },
+  {
+    id: "kota-warisan-dengkil",
+    name: "KOTA WARISAN/DENGKIL",
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+  },
+  {
+    id: "jenderam",
+    name: "JENDERAM",
+    agents: [AGENT_CONTACTS.AHDA],
+  },
+  {
+    id: "langat-murni-olak-lempit-banting",
+    name: "LANGAT MURNI/OLAK LEMPIT/BANTING",
+    agents: [AGENT_CONTACTS.AHDA],
+  },
+  {
+    id: "teluk-panglima-garang",
+    name: "TELUK PANGLIMA GARANG",
+    agents: [AGENT_CONTACTS.AHDA],
+  },
+  {
+    id: "putrajaya-cyberjaya",
+    name: "PUTRAJAYA/CYBERJAYA",
+    agents: [AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
+  },
+  {
+    id: "puchong-puj-lestari",
+    name: "PUCHONG/PUJ/LESTARI",
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+  },
+  {
+    id: "bangi",
+    name: "BANGI",
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+  },
+  {
+    id: "kajang",
+    name: "KAJANG",
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
+  },
+  {
+    id: "serdang-sri-kembangan",
+    name: "SERDANG/SRI KEMBANGAN",
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+  },
+  {
+    id: "cheras-btho-alam-damai",
+    name: "CHERAS/BTHO/ALAM DAMAI",
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.ALIA],
+  },
+  {
+    id: "kuala-lumpur",
+    name: "KUALA LUMPUR",
+    agents: [AGENT_CONTACTS.IZYAN],
+  },
+  {
+    id: "bdr-saujana-putra",
+    name: "BDR SAUJANA PUTRA",
+    agents: [AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.ALIA],
+  },
+  {
+    id: "putra-heights-usj",
+    name: "PUTRA HEIGHTS/USJ",
+    agents: [AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA],
+  },
+  {
+    id: "klang",
+    name: "KLANG",
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.AHDA],
+  },
+  {
+    id: "shah-alam",
+    name: "SHAH ALAM",
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.ALIA],
+  },
+  {
+    id: "bukit-jelutong-denai-alam-alam-idaman",
+    name: "BUKIT JELUTONG/DENAI ALAM/ALAM IDAMAN",
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.ALIA],
   },
 ];
 
-export const DEFAULT_DELIVERY_AGENT = DELIVERY_AGENTS[0];
+export const DEFAULT_DELIVERY_AREA = DELIVERY_AREAS[0];
+
+export const DELIVERY_AGENTS: DeliveryAgent[] = DELIVERY_AREAS.flatMap((area) =>
+  area.agents.map((agent) => ({
+    id: `${area.id}__${agent.id}`,
+    name: agent.name,
+    area: area.name,
+    phone: agent.phone,
+  }))
+);
+
+export const DEFAULT_DELIVERY_AGENT: DeliveryAgent = DELIVERY_AGENTS[0];
+
