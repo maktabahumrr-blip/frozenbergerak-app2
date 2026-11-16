@@ -1,6 +1,75 @@
-import { Product, Category } from "../types";
+import { Product, Category, PromoItem } from "../types";
 import { extractGoogleDriveFileId, formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
 import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
+
+export const DEFAULT_FROZEN_BERGERAK_SHEET_ID = "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw";
+
+export function readCachedPromos(storageKey: "cached_all_time_promos" | "cached_seasonal_promos"): PromoItem[] {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return [];
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function parseJsonIfValid(res: Response | null): Promise<any | null> {
+  if (!res || !res.ok) return null;
+  try {
+    const contentType = res.headers.get("content-type") || "";
+    const text = (await res.text()).trim();
+    if (!text || text.startsWith("<") || text.toLowerCase().includes("<!doctype html") || text.toLowerCase().includes("<html")) {
+      return null;
+    }
+    if (contentType && contentType.includes("text/html")) {
+      return null;
+    }
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizePromoItem(raw: any, idx: number, prefix: string): PromoItem {
+  const title = String(raw?.title || raw?.name || "Promosi Istimewa").trim();
+  const originalPriceNum = raw?.originalPrice !== undefined && raw?.originalPrice !== null ? parsePrice(raw.originalPrice) : 0;
+  const promoPriceNum = raw?.promoPrice !== undefined && raw?.promoPrice !== null ? parsePrice(raw.promoPrice) : 0;
+  const fallbackPrice = raw?.price !== undefined && raw?.price !== null ? parsePrice(raw.price) : 0;
+  const rawImg = raw?.imageUrl || raw?.cookedImageUrl || raw?.packagingImageUrl;
+  const parsedImg = typeof rawImg === "string" && rawImg.trim() ? (parseGoogleDriveDirectUrl(rawImg) || rawImg.trim()) : undefined;
+
+  return {
+    id: String(raw?.id || `${prefix}-${String(idx + 1).padStart(2, "0")}`).trim(),
+    title,
+    description: String(raw?.description || "Promosi istimewa daripada FrozenBergerak.").trim(),
+    imageUrl: parsedImg || getCategoryFallbackImage("promo", title),
+    originalPrice: originalPriceNum > 0 ? originalPriceNum : undefined,
+    promoPrice: promoPriceNum > 0 ? promoPriceNum : (fallbackPrice > 0 ? fallbackPrice : (originalPriceNum > 0 ? originalPriceNum : undefined)),
+    status: String(raw?.status || (raw?.inStock === false ? "Habis" : "Aktif")).trim(),
+    unit: String(raw?.unit || "1 pek").trim()
+  };
+}
+
+function isPromoActiveStatus(status: any): boolean {
+  const s = String(status || "").trim().toLowerCase();
+  if (!s) return true;
+  const inactive =
+    s.includes("tidak") ||
+    s.includes("inactive") ||
+    s.includes("habis") ||
+    s.includes("out") ||
+    s.includes("tamat") ||
+    s.includes("expired") ||
+    s.includes("batal") ||
+    s === "off" ||
+    s === "no" ||
+    s === "false" ||
+    s === "0";
+  return !inactive;
+}
 
 export const RAW_CATALOG_CSV = `ID,PRODUK,KATEGORI,HARGA,HARGA PROMO,GAMBAR SIAP MASAK,GAMBAR PACKAGING,PENERANGAN,STATUS
 FB001,Pau Mini Kacang Merah,Pau,RM 15,,https://drive.google.com/file/d/15bXjrNxiC5quFRZVPPjdbLAUhPdOcJH5/view?usp=drivesdk,https://drive.google.com/file/d/1naFQ3aOaPHVSeY-xmFtkveQ1yyShvilI/view?usp=drivesdk,1 pek 12 biji. Hanya  perlu dikukus selama 15 minit - 20 minit setelah air mendidih. Sedia untuk dihidang.,AVAILABLE
@@ -703,18 +772,16 @@ export async function fetchLiveCatalog(
         cache: "no-store",
         headers: { "Cache-Control": "no-cache" }
       });
-      if (apiRes.ok) {
-        const data = await apiRes.json();
-        if (data && Array.isArray(data.products) && data.products.length > 0) {
-          const cats = buildCategoriesFromProducts(data.products);
-          try {
-            if (typeof window !== "undefined" && window.localStorage) {
-              localStorage.setItem("cached_catalog_products", JSON.stringify(data.products));
-              localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
-            }
-          } catch {}
-          return { products: data.products, categories: cats, source: data.source || "server_google_sheet" };
-        }
+      const data = await parseJsonIfValid(apiRes);
+      if (data && Array.isArray(data.products) && data.products.length > 0) {
+        const cats = buildCategoriesFromProducts(data.products);
+        try {
+          if (typeof window !== "undefined" && window.localStorage) {
+            localStorage.setItem("cached_catalog_products", JSON.stringify(data.products));
+            localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
+          }
+        } catch {}
+        return { products: data.products, categories: cats, source: data.source || "server_google_sheet" };
       }
     } catch (err) {
       console.warn("Server /api/products fetch error:", err);
@@ -722,13 +789,14 @@ export async function fetchLiveCatalog(
 
     // 2b. Direct Google Apps Script Web App fallback (?action=getProducts)
     if (GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
-      try {
-        const gasRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getProducts&_t=${Date.now()}`, {
-          cache: "no-store",
-          redirect: "follow"
-        });
-        if (gasRes.ok) {
-          const gasData = await gasRes.json();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const gasRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getProducts&_t=${Date.now()}`, {
+            cache: "no-store",
+            redirect: "follow",
+            signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined
+          });
+          const gasData = await parseJsonIfValid(gasRes);
           const rawProducts = Array.isArray(gasData?.products) ? gasData.products : Array.isArray(gasData) ? gasData : [];
           if (rawProducts.length > 0) {
             const normalized: Product[] = rawProducts.map((p: any, idx: number) => {
@@ -753,11 +821,17 @@ export async function fetchLiveCatalog(
               };
             });
             const cats = buildCategoriesFromProducts(normalized);
+            try {
+              if (typeof window !== "undefined" && window.localStorage) {
+                localStorage.setItem("cached_catalog_products", JSON.stringify(normalized));
+                localStorage.setItem("cached_catalog_categories", JSON.stringify(cats));
+              }
+            } catch {}
             return { products: normalized, categories: cats, source: "google_apps_script_direct" };
           }
+        } catch (gasErr) {
+          console.warn("Direct Apps Script getProducts fallback notice:", gasErr);
         }
-      } catch (gasErr) {
-        console.warn("Direct Apps Script getProducts fallback notice:", gasErr);
       }
     }
 
@@ -797,5 +871,328 @@ export async function fetchLiveCatalog(
       categories: [{ id: "all", name: "Semua Produk", icon: "Grid", count: 0 }],
       source: "error_fallback"
     };
+  }
+}
+
+async function fetchPromosViaDirectGas(
+  action: "getPromos" | "getSeasonalPromos",
+  prefix: "PROMO" | "SEA"
+): Promise<{ promos: PromoItem[]; confirmedEmpty: boolean; ok: boolean }> {
+  if (!GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
+    return { promos: [], confirmedEmpty: false, ok: false };
+  }
+
+  const actionsToTry = [action, "getAll"] as const;
+
+  for (const act of actionsToTry) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=${act}&_t=${Date.now()}`, {
+          cache: "no-store",
+          redirect: "follow",
+          signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined
+        });
+        const data = await parseJsonIfValid(res);
+        if (!data || typeof data !== "object") continue;
+
+        const list =
+          action === "getSeasonalPromos"
+            ? (Array.isArray(data.seasonalPromos) ? data.seasonalPromos : Array.isArray(data.promos) && act === "getSeasonalPromos" ? data.promos : null)
+            : (Array.isArray(data.promos) ? data.promos : null);
+
+        if (Array.isArray(list)) {
+          const normalized = list
+            .map((item: any, i: number) => normalizePromoItem(item, i, prefix))
+            .filter((item: PromoItem) => Boolean(item.title) && isPromoActiveStatus(item.status));
+
+          if (normalized.length > 0) {
+            return { promos: normalized, confirmedEmpty: false, ok: true };
+          }
+          if (data.success === true) {
+            return { promos: [], confirmedEmpty: true, ok: true };
+          }
+        }
+      } catch {
+        // Retry or move to fallback action
+      }
+    }
+  }
+
+  return { promos: [], confirmedEmpty: false, ok: false };
+}
+
+export async function fetchLivePromos(
+  sheetUrlOrId?: string,
+  forceRefresh = false
+): Promise<{ promos: PromoItem[]; source: string; confirmedEmpty: boolean }> {
+  const CACHE_KEY = "cached_all_time_promos";
+  const saveCache = (items: PromoItem[]) => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(items));
+      }
+    } catch {}
+  };
+  const clearCache = () => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.removeItem(CACHE_KEY);
+      }
+    } catch {}
+  };
+
+  try {
+    let targetSheet = "";
+    try {
+      targetSheet = sheetUrlOrId?.trim() || (typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "");
+    } catch {
+      targetSheet = sheetUrlOrId?.trim() || "";
+    }
+
+    // 1. Try Express backend /api/promos (ignored cleanly on Netlify static HTML responses)
+    if (!targetSheet) {
+      try {
+        const params = new URLSearchParams();
+        if (forceRefresh) params.set("refresh", "true");
+        params.set("_t", String(Date.now()));
+        const apiRes = await fetch(`/api/promos?${params.toString()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" }
+        });
+        const apiData = await parseJsonIfValid(apiRes);
+        if (apiData && Array.isArray(apiData.promos)) {
+          const normalized = apiData.promos
+            .map((p: any, i: number) => normalizePromoItem(p, i, "PROMO"))
+            .filter((p: PromoItem) => Boolean(p.title) && isPromoActiveStatus(p.status));
+
+          if (normalized.length > 0) {
+            saveCache(normalized);
+            return { promos: normalized, source: apiData.source || "server_api", confirmedEmpty: false };
+          }
+          if (apiData.source === "google_apps_script_empty" || apiData.source === "alltimepromo_sheet") {
+            clearCache();
+            return { promos: [], source: apiData.source, confirmedEmpty: true };
+          }
+        }
+      } catch {
+        // Proceed directly to Apps Script & CSV fallbacks
+      }
+    }
+
+    // 2. Direct Google Apps Script Web App (?action=getPromos, then ?action=getAll)
+    if (!targetSheet) {
+      const gasResult = await fetchPromosViaDirectGas("getPromos", "PROMO");
+      if (gasResult.ok) {
+        if (gasResult.promos.length > 0) {
+          saveCache(gasResult.promos);
+          return { promos: gasResult.promos, source: "google_apps_script_direct", confirmedEmpty: false };
+        }
+        if (gasResult.confirmedEmpty) {
+          clearCache();
+          return { promos: [], source: "google_apps_script_empty", confirmedEmpty: true };
+        }
+      }
+    }
+
+    // 3. Direct Google Sheet CSV fallback for Alltimepromo tab
+    const sheetId = extractSheetId(targetSheet) || DEFAULT_FROZEN_BERGERAK_SHEET_ID;
+    if (sheetId) {
+      try {
+        const csvText = await fetchSheetTabCsv(sheetId, [
+          "Alltimepromo",
+          "All Time Promo",
+          "ALL TIME PROMO",
+          "alltimepromo",
+          "ALLTIMEPROMO",
+          "AllTimePromo",
+          "Alltime Promo",
+          "All-Time Promo",
+          "All_Time_Promo",
+          "Promo",
+          "PROMO",
+          "Promosi"
+        ]);
+        if (csvText) {
+          const rows = parseCSVLines(csvText);
+          const headerText = (rows[0] || []).join(" ").toUpperCase();
+          const isMainCatalogFallback = headerText.includes("GAMBAR SIAP MASAK") || headerText.includes("GAMBAR PACKAGING");
+          if (rows.length >= 2 && !isMainCatalogFallback) {
+            const parsedProducts = parseTabRowsSafely(rows, "alltimepromo");
+            const activePromos = parsedProducts
+              .filter((p) => p.inStock)
+              .map((p, i) => normalizePromoItem({
+                id: p.id,
+                title: p.name,
+                description: p.description,
+                imageUrl: p.imageUrl,
+                originalPrice: p.originalPrice,
+                promoPrice: p.promoPrice || p.price,
+                status: p.inStock ? "Aktif" : "Habis",
+                unit: p.unit
+              }, i, "PROMO"));
+
+            if (activePromos.length > 0) {
+              saveCache(activePromos);
+              return { promos: activePromos, source: "google_sheet_direct_csv", confirmedEmpty: false };
+            }
+            clearCache();
+            return { promos: [], source: "google_sheet_csv_empty", confirmedEmpty: true };
+          }
+        }
+      } catch {
+        // Fallback to cache
+      }
+    }
+
+    // 4. Preserve cached promos on transient network outage
+    const cached = readCachedPromos(CACHE_KEY);
+    if (cached.length > 0) {
+      return { promos: cached, source: "local_cache", confirmedEmpty: false };
+    }
+
+    return { promos: [], source: "unavailable", confirmedEmpty: false };
+  } catch (err) {
+    console.warn("fetchLivePromos fallback:", err);
+    const cached = readCachedPromos(CACHE_KEY);
+    return { promos: cached, source: cached.length > 0 ? "local_cache" : "error", confirmedEmpty: false };
+  }
+}
+
+export async function fetchLiveSeasonalPromos(
+  sheetUrlOrId?: string,
+  forceRefresh = false
+): Promise<{ promos: PromoItem[]; source: string; confirmedEmpty: boolean }> {
+  const CACHE_KEY = "cached_seasonal_promos";
+  const saveCache = (items: PromoItem[]) => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(items));
+      }
+    } catch {}
+  };
+  const clearCache = () => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.removeItem(CACHE_KEY);
+      }
+    } catch {}
+  };
+
+  try {
+    let targetSheet = "";
+    try {
+      targetSheet = sheetUrlOrId?.trim() || (typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "");
+    } catch {
+      targetSheet = sheetUrlOrId?.trim() || "";
+    }
+
+    // 1. Try Express backend /api/seasonal-promos
+    if (!targetSheet) {
+      try {
+        const params = new URLSearchParams();
+        if (forceRefresh) params.set("refresh", "true");
+        params.set("_t", String(Date.now()));
+        const apiRes = await fetch(`/api/seasonal-promos?${params.toString()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" }
+        });
+        const apiData = await parseJsonIfValid(apiRes);
+        const apiList = Array.isArray(apiData?.promos)
+          ? apiData.promos
+          : Array.isArray(apiData?.seasonalPromos)
+          ? apiData.seasonalPromos
+          : null;
+
+        if (apiData && Array.isArray(apiList)) {
+          const normalized = apiList
+            .map((p: any, i: number) => normalizePromoItem(p, i, "SEA"))
+            .filter((p: PromoItem) => Boolean(p.title) && isPromoActiveStatus(p.status));
+
+          if (normalized.length > 0) {
+            saveCache(normalized);
+            return { promos: normalized, source: apiData.source || "server_api", confirmedEmpty: false };
+          }
+          if (apiData.source === "google_apps_script_empty" || apiData.source === "seasonalpromo_sheet" || apiData.source === "empty") {
+            clearCache();
+            return { promos: [], source: apiData.source, confirmedEmpty: true };
+          }
+        }
+      } catch {
+        // Proceed to Apps Script fallback
+      }
+    }
+
+    // 2. Direct Google Apps Script Web App
+    if (!targetSheet) {
+      const gasResult = await fetchPromosViaDirectGas("getSeasonalPromos", "SEA");
+      if (gasResult.ok) {
+        if (gasResult.promos.length > 0) {
+          saveCache(gasResult.promos);
+          return { promos: gasResult.promos, source: "google_apps_script_direct", confirmedEmpty: false };
+        }
+        if (gasResult.confirmedEmpty) {
+          clearCache();
+          return { promos: [], source: "google_apps_script_empty", confirmedEmpty: true };
+        }
+      }
+    }
+
+    // 3. Direct CSV fallback for Seasonal tab
+    const sheetId = extractSheetId(targetSheet) || DEFAULT_FROZEN_BERGERAK_SHEET_ID;
+    if (sheetId) {
+      try {
+        const csvText = await fetchSheetTabCsv(sheetId, [
+          "Seasonalpromo",
+          "Seasonal Promo",
+          "SEASONAL PROMO",
+          "seasonalpromo",
+          "SEASONALPROMO",
+          "SeasonalPromo",
+          "Seasonal",
+          "SEASONAL",
+          "seasonal",
+          "Promosi Musiman",
+          "PROMOSI MUSIMAN"
+        ]);
+        if (csvText) {
+          const rows = parseCSVLines(csvText);
+          const headerText = (rows[0] || []).join(" ").toUpperCase();
+          const isMainCatalogFallback = headerText.includes("GAMBAR SIAP MASAK") || headerText.includes("GAMBAR PACKAGING");
+          if (rows.length >= 2 && !isMainCatalogFallback) {
+            const parsedProducts = parseTabRowsSafely(rows, "seasonal");
+            const activePromos = parsedProducts
+              .filter((p) => p.inStock)
+              .map((p, i) => normalizePromoItem({
+                id: p.id,
+                title: p.name,
+                description: p.description,
+                imageUrl: p.imageUrl,
+                originalPrice: p.originalPrice,
+                promoPrice: p.promoPrice || p.price,
+                status: p.inStock ? "Aktif" : "Habis",
+                unit: p.unit
+              }, i, "SEA"));
+
+            if (activePromos.length > 0) {
+              saveCache(activePromos);
+              return { promos: activePromos, source: "google_sheet_direct_csv", confirmedEmpty: false };
+            }
+            clearCache();
+            return { promos: [], source: "google_sheet_csv_empty", confirmedEmpty: true };
+          }
+        }
+      } catch {}
+    }
+
+    const cached = readCachedPromos(CACHE_KEY);
+    if (cached.length > 0) {
+      return { promos: cached, source: "local_cache", confirmedEmpty: false };
+    }
+
+    return { promos: [], source: "unavailable", confirmedEmpty: false };
+  } catch (err) {
+    console.warn("fetchLiveSeasonalPromos fallback:", err);
+    const cached = readCachedPromos(CACHE_KEY);
+    return { promos: cached, source: cached.length > 0 ? "local_cache" : "error", confirmedEmpty: false };
   }
 }

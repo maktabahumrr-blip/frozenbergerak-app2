@@ -60,4 +60,27 @@
   animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Hide "Powered by Netlify" badge & Netlify overlay drawer so it does not cover the PWA navigation menu */
+iframe[src*="netlify"],
+iframe[title*="Netlify"],
+iframe[id*="netlify"],
+#netlify-drawer,
+.netlify-drawer,
+#netlify-badge,
+.netlify-badge,
+[id^="netlify-"],
+[class*="netlify-drawer"],
+[class*="netlify-badge"],
+[data-netlify-deploy-id],
+a[href*="netlify.com"][style*="fixed"],
+div[style*="position: fixed"] > a[href*="netlify.com"],
+div[style*="position:fixed"] > a[href*="netlify.com"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
 

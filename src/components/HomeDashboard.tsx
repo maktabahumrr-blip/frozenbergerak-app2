@@ -29,6 +29,7 @@ interface HomeDashboardProps {
   promos?: PromoItem[];
   seasonalPromos?: PromoItem[];
   storeConfig: StoreConfig | null;
+  isLoading?: boolean;
   onNavigateToCatalog: (categoryId?: string, promoType?: "alltime" | "seasonal" | "popular" | boolean) => void;
   onNavigateToSchedule?: () => void;
   onNavigateView?: (view: "home" | "catalog" | "schedule" | "loyalty" | "feedback") => void;
@@ -45,6 +46,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   promos = [],
   seasonalPromos = [],
   storeConfig,
+  isLoading = false,
   onNavigateToCatalog,
   onNavigateToSchedule,
   onNavigateView,
@@ -55,16 +57,25 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
   const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
-  // Active promos from Alltimepromo tab or fallback to promo products in sheets
+  // Active promos from Alltimepromo tab or fallback to promo products
   const activeAllTimePromos = useMemo(() => {
     try {
-      if (promos && promos.length > 0) {
-        return promos;
+      if (Array.isArray(promos) && promos.length > 0) {
+        return promos.filter((p) => p && String(p.title || "").trim().length > 0);
       }
       const safeProducts = Array.isArray(products) ? products : [];
-      // Fallback: Use products that have promoPrice or originalPrice in the main sheet
+      // Fallback: Use products categorized as All Time Promo or products with promoPrice
       return safeProducts
-        .filter((p) => Boolean((p?.promoPrice && p?.originalPrice && p.promoPrice < p.originalPrice) || (p?.promoPrice && p.promoPrice > 0)))
+        .filter((p) => {
+          if (!p) return false;
+          const catLower = String(p.category || "").toLowerCase();
+          const isAllTimeCat = catLower.includes("all time promo") || catLower.includes("alltimepromo");
+          const hasPromoPrice = Boolean(
+            (p.promoPrice && p.originalPrice && p.promoPrice < p.originalPrice) ||
+            (p.promoPrice && p.promoPrice > 0)
+          );
+          return isAllTimeCat || hasPromoPrice;
+        })
         .map((p) => ({
           id: p?.id || `PROMO-${Math.random()}`,
           title: p?.name || "Promosi",
@@ -188,7 +199,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               </h2>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Tawaran istimewa berterusan terus daripada tab Alltimepromo Google Sheets.
+              Tawaran istimewa yang sentiasa tersedia untuk anda. Nikmati pilihan promosi menarik daripada FrozenBergerak.
             </p>
           </div>
 
@@ -404,6 +415,26 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               );
             })}
           </div>
+        ) : isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[1, 2, 3].map((idx) => (
+              <div
+                key={`promo-skeleton-${idx}`}
+                className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden animate-pulse"
+              >
+                <div className="aspect-4/3 bg-slate-200/80" />
+                <div className="p-4 sm:p-5 space-y-3">
+                  <div className="h-4 bg-slate-200 rounded w-3/4" />
+                  <div className="h-3 bg-slate-100 rounded w-full" />
+                  <div className="h-3 bg-slate-100 rounded w-2/3" />
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <div className="h-5 bg-slate-200 rounded w-20" />
+                    <div className="h-8 bg-slate-200 rounded-xl w-20" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="p-8 bg-white rounded-2xl border border-dashed border-slate-200 text-center space-y-2 shadow-xs">
             <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto">
@@ -499,7 +530,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 Promosi Bermusim Akan Datang
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-                Tiada produk promosi bermusim dalam Google Sheet buat masa ini. Anda boleh menyemak tawaran promosi berterusan di tab <strong>All Time Promo</strong> atau terokai katalog penuh kami.
+                Tiada produk promosi bermusim buat masa ini. Anda boleh menyemak tawaran promosi berterusan di bahagian <strong>All Time Promo</strong> atau terokai katalog penuh kami.
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">

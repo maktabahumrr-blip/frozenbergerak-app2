@@ -18,7 +18,12 @@ import {
   Sun
 } from "lucide-react";
 import { Product, Category, CartItem, StoreConfig, PromoItem } from "./types";
-import { fetchLiveCatalog, DEFAULT_CATALOG_PRODUCTS } from "./data/catalogData";
+import {
+  fetchLiveCatalog,
+  fetchLivePromos,
+  fetchLiveSeasonalPromos,
+  readCachedPromos
+} from "./data/catalogData";
 import { GoogleSheetSyncModal } from "./components/GoogleSheetSyncModal";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
@@ -37,13 +42,12 @@ import { FeedbackModal } from "./components/FeedbackModal";
 import { TeamScheduleModal } from "./components/TeamScheduleModal";
 import { AnimatedNotificationBanner, LiveNotificationPayload } from "./components/AnimatedNotificationBanner";
 import { usePWA } from "./hooks/usePWA";
-import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "./config/googleSheets";
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [promos, setPromos] = useState<PromoItem[]>([]);
-  const [seasonalPromos, setSeasonalPromos] = useState<PromoItem[]>([]);
+  const [promos, setPromos] = useState<PromoItem[]>(() => readCachedPromos("cached_all_time_promos"));
+  const [seasonalPromos, setSeasonalPromos] = useState<PromoItem[]>(() => readCachedPromos("cached_seasonal_promos"));
   const [storeConfig, setStoreConfig] = useState<StoreConfig | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -207,7 +211,7 @@ export default function App() {
     };
   }, []);
 
-  // Fetch product data directly from Google Sheet (CSV export format) with fallback
+  // Fetch product catalog, promos, and store config concurrently with resilient multi-layer fallbacks
   const fetchData = async (forceRefresh = false) => {
     try {
       if (forceRefresh) {
@@ -217,89 +221,70 @@ export default function App() {
       }
       setError(null);
 
-      // 1. Fetch live product catalog directly from Google Sheet CSV or server proxy wrapped in try-catch
-      let catalogProducts: Product[] = [];
-      let catalogCategories: Category[] = [];
-      let catalogSourceStr = "google_sheet";
-
+      let customSheet = "";
       try {
-        let customSheet = "";
-        try {
-          customSheet = typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "";
-        } catch {
-          customSheet = "";
-        }
-
-        const catalogResult = await fetchLiveCatalog(customSheet, forceRefresh);
-        catalogProducts = Array.isArray(catalogResult?.products) ? catalogResult.products : [];
-        catalogCategories = Array.isArray(catalogResult?.categories) ? catalogResult.categories : [];
-        catalogSourceStr = catalogResult?.source || "google_sheet";
-      } catch (sheetError) {
-        console.warn("Catalog Google Sheets CSV fetch failed, falling back to empty array:", sheetError);
-        catalogProducts = [];
-        catalogCategories = [];
-        catalogSourceStr = "fallback_empty";
+        customSheet = typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "";
+      } catch {
+        customSheet = "";
       }
 
-      setProducts(catalogProducts);
-      setCategories(catalogCategories);
-      setCatalogSource(catalogSourceStr);
-
-      // 2. Concurrently fetch extra configurations, promos and seasonal promos (no-store + cache-buster)
       const cacheBuster = `_t=${Date.now()}`;
-      const queryPrefix = forceRefresh ? `?refresh=true&${cacheBuster}` : `?${cacheBuster}`;
-      const [confRes, promoRes, seasonalRes] = await Promise.all([
-        fetch(`/api/config?${cacheBuster}`, { cache: "no-store" }).catch(() => null),
-        fetch(`/api/promos${queryPrefix}`, { cache: "no-store" }).catch(() => null),
-        fetch(`/api/seasonal-promos${queryPrefix}`, { cache: "no-store" }).catch(() => null),
+
+      // Run all data fetches concurrently so All Time Promo & Produk resolve together without lag
+      const [catalogResult, promoResult, seasonalResult, confRes] = await Promise.all([
+        fetchLiveCatalog(customSheet, forceRefresh).catch(() => null),
+        fetchLivePromos(customSheet, forceRefresh).catch(() => null),
+        fetchLiveSeasonalPromos(customSheet, forceRefresh).catch(() => null),
+        fetch(`/api/config?${cacheBuster}`, { cache: "no-store" }).catch(() => null)
       ]);
 
-      const confData = confRes && confRes.ok ? await confRes.json().catch(() => ({})) : {};
-      let promoData = promoRes && promoRes.ok ? await promoRes.json().catch(() => ({})) : {};
-      let seasonalData = seasonalRes && seasonalRes.ok ? await seasonalRes.json().catch(() => ({})) : {};
+      const catalogProducts = Array.isArray(catalogResult?.products) ? catalogResult.products : [];
+      const catalogCategories = Array.isArray(catalogResult?.categories) ? catalogResult.categories : [];
+      const catalogSourceStr = catalogResult?.source || "google_sheet";
 
-      // Fallback to Apps Script Web App directly if backend promo endpoint failed
-      if ((!promoRes || !promoRes.ok) && GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
+      if (catalogProducts.length > 0) {
+        setProducts(catalogProducts);
+        setCategories(catalogCategories);
+        setCatalogSource(catalogSourceStr);
+      } else {
+        setProducts((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
+        setCategories((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
+      }
+
+      if (promoResult) {
+        if (promoResult.promos.length > 0) {
+          setPromos(promoResult.promos);
+        } else if (promoResult.confirmedEmpty) {
+          setPromos([]);
+        }
+      }
+
+      if (seasonalResult) {
+        if (seasonalResult.promos.length > 0) {
+          setSeasonalPromos(seasonalResult.promos);
+        } else if (seasonalResult.confirmedEmpty) {
+          setSeasonalPromos([]);
+        }
+      }
+
+      if (confRes && confRes.ok) {
         try {
-          const gasPromoRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getPromos&${cacheBuster}`, {
-            cache: "no-store",
-            redirect: "follow"
-          });
-          if (gasPromoRes.ok) {
-            promoData = await gasPromoRes.json().catch(() => ({}));
+          const contentType = confRes.headers.get("content-type") || "";
+          const confText = (await confRes.text()).trim();
+          if (confText && !confText.startsWith("<") && !contentType.includes("text/html")) {
+            const parsedConf = JSON.parse(confText);
+            if (parsedConf && typeof parsedConf === "object") {
+              setStoreConfig(parsedConf);
+            }
           }
         } catch {}
       }
-
-      if ((!seasonalRes || !seasonalRes.ok) && GOOGLE_APPS_SCRIPT_WEB_APP_URL) {
-        try {
-          const gasSeasonalRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getSeasonalPromos&${cacheBuster}`, {
-            cache: "no-store",
-            redirect: "follow"
-          });
-          if (gasSeasonalRes.ok) {
-            seasonalData = await gasSeasonalRes.json().catch(() => ({}));
-          }
-        } catch {}
-      }
-
-      setPromos(Array.isArray(promoData?.promos) ? promoData.promos : []);
-      setSeasonalPromos(
-        Array.isArray(seasonalData?.promos)
-          ? seasonalData.promos
-          : Array.isArray(seasonalData?.seasonalPromos)
-          ? seasonalData.seasonalPromos
-          : []
-      );
-      
-      setStoreConfig(confData || null);
 
       if (forceRefresh) {
         showToast(`✓ Data produk berjaya dikemaskini (${catalogProducts.length} produk)!`);
       }
     } catch (err: any) {
       console.warn("Issue encountered during catalog fetch, falling back gracefully:", err);
-      // Ensure catalog state ALWAYS defaults to an empty array [] if fetching fails
       setProducts((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
       setCategories((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : []));
     } finally {
@@ -347,7 +332,7 @@ export default function App() {
             originalPrice: pr.originalPrice,
             promoPrice: pr.promoPrice,
             unit: pr.unit || "1 pek",
-            description: pr.description || "Tawaran promosi istimewa daripada Google Sheets.",
+            description: pr.description || "Tawaran promosi istimewa daripada FrozenBergerak.",
             imageUrl: pr.imageUrl,
             cookedImageUrl: pr.imageUrl,
             isPopular: true,
@@ -381,6 +366,7 @@ export default function App() {
 
         // Promo filter (All Time Promo or Seasonal Promo)
         if (activePromoFilter === "alltime") {
+          const isAllTimeCategory = itemCategory.includes("all time promo") || itemCategory.includes("alltimepromo");
           const isDisc = Boolean(
             (item.promoPrice && item.originalPrice && item.promoPrice < item.originalPrice) ||
             (item.promoPrice && item.promoPrice > 0)
@@ -397,7 +383,7 @@ export default function App() {
               );
             }
           );
-          if (!isDisc && !matchesPromoTab && !item.isPopular) {
+          if (!isAllTimeCategory && !isDisc && !matchesPromoTab && !item.isPopular) {
             return false;
           }
         }
@@ -593,6 +579,7 @@ export default function App() {
             promos={promos}
             seasonalPromos={seasonalPromos}
             storeConfig={storeConfig}
+            isLoading={loading}
             onNavigateToCatalog={handleNavigateToCatalog}
             onNavigateToSchedule={() => {
               setActiveView("schedule");
@@ -732,7 +719,7 @@ export default function App() {
                     </h1>
                     <p className="text-slate-500 text-sm mt-0.5">
                       {activePromoFilter === "alltime"
-                        ? "Pilihan produk promosi istimewa berterusan dari tab Alltimepromo."
+                        ? "Tawaran istimewa yang sentiasa tersedia untuk anda. Nikmati pilihan promosi menarik daripada FrozenBergerak."
                         : activePromoFilter === "seasonal"
                         ? "Pilihan pakej jimat dan hidangan khas perayaan seisi keluarga."
                         : "Segar dari peti sejuk, kualiti terbaik sedia dimasak."}

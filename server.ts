@@ -1926,24 +1926,27 @@ async function fetchAppsScriptActionJson(
 ): Promise<any | null> {
   const webAppUrl = getAppsScriptUrl();
   if (!webAppUrl) return null;
-  try {
-    const response = await fetch(`${webAppUrl}?action=${encodeURIComponent(action)}${extraQuery}&_t=${Date.now()}`, {
-      method: "GET",
-      headers: {
-        "Accept": "application/json, text/plain, */*",
-        "Cache-Control": "no-cache"
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(6000),
-      redirect: "follow"
-    });
-    if (!response.ok) return null;
-    const text = (await response.text()).trim();
-    if (!text || text.startsWith("<") || text.toLowerCase().includes("<html")) return null;
-    return JSON.parse(text);
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(`${webAppUrl}?action=${encodeURIComponent(action)}${extraQuery}&_t=${Date.now()}`, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json, text/plain, */*",
+          "Cache-Control": "no-cache"
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(12000),
+        redirect: "follow"
+      });
+      if (!response.ok) continue;
+      const text = (await response.text()).trim();
+      if (!text || text.startsWith("<") || text.toLowerCase().includes("<html")) continue;
+      return JSON.parse(text);
+    } catch {
+      // retry once on timeout / transient GAS cold start
+    }
   }
+  return null;
 }
 
 async function fetchProductsFromGoogleSheet(
@@ -2086,9 +2089,26 @@ async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promo
     lastPromoFetchTime = now;
     return { promos: gasPromos, source: "google_apps_script" };
   }
+  if (gasJson && gasJson.success === true && Array.isArray(gasPromos) && gasPromos.length === 0) {
+    cachedPromos = [];
+    lastPromoFetchTime = now;
+    return { promos: [], source: "google_apps_script_empty" };
+  }
 
-  const sheetIdRaw = process.env.GOOGLE_SHEET_ID;
+  // Fallback to ?action=getAll in case single-action endpoint had a cold glitch
+  const gasAllJson = await fetchAppsScriptActionJson("getAll");
+  const gasAllPromos = Array.isArray(gasAllJson?.promos) ? gasAllJson.promos : null;
+  if (Array.isArray(gasAllPromos) && gasAllPromos.length > 0) {
+    cachedPromos = gasAllPromos;
+    lastPromoFetchTime = now;
+    return { promos: gasAllPromos, source: "google_apps_script_unified" };
+  }
+
+  const sheetIdRaw = process.env.GOOGLE_SHEET_ID || "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw";
   if (!sheetIdRaw || !sheetIdRaw.trim()) {
+    if (cachedPromos && cachedPromos.length > 0) {
+      return { promos: cachedPromos, source: "stale_cache" };
+    }
     return { promos: [], source: "none" };
   }
 
@@ -2152,6 +2172,9 @@ async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promo
   }
 
   if (!csvData) {
+    if (cachedPromos && cachedPromos.length > 0) {
+      return { promos: cachedPromos, source: "stale_cache" };
+    }
     // If no dedicated Alltimepromo tab was found in Google Sheet, check if standard products list has promoPrice
     try {
       const { products } = await fetchProductsFromGoogleSheet(forceRefresh);
@@ -2177,7 +2200,7 @@ async function fetchPromosFromGoogleSheet(forceRefresh = false): Promise<{ promo
 
   const rows = parseCSV(csvData);
   if (rows.length < 2) {
-    return { promos: [], source: "empty" };
+    return { promos: [], source: "alltimepromo_sheet" };
   }
 
   const headerIdx = findServerHeaderRowIndex(rows);
@@ -2293,9 +2316,17 @@ async function fetchSeasonalPromosFromGoogleSheet(forceRefresh = false): Promise
     lastSeasonalPromoFetchTime = now;
     return { promos: gasSeasonal, source: "google_apps_script" };
   }
+  if (gasJson && gasJson.success === true && Array.isArray(gasSeasonal) && gasSeasonal.length === 0) {
+    cachedSeasonalPromos = [];
+    lastSeasonalPromoFetchTime = now;
+    return { promos: [], source: "google_apps_script_empty" };
+  }
 
-  const sheetIdRaw = process.env.GOOGLE_SHEET_ID;
+  const sheetIdRaw = process.env.GOOGLE_SHEET_ID || "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw";
   if (!sheetIdRaw || !sheetIdRaw.trim()) {
+    if (cachedSeasonalPromos && cachedSeasonalPromos.length > 0) {
+      return { promos: cachedSeasonalPromos, source: "stale_cache" };
+    }
     return { promos: [], source: "none" };
   }
 
