@@ -323,6 +323,18 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     return "pending";
   };
 
+  // Safe JSON parser so empty/HTML responses never trigger "Unexpected end of JSON input"
+  const safeParseJson = async (res: Response): Promise<any> => {
+    try {
+      const text = await res.text();
+      const trimmed = text.trim();
+      if (!trimmed || trimmed.startsWith("<")) return null;
+      return JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  };
+
   // Helper: verify user's AKSES TEAM approval status via server API (or direct Google Apps Script fallback)
   const checkTeamAccessStatus = async (email: string): Promise<{
     status: "approved" | "pending" | "rejected" | "unregistered";
@@ -339,7 +351,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         cache: "no-store"
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeParseJson(res);
         if (data?.success) {
           return {
             status: normalizeAccessStatus(data.status || data.sheetStatus),
@@ -356,7 +368,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         cache: "no-store"
       });
       if (gasRes.ok) {
-        const gasData = await gasRes.json();
+        const gasData = await safeParseJson(gasRes);
         if (gasData && typeof gasData.found === "boolean" && "status" in gasData) {
           return {
             status: gasData.found ? normalizeAccessStatus(gasData.status) : "unregistered",
@@ -401,7 +413,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         body: JSON.stringify({ email: cleanEmail, nama: cleanName, name: cleanName, sendEmail: true })
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeParseJson(res);
         if (data?.success) {
           const normalized = normalizeAccessStatus(data.status || "Pending");
           const finalStatus = normalized === "unregistered" ? "pending" : normalized;
@@ -455,7 +467,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           headers: { "Authorization": `Bearer ${token}` }
         });
         if (res.ok) {
-          const data = await res.json();
+          const data = await safeParseJson(res);
           if (data?.success && Array.isArray(data.approvals)) {
             const normalized: TeamApprovalItem[] = data.approvals.map((item: any) => ({
               id: item.id,
@@ -488,7 +500,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         cache: "no-store"
       });
       if (gasRes.ok) {
-        const gasData = await gasRes.json();
+        const gasData = await safeParseJson(gasRes);
         if (gasData?.success && Array.isArray(gasData.teamAccess)) {
           const normalized: TeamApprovalItem[] = gasData.teamAccess.map((item: any) => ({
             id: item.id,
@@ -606,9 +618,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           ...(token ? { "Authorization": `Bearer ${token}` } : {})
         }
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Gagal menghantar emel ujian.");
+      const data = await safeParseJson(res);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Gagal menghantar emel ujian.");
       }
       setEmailTestResult(`✅ ${data.message}`);
     } catch (err: any) {
@@ -903,12 +915,13 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         })
       });
 
-      const data = await res.json();
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Gagal mengemaskini status dalam tab AKSES TEAM.");
+      const data = await safeParseJson(res);
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(data?.error || "Akses ditolak: Sila log masuk semula sebagai Admin.");
       }
 
-      if (!data.sheetsSynced) {
+      if (!res.ok || !data?.success || !data?.sheetsSynced) {
+        // Fallback terus ke Google Apps Script jika pelayan tidak mengembalikan JSON atau gagal sync
         await postToGoogleAppsScript({
           action: "TEAM_ACCESS_UPDATE",
           id: item.id,
@@ -1213,8 +1226,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           })
         });
         if (updateRes.ok) {
-          const updateData = await updateRes.json();
-          if (updateData.schedules && Array.isArray(updateData.schedules)) {
+          const updateData = await safeParseJson(updateRes);
+          if (updateData?.schedules && Array.isArray(updateData.schedules)) {
             setAllSchedules(updateData.schedules);
             try {
               localStorage.setItem("frozen_schedules", JSON.stringify(updateData.schedules));
@@ -1222,7 +1235,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           }
           console.log("[ScheduleSync] ✅ Rekod jadual disimpan secara global pada server:", scheduleId);
         } else if (updateRes.status === 403) {
-          const errBody = await updateRes.json().catch(() => ({}));
+          const errBody = (await safeParseJson(updateRes)) || {};
           setSubmitError(errBody.error || "Akses disekat: Akaun belum diluluskan oleh Admin.");
           setIsSubmitting(false);
           return;
@@ -1284,8 +1297,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           body: JSON.stringify({ id: targetIdToDelete, token })
         });
         if (delRes.ok) {
-          const resData = await delRes.json();
-          if (resData.schedules && Array.isArray(resData.schedules)) {
+          const resData = await safeParseJson(delRes);
+          if (resData?.schedules && Array.isArray(resData.schedules)) {
             setAllSchedules(resData.schedules);
             try {
               localStorage.setItem("frozen_schedules", JSON.stringify(resData.schedules));
@@ -1293,7 +1306,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           }
           console.log("[ScheduleSync] ✅ Rekod jadual dipadam secara global dari server:", targetIdToDelete);
         } else if (delRes.status === 403) {
-          const errBody = await delRes.json().catch(() => ({}));
+          const errBody = (await safeParseJson(delRes)) || {};
           setSubmitError(errBody.error || "Akses disekat: Akaun belum diluluskan oleh Admin.");
           setIsSubmitting(false);
           return;

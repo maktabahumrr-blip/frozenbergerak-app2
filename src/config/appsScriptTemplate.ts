@@ -639,92 +639,145 @@ function readSchedulesFromSheet_(ss) {
   return schedules;
 }
 
+function jsonResponse_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj || { success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function parsePostPayload_(e) {
+  var data = {};
+  var raw = (e && e.postData && e.postData.contents) ? String(e.postData.contents) : "";
+  var trimmed = raw.trim();
+
+  if (trimmed) {
+    try {
+      data = JSON.parse(trimmed);
+    } catch (pe1) {
+      // Sokong borang hidden iframe (enctype="text/plain") yang menambah '=' pada penghujung JSON
+      var cleaned = trimmed.replace(/=+$/, "").trim();
+      try {
+        data = JSON.parse(cleaned);
+      } catch (pe2) {
+        var firstBrace = cleaned.indexOf("{");
+        var lastBrace = cleaned.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          try {
+            data = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+          } catch (pe3) {}
+        }
+      }
+    }
+  }
+
+  if ((!data || typeof data !== "object" || Object.keys(data).length === 0) && e && e.parameter) {
+    if (e.parameter.payload) {
+      try {
+        data = JSON.parse(String(e.parameter.payload));
+      } catch (pe4) {
+        data = e.parameter;
+      }
+    } else {
+      data = e.parameter;
+    }
+  }
+
+  return (data && typeof data === "object") ? data : {};
+}
+
 // ==========================================
 // 1. FUNGSI MEMBACA DATA (GET / fetch)
 // ==========================================
 function doGet(e) {
-  var action = (e && e.parameter && e.parameter.action) ? String(e.parameter.action) : "getAll";
+  try {
+    var action = (e && e.parameter && e.parameter.action) ? String(e.parameter.action).trim() : "getAll";
 
-  if (action === "getProducts") {
-    var fbSS = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      products: readProductsFromSheet_(fbSS)
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
+    if (action === "getProducts") {
+      var fbSS = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+      return jsonResponse_({
+        success: true,
+        products: readProductsFromSheet_(fbSS)
+      });
+    }
 
-  if (action === "getPromos") {
-    var fbSS = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      promos: readPromosFromSheet_(fbSS, ["Alltimepromo", "All Time Promo", "ALL TIME PROMO", "AllTimePromo", "Promo"], "PROMO")
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
+    if (action === "getPromos") {
+      var fbSSPromo = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+      return jsonResponse_({
+        success: true,
+        promos: readPromosFromSheet_(fbSSPromo, ["Alltimepromo", "All Time Promo", "ALL TIME PROMO", "AllTimePromo", "Promo"], "PROMO")
+      });
+    }
 
-  if (action === "getSeasonalPromos") {
-    var fbSS = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
-    var seasonal = readPromosFromSheet_(fbSS, ["Seasonal", "Seasonalpromo", "Seasonal Promo", "Promosi Musiman", "Musiman"], "SEA");
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      promos: seasonal,
-      seasonalPromos: seasonal
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
+    if (action === "getSeasonalPromos") {
+      var fbSSSeasonal = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+      var seasonal = readPromosFromSheet_(fbSSSeasonal, ["Seasonal", "Seasonalpromo", "Seasonal Promo", "Promosi Musiman", "Musiman"], "SEA");
+      return jsonResponse_({
+        success: true,
+        promos: seasonal,
+        seasonalPromos: seasonal
+      });
+    }
 
-  if (action === "getSchedules") {
-    var jtSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      schedules: readSchedulesFromSheet_(jtSS)
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
+    if (action === "getSchedules") {
+      var jtSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+      return jsonResponse_({
+        success: true,
+        schedules: readSchedulesFromSheet_(jtSS)
+      });
+    }
 
-  if (action === "getTeamAccess") {
-    var jtTeamSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
-    var accessList = readTeamAccessFromSheet_(jtTeamSS);
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      teamAccess: accessList,
-      adminEmail: ADMIN_NOTIFICATION_EMAIL
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
+    if (action === "getTeamAccess") {
+      var jtTeamSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
+      var accessList = readTeamAccessFromSheet_(jtTeamSS);
+      return jsonResponse_({
+        success: true,
+        teamAccess: accessList,
+        adminEmail: ADMIN_NOTIFICATION_EMAIL
+      });
+    }
 
-  if (action === "checkTeamAccess") {
-    var jtCheckSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
-    var targetEmail = (e && e.parameter && e.parameter.email) ? String(e.parameter.email).trim().toLowerCase() : "";
-    var allAccess = readTeamAccessFromSheet_(jtCheckSS);
-    var matched = null;
-    for (var i = 0; i < allAccess.length; i++) {
-      if (allAccess[i].email === targetEmail) {
-        matched = allAccess[i];
-        break;
+    if (action === "checkTeamAccess") {
+      var jtCheckSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
+      var targetEmail = (e && e.parameter && e.parameter.email) ? String(e.parameter.email).trim().toLowerCase() : "";
+      var allAccess = readTeamAccessFromSheet_(jtCheckSS);
+      var matched = null;
+      for (var i = 0; i < allAccess.length; i++) {
+        if (allAccess[i].email === targetEmail) {
+          matched = allAccess[i];
+          break;
+        }
       }
+      return jsonResponse_({
+        success: true,
+        email: targetEmail,
+        found: Boolean(matched),
+        status: matched ? matched.status : "Unregistered",
+        statusLower: matched ? matched.statusLower : "unregistered",
+        record: matched
+      });
     }
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      email: targetEmail,
-      found: Boolean(matched),
-      status: matched ? matched.status : "Unregistered",
-      statusLower: matched ? matched.statusLower : "unregistered",
-      record: matched
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
 
-  // Lalai / action === "getAll": baca KEDUA-DUA fail ("Frozen Bergerak" + "Jadual Team") serentak
-  var fbSSAll = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
-  var jtSSAll = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
-  return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    products: readProductsFromSheet_(fbSSAll),
-    promos: readPromosFromSheet_(fbSSAll, ["Alltimepromo", "All Time Promo", "ALL TIME PROMO", "AllTimePromo", "Promo"], "PROMO"),
-    seasonalPromos: readPromosFromSheet_(fbSSAll, ["Seasonal", "Seasonalpromo", "Seasonal Promo", "Promosi Musiman", "Musiman"], "SEA"),
-    schedules: readSchedulesFromSheet_(jtSSAll),
-    meta: {
-      frozenBergerakConnected: Boolean(fbSSAll),
-      jadualTeamConnected: Boolean(jtSSAll),
-      syncedAt: new Date().toISOString()
-    }
-  })).setMimeType(ContentService.MimeType.JSON);
+    // Lalai / action === "getAll": baca KEDUA-DUA fail ("Frozen Bergerak" + "Jadual Team") serentak
+    var fbSSAll = openSheetFile_(FROZEN_BERGERAK_SHEET_ID, "Frozen Bergerak", false, ["Produk", "PRODUK"]);
+    var jtSSAll = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+    return jsonResponse_({
+      success: true,
+      products: readProductsFromSheet_(fbSSAll),
+      promos: readPromosFromSheet_(fbSSAll, ["Alltimepromo", "All Time Promo", "ALL TIME PROMO", "AllTimePromo", "Promo"], "PROMO"),
+      seasonalPromos: readPromosFromSheet_(fbSSAll, ["Seasonal", "Seasonalpromo", "Seasonal Promo", "Promosi Musiman", "Musiman"], "SEA"),
+      schedules: readSchedulesFromSheet_(jtSSAll),
+      meta: {
+        frozenBergerakConnected: Boolean(fbSSAll),
+        jadualTeamConnected: Boolean(jtSSAll),
+        syncedAt: new Date().toISOString()
+      }
+    });
+  } catch (err) {
+    return jsonResponse_({
+      success: false,
+      error: err && err.message ? err.message : String(err)
+    });
+  }
 }
 
 // ==========================================
@@ -732,34 +785,33 @@ function doGet(e) {
 // ==========================================
 function doPost(e) {
   try {
-    var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "";
-    var data = {};
-    if (typeof raw === "string" && raw.trim() !== "") {
-      try {
-        data = JSON.parse(raw);
-      } catch (pe) {
-        data = (e && e.parameter) || {};
-      }
-    } else {
-      data = (e && e.parameter) || {};
-    }
+    var data = parsePostPayload_(e);
+    var rawAction = String(data.action || (e && e.parameter && e.parameter.action) || "SCHEDULE_CREATE").trim();
+    var action = rawAction;
 
-    var action = data.action || "SCHEDULE_CREATE";
+    if (action === "TEAM_ACCESS_APPROVE") {
+      action = "TEAM_ACCESS_UPDATE";
+      data.status = "Approved";
+    } else if (action === "TEAM_ACCESS_REJECT") {
+      action = "TEAM_ACCESS_UPDATE";
+      data.status = "Rejected";
+    }
 
     // A. Pendaftaran Ahli Team Baharu -> Tab AKSES TEAM (Status: Pending) + Emel Admin
     if (action === "TEAM_ACCESS_REGISTER") {
       var jtRegSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
       var regRes = registerTeamAccessInSheet_(jtRegSS, data);
-      return ContentService.createTextOutput(JSON.stringify(regRes))
-        .setMimeType(ContentService.MimeType.JSON);
+      return jsonResponse_(regRes);
     }
 
     // B. Kemaskini Status Kelulusan Team (Approved / Rejected / Pending) -> Tab AKSES TEAM
     if (action === "TEAM_ACCESS_UPDATE") {
       var jtUpdSS = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["AKSES TEAM", "JADUAL", "Jadual"]);
       var updRes = updateTeamAccessStatusInSheet_(jtUpdSS, data);
-      return ContentService.createTextOutput(JSON.stringify(updRes))
-        .setMimeType(ContentService.MimeType.JSON);
+      if (updRes && updRes.success) {
+        updRes.action = "TEAM_ACCESS_UPDATE";
+      }
+      return jsonResponse_(updRes || { success: true, action: "TEAM_ACCESS_UPDATE" });
     }
 
     // C. Hantar Semula Notifikasi Permohonan ke Emel Admin (maktabahumrr@gmail.com)
@@ -783,12 +835,21 @@ function doPost(e) {
           status: "Pending"
         };
       }
-      sendTeamApprovalEmail_(recResend, true);
-      return ContentService.createTextOutput(JSON.stringify({
+      var resendEmailSent = false;
+      var resendEmailError = "";
+      try {
+        sendTeamApprovalEmail_(recResend, true);
+        resendEmailSent = true;
+      } catch (mailErr) {
+        resendEmailError = String(mailErr);
+      }
+      return jsonResponse_({
         success: true,
+        emailSent: resendEmailSent,
+        emailError: resendEmailError || undefined,
         message: "Notifikasi emel telah dihantar ke " + ADMIN_NOTIFICATION_EMAIL,
         record: recResend
-      })).setMimeType(ContentService.MimeType.JSON);
+      });
     }
 
     // D. Penghantaran notifikasi e-mel admin umum / ujian
@@ -796,13 +857,27 @@ function doPost(e) {
       var recipient = data.recipient || data.adminEmail || ADMIN_NOTIFICATION_EMAIL;
       var subject = data.subject || "[FrozenBergerak] Permohonan Kelulusan Akses Team";
       var body = data.body || "Terdapat permohonan akses baharu.";
-      MailApp.sendEmail({ to: recipient, subject: subject, body: body, htmlBody: data.htmlBody || undefined });
-      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Email dihantar ke " + recipient }))
-        .setMimeType(ContentService.MimeType.JSON);
+      var generalEmailSent = false;
+      var generalEmailError = "";
+      try {
+        MailApp.sendEmail({ to: recipient, subject: subject, body: body, htmlBody: data.htmlBody || undefined });
+        generalEmailSent = true;
+      } catch (mailErr2) {
+        generalEmailError = String(mailErr2);
+      }
+      return jsonResponse_({
+        success: true,
+        emailSent: generalEmailSent,
+        emailError: generalEmailError || undefined,
+        message: "Email dihantar ke " + recipient
+      });
     }
 
     // E. Pengurusan Jadual dalam fail "Jadual Team" (Tab JADUAL)
     var ss = openSheetFile_(JADUAL_TEAM_SHEET_ID, "Jadual Team", true, ["JADUAL", "Jadual"]);
+    if (!ss) {
+      return jsonResponse_({ success: false, error: "Fail Jadual Team tidak dijumpai." });
+    }
     var sheet = findTabByNames_(ss, ["JADUAL", "Jadual", "jadual"]);
     if (!sheet) {
       sheet = ss.insertSheet("JADUAL");
@@ -838,17 +913,17 @@ function doPost(e) {
 
     if (action === "SCHEDULE_DELETE") {
       if (foundRow > 1) sheet.deleteRow(foundRow);
-      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return jsonResponse_({ success: true, action: action, id: id });
     } else {
       if (foundRow > 1) sheet.getRange(foundRow, 1, 1, rowData.length).setValues([rowData]);
       else sheet.appendRow(rowData);
-      return ContentService.createTextOutput(JSON.stringify({ success: true, action: action, id: id }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return jsonResponse_({ success: true, action: action, id: id });
     }
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse_({
+      success: false,
+      error: err && err.message ? err.message : String(err)
+    });
   }
 }`;
 }
