@@ -67,6 +67,23 @@ export default function App() {
 
   // PWA Capabilities & Lifecycle
   const { isInstallable, isInstalled, isOffline, isIOS, promptInstall } = usePWA();
+  const [installGuideMode, setInstallGuideMode] = useState<"ios" | "browser" | null>(null);
+
+  const handleRequestInstall = async (): Promise<boolean> => {
+    if (isIOS) {
+      setInstallGuideMode("ios");
+      return false;
+    }
+    if (isInstallable) {
+      const accepted = await promptInstall();
+      if (!accepted) {
+        setInstallGuideMode("browser");
+      }
+      return accepted;
+    }
+    setInstallGuideMode("browser");
+    return false;
+  };
 
   // Filters & Search
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all");
@@ -531,7 +548,9 @@ export default function App() {
         isInstallable={isInstallable}
         isInstalled={isInstalled}
         isIOS={isIOS}
-        onInstall={promptInstall}
+        onInstall={handleRequestInstall}
+        guideMode={installGuideMode}
+        onCloseGuide={() => setInstallGuideMode(null)}
       />
 
       {/* Offline Alert Banner if Internet Disconnected */}
@@ -553,7 +572,10 @@ export default function App() {
         onRefresh={() => fetchData(true)}
         isRefreshing={isRefreshing}
         isInstallable={isInstallable}
-        onInstall={promptInstall}
+        isInstalled={isInstalled}
+        onInstall={() => {
+          void handleRequestInstall();
+        }}
         isOffline={isOffline}
         activeView={activeView}
         onNavigateView={(view) => {
@@ -597,6 +619,10 @@ export default function App() {
             }}
             onOpenCart={() => setIsCartOpen(true)}
             cartCount={totalCartCount}
+            isInstalled={isInstalled}
+            onInstallApp={() => {
+              void handleRequestInstall();
+            }}
           />
         </div>
       )}

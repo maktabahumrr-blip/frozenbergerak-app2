@@ -27,6 +27,7 @@ interface NavbarProps {
   onRefresh?: () => void;
   isRefreshing?: boolean;
   isInstallable?: boolean;
+  isInstalled?: boolean;
   onInstall?: () => void;
   isOffline?: boolean;
   activeView: NavView;
@@ -45,6 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRefresh,
   isRefreshing = false,
   isInstallable = false,
+  isInstalled = false,
   onInstall,
   isOffline = false,
   activeView,
@@ -233,16 +235,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
 
-        {/* Install PWA Button if available */}
-        {isInstallable && onInstall && (
+        {/* Install PWA Button -> Always visible when not yet installed */}
+        {!isInstalled && onInstall && (
           <button
+            id="header-install-pwa-btn"
             type="button"
             onClick={onInstall}
-            className="hidden sm:inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-full font-bold text-xs transition-colors active:scale-95 cursor-pointer"
-            title="Pasang aplikasi FrozenBergerak pada peranti anda"
+            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full font-bold text-[11px] sm:text-xs shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+            title="Pasang aplikasi FrozenBergerak ke skrin utama"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Pasang App</span>
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">{isInstallable ? "Pasang App" : "Pasang App"}</span>
+            <span className="sm:hidden">Pasang</span>
           </button>
         )}
 

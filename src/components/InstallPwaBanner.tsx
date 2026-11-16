@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { Download, X, Share, PlusSquare, Check, Smartphone, MoreVertical } from "lucide-react";
 
 interface InstallPwaBannerProps {
@@ -6,6 +7,8 @@ interface InstallPwaBannerProps {
   isInstalled: boolean;
   isIOS: boolean;
   onInstall: () => Promise<boolean>;
+  guideMode?: "ios" | "browser" | null;
+  onCloseGuide?: () => void;
 }
 
 export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
@@ -13,107 +16,35 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
   isInstalled,
   isIOS,
   onInstall,
+  guideMode = null,
+  onCloseGuide,
 }) => {
-  const [dismissed, setDismissed] = useState<boolean>(() => {
-    try {
-      return sessionStorage.getItem("pwa_banner_dismissed") === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [showIosGuide, setShowIosGuide] = useState<boolean>(false);
-  const [showBrowserGuide, setShowBrowserGuide] = useState<boolean>(false);
+  const [dismissed, setDismissed] = useState<boolean>(false);
+  const [localGuideMode, setLocalGuideMode] = useState<"ios" | "browser" | null>(null);
   const [installedSuccess, setInstalledSuccess] = useState<boolean>(false);
 
-  if (isInstalled || dismissed) {
-    return null;
-  }
+  const activeGuide = guideMode || localGuideMode;
 
-  const handleDismiss = () => {
-    setDismissed(true);
-    try {
-      sessionStorage.setItem("pwa_banner_dismissed", "true");
-    } catch {}
+  const closeGuide = () => {
+    setLocalGuideMode(null);
+    if (onCloseGuide) onCloseGuide();
   };
 
   const handleInstallClick = async () => {
-    if (isIOS) {
-      setShowIosGuide(true);
-      return;
+    const success = await onInstall();
+    if (success) {
+      setInstalledSuccess(true);
+      setTimeout(() => setDismissed(true), 3000);
+    } else if (!onCloseGuide) {
+      setLocalGuideMode(isIOS ? "ios" : "browser");
     }
-
-    if (isInstallable) {
-      const success = await onInstall();
-      if (success) {
-        setInstalledSuccess(true);
-        setTimeout(() => setDismissed(true), 3000);
-        return;
-      }
-    }
-
-    setShowBrowserGuide(true);
   };
 
-  return (
+  const modals = activeGuide ? (
     <>
-      {/* Top PWA Install Call-to-Action Banner */}
-      <div
-        id="pwa-install-banner"
-        className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white border-b border-blue-800/60 px-3 sm:px-4 py-2.5 shadow-md relative z-45"
-      >
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2.5 sm:gap-3 text-xs sm:text-sm">
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <img
-              src="/logo.svg"
-              alt="Logo FrozenBergerak"
-              className="w-8 h-8 sm:w-9 sm:h-9 object-contain flex-shrink-0"
-            />
-            <div className="min-w-0">
-              <p className="font-bold text-slate-100 flex items-center gap-1.5 truncate">
-                <span className="truncate">Pasang Aplikasi FrozenBergerak</span>
-                <span className="bg-blue-500/30 text-blue-200 text-[10px] uppercase font-black px-1.5 py-0.5 rounded border border-blue-400/30 shrink-0">
-                  PWA
-                </span>
-              </p>
-              <p className="text-slate-300 text-[11px] sm:text-xs truncate">
-                Tambah ke skrin utama telefon untuk akses pantas &amp; mod luar talian.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {installedSuccess ? (
-              <span className="inline-flex items-center gap-1.5 bg-emerald-600 text-white font-bold text-xs px-3 py-1.5 rounded-full shadow-xs">
-                <Check className="w-3.5 h-3.5" /> Berjaya Dipasang
-              </span>
-            ) : (
-              <button
-                id="pwa-banner-install-cta"
-                type="button"
-                onClick={handleInstallClick}
-                className="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-[11px] sm:text-xs px-3 sm:px-3.5 py-1.5 rounded-full shadow-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
-              >
-                <Download className="w-3.5 h-3.5 shrink-0" />
-                <span>{isIOS ? "Cara Pasang" : isInstallable ? "Pasang Sekarang" : "Pasang ke Skrin"}</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleDismiss}
-              aria-label="Tutup notis pasang aplikasi"
-              className="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* iOS Installation Guide Modal */}
-      {showIosGuide && (
+      {activeGuide === "ios" && (
         <div className="fixed inset-0 z-[999] bg-slate-900/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-4">
-          <div className="fixed inset-0" onClick={() => setShowIosGuide(false)} />
+          <div className="fixed inset-0" onClick={closeGuide} />
           <div className="relative z-10 bg-white text-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 border border-slate-200 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -128,7 +59,7 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setShowIosGuide(false)}
+                onClick={closeGuide}
                 className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -170,7 +101,7 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
 
             <button
               type="button"
-              onClick={() => setShowIosGuide(false)}
+              onClick={closeGuide}
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
             >
               Faham &amp; Tutup
@@ -179,10 +110,9 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
         </div>
       )}
 
-      {/* Android / Desktop Browser Installation Guide Modal */}
-      {showBrowserGuide && (
+      {activeGuide === "browser" && (
         <div className="fixed inset-0 z-[999] bg-slate-900/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-4">
-          <div className="fixed inset-0" onClick={() => setShowBrowserGuide(false)} />
+          <div className="fixed inset-0" onClick={closeGuide} />
           <div className="relative z-10 bg-white text-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 border border-slate-200 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
@@ -195,7 +125,7 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setShowBrowserGuide(false)}
+                onClick={closeGuide}
                 className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -237,7 +167,7 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
 
             <button
               type="button"
-              onClick={() => setShowBrowserGuide(false)}
+              onClick={closeGuide}
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
             >
               Faham &amp; Tutup
@@ -245,6 +175,65 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
           </div>
         </div>
       )}
+    </>
+  ) : null;
+
+  return (
+    <>
+      {!isInstalled && !dismissed && (
+        <div
+          id="pwa-install-banner"
+          className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white border-b border-blue-500/50 px-3 sm:px-4 py-2.5 shadow-md relative z-50"
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2.5 sm:gap-3 text-xs sm:text-sm">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center flex-shrink-0">
+                <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-extrabold text-white flex items-center gap-1.5 truncate">
+                  <span className="truncate">Pasang Aplikasi FrozenBergerak</span>
+                  <span className="bg-white/20 text-white text-[10px] uppercase font-black px-1.5 py-0.5 rounded border border-white/25 shrink-0">
+                    PWA
+                  </span>
+                </p>
+                <p className="text-blue-100 text-[11px] sm:text-xs truncate">
+                  Tambah ke skrin utama telefon untuk akses pantas &amp; mod luar talian.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {installedSuccess ? (
+                <span className="inline-flex items-center gap-1.5 bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-full shadow-xs">
+                  <Check className="w-3.5 h-3.5" /> Berjaya Dipasang
+                </span>
+              ) : (
+                <button
+                  id="pwa-banner-install-cta"
+                  type="button"
+                  onClick={handleInstallClick}
+                  className="bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-[11px] sm:text-xs px-3 sm:px-3.5 py-1.5 rounded-full shadow-sm flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <Download className="w-3.5 h-3.5 shrink-0" />
+                  <span>{isIOS ? "Cara Pasang" : isInstallable ? "Pasang Sekarang" : "Pasang App"}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setDismissed(true)}
+                aria-label="Tutup notis pasang aplikasi"
+                className="text-blue-100 hover:text-white p-1 rounded-full hover:bg-white/15 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {typeof document !== "undefined" && modals ? createPortal(modals, document.body) : null}
     </>
   );
 };
