@@ -22,19 +22,31 @@ export function generateSingleProductWhatsAppUrl(
   const prodId = product?.id || "N/A";
   const prodCategory = product?.category || "Umum";
 
-  const areaLine = areaInfo?.area ? `📍 *Kawasan Penghantaran:* ${areaInfo.area}${areaInfo?.agentName ? ` (${areaInfo.agentName})` : ""}\n` : "";
+  const orderLines: string[] = [
+    `• *Produk:* ${prodName}`,
+    `• *Kod Produk:* ${prodId}`,
+    `• *Kategori:* ${prodCategory}`,
+    `• *Harga Seunit:* ${formatCurrency(prodPrice)}${isPromo ? " _(Harga Promosi)_" : ""}`,
+    `• *Kuantiti:* ${prodQty} pek`,
+    `• *Anggaran Jumlah:* *${formatCurrency(total)}*`,
+  ];
 
-  const text = `❄️ *TEMPAHAN FROZENBERGERAK*
---------------------------------
-Halo FrozenBergerak! Saya ingin membuat pesanan bagi produk berikut:
+  if (areaInfo?.area) {
+    orderLines.push(`• *Kawasan:* ${areaInfo.area}`);
+  }
+  if (areaInfo?.agentName) {
+    orderLines.push(`• *Agen Pilihan:* ${areaInfo.agentName}`);
+  }
 
-📦 *Produk:* ${prodName} (ID: ${prodId})
-🏷️ *Kategori:* ${prodCategory}
-💵 *Harga:* ${formatCurrency(prodPrice)}${isPromo ? " *(Harga Promo)*" : ""}
-🔢 *Kuantiti:* ${prodQty} pek
-💰 *Jumlah Anggaran:* ${formatCurrency(total)}
-${areaLine}
-Mohon pihak FrozenBergerak sahkan ketersediaan stok & maklumat penghantaran. Terima kasih!`;
+  const text = `Salam sejahtera Team FrozenBergerak!
+Saya berminat untuk membuat tempahan produk berikut:
+
+❄️ *BUTIRAN TEMPAHAN*
+━━━━━━━━━━━━━━━━━━
+${orderLines.join("\n")}
+━━━━━━━━━━━━━━━━━━
+
+Mohon pihak Team FrozenBergerak bantu sahkan ketersediaan stok serta maklumat penghantaran bagi tempahan ini ya. Terima kasih banyak!`;
 
   return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
 }
@@ -55,38 +67,51 @@ export function generateCartWhatsAppUrl(
       const isPromo = Boolean(p?.promoPrice && p?.originalPrice && p.promoPrice < p.originalPrice);
       const itemPrice = Number(p?.price) || 0;
       const itemQty = Number(item?.quantity) || 1;
-      return `${index + 1}. *${p?.name || "Produk"}* (ID: ${p?.id || "N/A"})
-   - Kuantiti: ${itemQty} pek
-   - Harga: ${formatCurrency(itemPrice * itemQty)}${isPromo ? " (Promo)" : ""}`;
+      return `${index + 1}. *${p?.name || "Produk"}* (${p?.id || "N/A"})
+   • Kuantiti: ${itemQty} pek
+   • Jumlah: ${formatCurrency(itemPrice * itemQty)}${isPromo ? " _(Harga Promosi)_" : ""}`;
     })
     .join("\n\n");
 
   const deliveryText =
     customer?.deliveryType === "penghantaran"
-      ? "🚚 Penghantaran ke Rumah"
-      : "🏬 Ambil Sendiri (Self-Pickup)";
+      ? "Penghantaran ke Rumah"
+      : "Ambil Sendiri (Self-Pickup)";
 
-  const areaLine = customer?.deliveryArea
-    ? `• *Kawasan Penghantaran:* ${customer.deliveryArea}${customer?.agentName ? ` (${customer.agentName})` : ""}\n`
-    : "";
+  const customerDetails: string[] = [
+    `• *Nama:* ${customer?.name?.trim() || "Pelanggan FrozenBergerak"}`,
+    `• *No. Telefon:* ${customer?.phone?.trim() || "-"}`,
+    `• *Kaedah:* ${deliveryText}`,
+  ];
 
-  const text = `❄️ *TEMPAHAN RASMI FROZENBERGERAK*
-================================
-Halo FrozenBergerak! Saya ingin mengesahkan tempahan produk sejuk beku berikut:
+  if (customer?.deliveryArea) {
+    customerDetails.push(`• *Kawasan:* ${customer.deliveryArea}`);
+  }
+  if (customer?.agentName) {
+    customerDetails.push(`• *Agen Pilihan:* ${customer.agentName}`);
+  }
+  if (customer?.deliveryType === "penghantaran" && customer?.address?.trim()) {
+    customerDetails.push(`• *Alamat:* ${customer.address.trim()}`);
+  }
+  if (customer?.notes?.trim()) {
+    customerDetails.push(`• *Nota Khas:* ${customer.notes.trim()}`);
+  }
 
-🛒 *SENARAI PESANAN:*
+  const text = `Salam sejahtera Team FrozenBergerak!
+Saya ingin membuat tempahan produk sejuk beku seperti butiran di bawah:
+
+🛒 *SENARAI PESANAN*
+━━━━━━━━━━━━━━━━━━
 ${itemsList || "Tiada item"}
 
---------------------------------
-💵 *JUMLAH KESELURUHAN:* ${formatCurrency(subtotal)}
---------------------------------
+━━━━━━━━━━━━━━━━━━
+💰 *ANGGARAN JUMLAH:* *${formatCurrency(subtotal)}*
+━━━━━━━━━━━━━━━━━━
 
-👤 *MAKLUMAT PELANGGAN:*
-• *Nama:* ${customer?.name || "Pelanggan FrozenBergerak"}
-• *No. Telefon:* ${customer?.phone || "-"}
-• *Pilihan:* ${deliveryText}
-${areaLine}${customer?.deliveryType === "penghantaran" && customer?.address ? `• *Alamat:* ${customer.address}\n` : ""}${customer?.notes ? `• *Nota Khas:* ${customer.notes}\n` : ""}
-Mohon sahkan tempahan dan butiran pembayaran. Terima kasih!`;
+👤 *MAKLUMAT PELANGGAN*
+${customerDetails.join("\n")}
+
+Mohon pihak Team FrozenBergerak bantu sahkan ketersediaan stok, maklumat penghantaran, dan butiran pembayaran. Terima kasih banyak!`;
 
   return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
 }
