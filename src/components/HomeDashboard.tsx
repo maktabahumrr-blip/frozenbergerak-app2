@@ -4,7 +4,6 @@ import {
   Flame, 
   ShoppingBag, 
   ShoppingCart,
-  Phone, 
   Sparkles, 
   Truck, 
   ArrowRight, 
@@ -54,8 +53,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onAddToCart,
   onOpenFeedback,
 }) => {
-  const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
-  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   // Active promos from Alltimepromo tab or fallback to promo products
   const activeAllTimePromos = useMemo(() => {
@@ -225,13 +222,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 : null;
               const savings = hasDiscount ? promo.originalPrice! - promo.promoPrice! : null;
 
-              // Generate WhatsApp link for this specific promo
-              const promoPriceText = promo.promoPrice ? formatCurrency(promo.promoPrice) : (promo.originalPrice ? formatCurrency(promo.originalPrice) : "");
-              const waText = encodeURIComponent(
-                `Halo FrozenBergerak! Saya ingin membuat pesanan untuk promo:\n\n🔥 *${promo.title}*\n💰 Harga Promo: ${promoPriceText}${promo.originalPrice && promo.promoPrice ? ` (Harga Asal: ${formatCurrency(promo.originalPrice)})` : ""}\n📦 Unit: ${promo.unit || "1 pek"}\n\nBoleh saya tahu cara tempahan & penghantaran?`
-              );
-              const waLink = `https://wa.me/${cleanNumber}?text=${waText}`;
-
               // Check if promo matches any product in the catalog or create a valid product representation
               const matchingProduct: Product = (() => {
                 const pList = Array.isArray(products) ? products : [];
@@ -349,7 +339,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     </div>
 
                     {/* Harga & Tindakan */}
-                    <div className="pt-3 border-t border-slate-100 flex flex-col gap-2.5">
+                    <div className="pt-3 border-t border-slate-100 flex flex-col gap-3">
                       <div className="flex items-center justify-between">
                         <div>
                           {hasDiscount ? (
@@ -378,36 +368,25 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                             {promo.unit || "per pek"}
                           </span>
                         </div>
-
-                        {/* Butang Tambah ke Troli */}
-                        <button
-                          type="button"
-                          onClick={() => onAddToCart(matchingProduct, 1)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
-                        >
-                          <ShoppingCart className="w-3.5 h-3.5" />
-                          <span>+ Troli</span>
-                        </button>
                       </div>
 
-                      {/* Baris Butang WhatsApp & Perincian */}
+                      {/* Hanya Butang + Troli & Pesan Sekarang */}
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => onViewProductDetails(matchingProduct)}
-                          className="text-xs text-slate-700 hover:text-blue-600 font-semibold py-1.5 px-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                          onClick={() => onAddToCart(matchingProduct, 1)}
+                          className="w-full py-2.5 px-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
-                          <span>Perincian</span>
+                          <ShoppingCart className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                          <span>+ Troli</span>
                         </button>
-                        <a
-                          href={waLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs py-1.5 px-2 rounded-lg shadow-xs transition-all"
+                        <button
+                          type="button"
+                          onClick={() => onViewProductDetails(matchingProduct)}
+                          className="w-full py-2.5 px-2 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
-                          <Phone className="w-3.5 h-3.5" />
-                          <span>WhatsApp</span>
-                        </a>
+                          <span>Pesan Sekarang</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -565,7 +544,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   key={`seasonal-${product?.id || Math.random()}`}
                   className="bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group"
                 >
-                  <div className="relative aspect-4/3 bg-slate-100 overflow-hidden">
+                  <div
+                    onClick={() => onViewProductDetails(product)}
+                    className="relative aspect-4/3 bg-slate-100 overflow-hidden cursor-pointer"
+                  >
                     <img
                       src={formatImageUrl(product?.imageUrl, product?.category, product?.name)}
                       alt={product?.name || "Produk Musim"}
@@ -587,7 +569,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       <span className="text-[10px] uppercase font-bold text-blue-600 tracking-wider block">
                         {product?.category || "Promosi"}
                       </span>
-                      <h4 className="font-bold text-slate-900 text-sm line-clamp-1 group-hover:text-blue-600 transition-colors">
+                      <h4
+                        onClick={() => onViewProductDetails(product)}
+                        className="font-bold text-slate-900 text-sm line-clamp-1 group-hover:text-blue-600 transition-colors cursor-pointer hover:underline"
+                      >
                         {product?.name || "Produk"}
                       </h4>
                       <p className="text-[11px] text-slate-500 line-clamp-2 mt-1">
@@ -595,7 +580,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       </p>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <div className="pt-2.5 border-t border-slate-100 flex flex-col gap-2.5">
                       <div>
                         {hasPromoPrice ? (
                           <div className="flex items-baseline gap-1">
@@ -616,21 +601,22 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onViewProductDetails(product)}
-                          className="text-xs text-slate-600 hover:text-blue-600 font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
-                        >
-                          Lihat
-                        </button>
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => onAddToCart(product, 1)}
-                          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-lg shadow-xs transition-all cursor-pointer"
-                          title="Tambah ke Pesanan"
+                          className="w-full py-2 px-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          title="Tambah ke Senarai Pesanan"
                         >
-                          + Pesan
+                          <ShoppingCart className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                          <span>+ Troli</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onViewProductDetails(product)}
+                          className="w-full py-2 px-2 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center cursor-pointer"
+                        >
+                          <span>Pesan Sekarang</span>
                         </button>
                       </div>
                     </div>

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { MessageCircle, ShoppingBag, Eye, Check, ShieldCheck, Sparkles, Tag, Layers, Maximize2 } from "lucide-react";
+import { ShoppingBag, Eye, Check, ShieldCheck, Sparkles, Tag, Layers, Maximize2 } from "lucide-react";
 import { Product } from "../types";
-import { formatCurrency, generateSingleProductWhatsAppUrl } from "../utils/formatters";
+import { formatCurrency } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
 import { ImageLightbox } from "./ImageLightbox";
 
@@ -30,7 +30,7 @@ const getCategoryBadgeClass = (category?: string) => {
 
 export const ProductCard: React.FC<ProductCardProps> = ({
   product,
-  whatsappNumber,
+  whatsappNumber: _whatsappNumber,
   onViewDetails,
   onAddToCart,
   isInCart,
@@ -49,7 +49,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     : formatImageUrl(product?.cookedImageUrl || product?.imageUrl || product?.packagingImageUrl, product?.category, product?.name);
 
   const fallbackSrc = getCategoryFallbackImage(product?.category, product?.name);
-  const singleWhatsAppUrl = generateSingleProductWhatsAppUrl(product, 1, whatsappNumber);
   const badgeColor = getCategoryBadgeClass(product?.category);
   const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product?.promoPrice < product?.originalPrice);
 
@@ -200,47 +199,35 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="space-y-2 pt-2 border-t border-slate-50">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              id={`add-btn-${product?.id || "item"}`}
-              onClick={() => onAddToCart(product)}
-              className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                isInCart
-                  ? "bg-blue-50 text-blue-700 border border-blue-200"
-                  : "bg-slate-100 hover:bg-slate-200 text-slate-700 active:scale-95"
-              }`}
-            >
-              {isInCart ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-blue-600" />
-                  <span>({cartQuantity}) Dipilih</span>
-                </>
-              ) : (
-                <>
-                  <ShoppingBag className="w-3.5 h-3.5 text-slate-500" />
-                  <span>+ Pesanan</span>
-                </>
-              )}
-            </button>
-
-            <a
-              id={`wa-btn-${product?.id || "item"}`}
-              href={singleWhatsAppUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full bg-green-500 hover:bg-green-600 active:scale-95 text-white py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs text-center"
-            >
-              <MessageCircle className="w-3.5 h-3.5 fill-current" />
-              <span>WhatsApp</span>
-            </a>
-          </div>
+        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-100">
+          <button
+            type="button"
+            id={`add-btn-${product?.id || "item"}`}
+            onClick={() => onAddToCart(product)}
+            className={`w-full py-2.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              isInCart
+                ? "bg-blue-50 text-blue-700 border border-blue-200"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-700 active:scale-95"
+            }`}
+          >
+            {isInCart ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>({cartQuantity}) Dipilih</span>
+              </>
+            ) : (
+              <>
+                <ShoppingBag className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span>+ Pesanan</span>
+              </>
+            )}
+          </button>
 
           <button
             type="button"
+            id={`order-now-btn-${product?.id || "item"}`}
             onClick={() => onViewDetails(product)}
-            className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors active:scale-98"
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors active:scale-98 cursor-pointer"
           >
             <span>Pesan Sekarang</span>
           </button>
