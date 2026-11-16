@@ -1,11 +1,18 @@
 import { AgentContact, DeliveryAgent, DeliveryArea } from "../types";
 
-const AGENT_CONTACTS: Record<"HUSNA" | "AHDA" | "IZYAN" | "ALIA", AgentContact> = {
+export const AGENT_CONTACTS: Record<"HUSNA" | "AHDA" | "IZYAN" | "ALIA", AgentContact> = {
   HUSNA: { id: "husna", name: "HUSNA", phone: "60136863099" },
   AHDA: { id: "ahda", name: "AHDA", phone: "60198754912" },
   IZYAN: { id: "izyan", name: "IZYAN", phone: "60132036230" },
   ALIA: { id: "alia", name: "ALIA", phone: "60148377488" },
 };
+
+export const TEAM_WHATSAPP_CONTACTS: AgentContact[] = [
+  { id: "izyan", name: "Izyan", phone: AGENT_CONTACTS.IZYAN.phone },
+  { id: "ahda", name: "Ahda", phone: AGENT_CONTACTS.AHDA.phone },
+  { id: "husna", name: "Husna", phone: AGENT_CONTACTS.HUSNA.phone },
+  { id: "alia", name: "Alia", phone: AGENT_CONTACTS.ALIA.phone },
+];
 
 export const DELIVERY_AREAS: DeliveryArea[] = [
   {
