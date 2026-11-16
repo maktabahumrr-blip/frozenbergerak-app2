@@ -12,20 +12,11 @@
   }
 }
 
-/* Forced Display for PWA Install Banner & Buttons on Mobile & Desktop */
-#pwa-install-banner,
-#home-install-pwa-cta {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-}
-
-#header-install-pwa-btn,
-#pwa-banner-install-cta,
-#home-install-pwa-btn {
-  display: inline-flex !important;
-  visibility: visible !important;
-  opacity: 1 !important;
+/* Automatically hide PWA install prompt when launched as an installed standalone app */
+@media (display-mode: standalone) {
+  #pwa-install-banner {
+    display: none !important;
+  }
 }
 
 @keyframes fadeIn {

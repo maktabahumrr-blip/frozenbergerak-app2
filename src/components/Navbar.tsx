@@ -5,7 +5,6 @@ import {
   Search, 
   MessageSquareQuote, 
   RefreshCw, 
-  Download, 
   WifiOff, 
   Bell,
   ChevronDown,
@@ -26,9 +25,6 @@ interface NavbarProps {
   whatsappNumber: string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
-  isInstallable?: boolean;
-  isInstalled?: boolean;
-  onInstall?: () => void;
   isOffline?: boolean;
   activeView: NavView;
   onNavigateView: (view: NavView) => void;
@@ -45,9 +41,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   whatsappNumber: _whatsappNumber,
   onRefresh,
   isRefreshing = false,
-  isInstallable = false,
-  isInstalled = false,
-  onInstall,
   isOffline = false,
   activeView,
   onNavigateView,
@@ -232,21 +225,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
             <span className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 w-2 h-2 bg-blue-600 rounded-full ring-2 ring-white animate-pulse" />
-          </button>
-        )}
-
-        {/* Permanent Install PWA Button -> Always visible on mobile & desktop */}
-        {onInstall && (
-          <button
-            id="header-install-pwa-btn"
-            type="button"
-            onClick={onInstall}
-            className="inline-flex items-center gap-1 sm:gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-full font-extrabold text-[11px] sm:text-xs shadow-sm transition-all active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
-            title="Panduan pasang aplikasi FrozenBergerak ke skrin utama"
-          >
-            <Download className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">Pasang App</span>
-            <span className="sm:hidden">Pasang</span>
           </button>
         )}
 

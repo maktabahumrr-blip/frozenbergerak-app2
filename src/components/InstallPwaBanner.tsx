@@ -14,12 +14,14 @@ interface InstallPwaBannerProps {
 
 export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
   isInstallable = false,
+  isInstalled = false,
   isIOS,
   onInstall,
   onNativeInstall,
   guideMode = null,
   onCloseGuide,
 }) => {
+  const [dismissed, setDismissed] = useState<boolean>(false);
   const [localGuideMode, setLocalGuideMode] = useState<"ios" | "browser" | null>(null);
   const [activeTab, setActiveTab] = useState<"browser" | "ios">(isIOS ? "ios" : "browser");
 
@@ -32,6 +34,10 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
       setActiveTab(localGuideMode);
     }
   }, [guideMode, localGuideMode]);
+
+  if (isInstalled) {
+    return null;
+  }
 
   const closeGuide = () => {
     setLocalGuideMode(null);
@@ -205,44 +211,59 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
     </div>
   ) : null;
 
+  if (dismissed && !isModalOpen) {
+    return null;
+  }
+
   return (
     <>
-      {/* Permanent Top Install Banner — Always visible across all mobile & desktop devices */}
-      <div
-        id="pwa-install-banner"
-        className="w-full bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white border-b border-blue-500/50 px-2.5 sm:px-4 py-2 sm:py-2.5 shadow-md relative z-50"
-      >
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-3 text-xs sm:text-sm min-w-0">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-            <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
-              <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+      {/* Single Clean Top Install Banner — Shown only in web browser (hidden in installed standalone PWA) */}
+      {!dismissed && (
+        <div
+          id="pwa-install-banner"
+          className="w-full bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white border-b border-blue-500/50 px-2.5 sm:px-4 py-2 sm:py-2.5 shadow-md relative z-50"
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-3 text-xs sm:text-sm min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
+                <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold text-white flex items-center gap-1.5 text-[11px] sm:text-sm leading-tight">
+                  <span className="truncate">Pasang Aplikasi FrozenBergerak</span>
+                  <span className="bg-white/20 text-white text-[9px] sm:text-[10px] uppercase font-black px-1.5 py-0.5 rounded border border-white/25 shrink-0">
+                    APP
+                  </span>
+                </p>
+                <p className="text-blue-100 text-[10px] sm:text-xs truncate leading-tight mt-0.5">
+                  Tambah ke skrin utama telefon untuk akses lebih pantas.
+                </p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-extrabold text-white flex items-center gap-1.5 text-[11px] sm:text-sm leading-tight">
-                <span className="truncate">Pasang Aplikasi FrozenBergerak</span>
-                <span className="bg-white/20 text-white text-[9px] sm:text-[10px] uppercase font-black px-1.5 py-0.5 rounded border border-white/25 shrink-0">
-                  APP
-                </span>
-              </p>
-              <p className="text-blue-100 text-[10px] sm:text-xs truncate leading-tight mt-0.5">
-                Klik untuk panduan tambah ke skrin utama telefon anda.
-              </p>
-            </div>
-          </div>
 
-          <div className="flex items-center shrink-0">
-            <button
-              id="pwa-banner-install-cta"
-              type="button"
-              onClick={handleOpenManualGuide}
-              className="bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-[11px] sm:text-xs px-3 sm:px-3.5 py-1.5 rounded-full shadow-sm inline-flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Download className="w-3.5 h-3.5 shrink-0" />
-              <span>Pasang App</span>
-            </button>
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <button
+                id="pwa-banner-install-cta"
+                type="button"
+                onClick={handleOpenManualGuide}
+                className="bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-[11px] sm:text-xs px-2.5 sm:px-3.5 py-1.5 rounded-full shadow-sm inline-flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>Pasang App</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDismissed(true)}
+                aria-label="Tutup sepanduk pasang aplikasi"
+                className="text-blue-100 hover:text-white p-1 rounded-full hover:bg-white/15 transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {typeof document !== "undefined" && modals ? createPortal(modals, document.body) : null}
     </>

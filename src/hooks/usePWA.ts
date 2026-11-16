@@ -18,13 +18,21 @@ export function usePWA() {
   const [isAndroid, setIsAndroid] = useState<boolean>(false);
 
   useEffect(() => {
-    // Check if running as standalone PWA
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
+    // Check if running as standalone PWA (launched from home screen icon)
+    const standaloneQuery = window.matchMedia("(display-mode: standalone)");
+    const checkStandalone = () =>
+      standaloneQuery.matches ||
       (window.navigator as any).standalone === true ||
       document.referrer.includes("android-app://");
 
-    setIsInstalled(isStandalone);
+    setIsInstalled(checkStandalone());
+
+    const handleDisplayModeChange = () => {
+      setIsInstalled(checkStandalone());
+    };
+    if (typeof standaloneQuery.addEventListener === "function") {
+      standaloneQuery.addEventListener("change", handleDisplayModeChange);
+    }
 
     // Detect iOS & Android devices
     const userAgent = window.navigator.userAgent.toLowerCase();
@@ -38,7 +46,7 @@ export function usePWA() {
       // 1. Purge outdated SW caches so mobile browsers pull fresh assets
       if ("caches" in window) {
         caches.keys().then((cacheNames) => {
-          const currentVersion = "v26";
+          const currentVersion = "v27";
           cacheNames.forEach((name) => {
             if (!name.includes(currentVersion)) {
               console.log(`[PWA] Removing outdated cache: ${name}`);
@@ -126,6 +134,9 @@ export function usePWA() {
     window.addEventListener("offline", handleOffline);
 
     return () => {
+      if (typeof standaloneQuery.removeEventListener === "function") {
+        standaloneQuery.removeEventListener("change", handleDisplayModeChange);
+      }
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
       window.removeEventListener("online", handleOnline);

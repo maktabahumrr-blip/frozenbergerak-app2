@@ -16,9 +16,7 @@ import {
   Star,
   CheckCircle2,
   CalendarDays,
-  Grid,
-  Download,
-  Smartphone
+  Grid
 } from "lucide-react";
 import { Product, Category, StoreConfig, PromoItem } from "../types";
 import { formatCurrency } from "../utils/formatters";
@@ -39,8 +37,6 @@ interface HomeDashboardProps {
   onOpenFeedback?: () => void;
   onOpenCart?: () => void;
   cartCount?: number;
-  isInstalled?: boolean;
-  onInstallApp?: () => void;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
@@ -56,8 +52,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onViewProductDetails,
   onAddToCart,
   onOpenFeedback,
-  isInstalled = false,
-  onInstallApp,
 }) => {
 
   // Active promos from Alltimepromo tab or fallback to promo products
@@ -182,45 +176,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       animate="visible"
       className="w-full space-y-6 sm:space-y-8 pb-8 max-w-7xl mx-auto"
     >
-      {/* Top Home PWA Install CTA Card — Permanent across all devices */}
-      {onInstallApp && (
-        <section
-          id="home-install-pwa-cta"
-          className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white rounded-2xl p-4 sm:p-5 shadow-md border border-blue-500/40"
-        >
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
-                <Smartphone className="w-6 h-6 text-white" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-extrabold text-sm sm:text-base text-white leading-tight">
-                    Pasang Aplikasi FrozenBergerak ke Skrin Utama
-                  </h3>
-                  <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                    APP
-                  </span>
-                </div>
-                <p className="text-xs text-blue-100 mt-0.5 leading-snug">
-                  Klik butang di bawah untuk panduan mudah menambah aplikasi ke skrin utama telefon anda.
-                </p>
-              </div>
-            </div>
-
-            <button
-              id="home-install-pwa-btn"
-              type="button"
-              onClick={onInstallApp}
-              className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-xs sm:text-sm rounded-xl shadow-sm inline-flex items-center justify-center gap-2 transition-all shrink-0 cursor-pointer"
-            >
-              <Download className="w-4 h-4 shrink-0" />
-              <span>Cara Pasang Aplikasi</span>
-            </button>
-          </div>
-        </section>
-      )}
-      
       {/* ============================================================ */}
       {/* 1. 🔥 ALL TIME PROMO SECTION */}
       {/* ============================================================ */}

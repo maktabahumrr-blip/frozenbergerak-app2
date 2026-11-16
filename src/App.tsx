@@ -537,7 +537,7 @@ export default function App() {
         {/* PWA Install Banner */}
         <InstallPwaBanner
           isInstallable={isInstallable}
-          isInstalled={false}
+          isInstalled={isInstalled}
           isIOS={isIOS}
           onInstall={handleRequestInstall}
           onNativeInstall={promptInstall}
@@ -563,11 +563,6 @@ export default function App() {
           whatsappNumber={whatsappNumber}
           onRefresh={() => fetchData(true)}
           isRefreshing={isRefreshing}
-          isInstallable={isInstallable}
-          isInstalled={isInstalled}
-          onInstall={() => {
-            void handleRequestInstall();
-          }}
           isOffline={isOffline}
           activeView={activeView}
           onNavigateView={(view) => {
@@ -612,10 +607,6 @@ export default function App() {
             }}
             onOpenCart={() => setIsCartOpen(true)}
             cartCount={totalCartCount}
-            isInstalled={isInstalled}
-            onInstallApp={() => {
-              void handleRequestInstall();
-            }}
           />
         </div>
       )}
