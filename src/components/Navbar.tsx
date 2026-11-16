@@ -136,20 +136,20 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <>
-    <header id="main-header" className="h-20 bg-white/90 backdrop-blur-md border-b border-sky-100/80 px-4 sm:px-8 flex items-center justify-between shadow-2xs sticky top-0 z-40 transition-colors">
+    <header id="main-header" className="h-16 sm:h-20 w-full bg-white/95 backdrop-blur-md border-b border-sky-100/80 px-2.5 sm:px-6 lg:px-8 flex items-center justify-between gap-1.5 sm:gap-4 shadow-2xs transition-colors">
       {/* Brand Logo & Brand Info */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 shrink">
         <button
           type="button"
           onClick={() => onNavigateView("home")}
-          className="flex items-center gap-3 text-left focus:outline-none group cursor-pointer"
+          className="flex items-center gap-1.5 sm:gap-3 text-left focus:outline-none group cursor-pointer min-w-0"
           title="Kembali ke Laman Utama FrozenBergerak"
         >
-          <div className="relative flex-shrink-0">
+          <div className="relative shrink-0">
             <img
               src="/logo.svg"
               alt="Logo FrozenBergerak"
-              className="w-11 h-11 sm:w-12 sm:h-12 object-contain group-hover:scale-105 transition-transform duration-200"
+              className="w-8 h-8 sm:w-12 sm:h-12 object-contain group-hover:scale-105 transition-transform duration-200"
             />
             {isOffline && (
               <span
@@ -161,18 +161,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors">
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-[15px] sm:text-2xl font-bold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors truncate">
                 Frozen<span className="text-blue-600">Bergerak</span>
               </span>
               {isOffline && (
-                <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-300">
+                <span className="text-[9px] sm:text-[10px] font-bold bg-amber-100 text-amber-800 px-1 sm:px-1.5 py-0.5 rounded border border-amber-300 shrink-0">
                   Offline
                 </span>
               )}
             </div>
-            <span className="text-[11px] text-slate-500 font-medium hidden sm:block -mt-1">
+            <span className="text-[11px] text-slate-500 font-medium hidden sm:block -mt-1 truncate">
               Aneka Pilihan Frozen, Mudah, Jimat Masa &amp; Sedap
             </span>
           </div>
@@ -221,31 +221,31 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
         {/* Notification Bell */}
         {onOpenNotifications && (
           <button
             type="button"
             onClick={onOpenNotifications}
-            className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors relative cursor-pointer"
+            className="p-1.5 sm:p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors relative cursor-pointer shrink-0"
             title="Tetapan Notifikasi Pergerakan"
           >
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-600 rounded-full ring-2 ring-white animate-pulse" />
+            <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 w-2 h-2 bg-blue-600 rounded-full ring-2 ring-white animate-pulse" />
           </button>
         )}
 
-        {/* Install PWA Button -> Always visible when not yet installed */}
+        {/* Install PWA Button -> Forced visible on mobile & desktop when not installed */}
         {!isInstalled && onInstall && (
           <button
             id="header-install-pwa-btn"
             type="button"
             onClick={onInstall}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full font-bold text-[11px] sm:text-xs shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+            className="inline-flex items-center gap-1 sm:gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-full font-extrabold text-[11px] sm:text-xs shadow-sm transition-all active:scale-95 cursor-pointer shrink-0 whitespace-nowrap"
             title="Pasang aplikasi FrozenBergerak ke skrin utama"
           >
             <Download className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">{isInstallable ? "Pasang App" : "Pasang App"}</span>
+            <span className="hidden sm:inline">Pasang App</span>
             <span className="sm:hidden">Pasang</span>
           </button>
         )}
@@ -258,11 +258,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           aria-expanded={isTeamMenuOpen}
           aria-haspopup="dialog"
           title="Pilih team FrozenBergerak untuk hubungi di WhatsApp"
-          className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 sm:px-4 py-2 rounded-full font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 transition-colors shadow-xs active:scale-95 cursor-pointer"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-full font-semibold text-xs sm:text-sm flex items-center gap-1 sm:gap-2 transition-colors shadow-xs active:scale-95 cursor-pointer shrink-0"
         >
-          <MessageSquareQuote className="h-4 w-4" />
+          <MessageSquareQuote className="h-4 w-4 shrink-0" />
           <span className="hidden sm:inline">WhatsApp</span>
-          <ChevronDown className="h-3.5 w-3.5 opacity-90" />
+          <ChevronDown className="h-3.5 w-3.5 opacity-90 hidden sm:inline" />
         </button>
 
         {/* Cart Drawer Trigger */}
@@ -270,16 +270,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           id="header-cart-btn"
           type="button"
           onClick={onOpenCart}
-          className="relative bg-slate-900 hover:bg-slate-800 text-white px-3.5 sm:px-4 py-2 rounded-full font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-xs cursor-pointer"
+          className="relative bg-slate-900 hover:bg-slate-800 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-full font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 transition-all active:scale-95 shadow-xs cursor-pointer shrink-0"
         >
-          <ShoppingBag className="h-4 w-4 text-blue-400" />
-          <span className="hidden xs:inline">Pesanan</span>
+          <ShoppingBag className="h-4 w-4 text-blue-400 shrink-0" />
+          <span className="hidden sm:inline">Pesanan</span>
           {totalCartCount > 0 ? (
-            <span className="bg-blue-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">
-              {totalCartCount} {totalCartValue > 0 && `• ${formatCurrency(totalCartValue)}`}
+            <span className="bg-blue-600 text-white text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full whitespace-nowrap">
+              {totalCartCount} {totalCartValue > 0 && <span className="hidden sm:inline">• {formatCurrency(totalCartValue)}</span>}
             </span>
           ) : (
-            <span className="bg-slate-800 text-slate-400 text-[11px] px-1.5 py-0.5 rounded-full">
+            <span className="bg-slate-800 text-slate-400 text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded-full">
               0
             </span>
           )}

@@ -184,40 +184,41 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     >
       {/* Top Home PWA Install CTA Card */}
       {!isInstalled && onInstallApp && (
-        <motion.section
-          variants={itemVariants}
+        <section
           id="home-install-pwa-cta"
-          className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white rounded-2xl p-4 sm:p-5 shadow-md border border-blue-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5"
+          className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white rounded-2xl p-4 sm:p-5 shadow-md border border-blue-500/40"
         >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
-              <Smartphone className="w-6 h-6 text-white" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-extrabold text-sm sm:text-base text-white leading-tight">
-                  Pasang Aplikasi FrozenBergerak ke Skrin Utama
-                </h3>
-                <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                  PWA
-                </span>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
+                <Smartphone className="w-6 h-6 text-white" />
               </div>
-              <p className="text-xs text-blue-100 mt-0.5 leading-snug">
-                Akses katalog lebih pantas terus dari skrin utama telefon anda dengan sokongan luar talian.
-              </p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-extrabold text-sm sm:text-base text-white leading-tight">
+                    Pasang Aplikasi FrozenBergerak ke Skrin Utama
+                  </h3>
+                  <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                    PWA
+                  </span>
+                </div>
+                <p className="text-xs text-blue-100 mt-0.5 leading-snug">
+                  Akses katalog lebih pantas terus dari skrin utama telefon anda dengan sokongan luar talian.
+                </p>
+              </div>
             </div>
-          </div>
 
-          <button
-            id="home-install-pwa-btn"
-            type="button"
-            onClick={onInstallApp}
-            className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-xs sm:text-sm rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all shrink-0 cursor-pointer"
-          >
-            <Download className="w-4 h-4 shrink-0" />
-            <span>Pasang Sekarang</span>
-          </button>
-        </motion.section>
+            <button
+              id="home-install-pwa-btn"
+              type="button"
+              onClick={onInstallApp}
+              className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-xs sm:text-sm rounded-xl shadow-sm inline-flex items-center justify-center gap-2 transition-all shrink-0 cursor-pointer"
+            >
+              <Download className="w-4 h-4 shrink-0" />
+              <span>Pasang Sekarang</span>
+            </button>
+          </div>
+        </section>
       )}
       
       {/* ============================================================ */}

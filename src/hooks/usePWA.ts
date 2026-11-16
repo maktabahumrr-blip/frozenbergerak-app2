@@ -38,7 +38,7 @@ export function usePWA() {
       // 1. Purge outdated SW caches so mobile browsers pull fresh assets
       if ("caches" in window) {
         caches.keys().then((cacheNames) => {
-          const currentVersion = "v24";
+          const currentVersion = "v25";
           cacheNames.forEach((name) => {
             if (!name.includes(currentVersion)) {
               console.log(`[PWA] Removing outdated cache: ${name}`);
@@ -64,8 +64,11 @@ export function usePWA() {
             }
           }
 
-          // Register or refresh primary service worker
-          const primaryReg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+          // Register or refresh primary service worker (bypass HTTP cache on mobile browsers)
+          const primaryReg = await navigator.serviceWorker.register("/sw.js", {
+            scope: "/",
+            updateViaCache: "none",
+          });
           primaryReg.update().catch(() => {});
 
           // If a new worker is found waiting, prompt skipWaiting immediately

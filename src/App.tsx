@@ -541,56 +541,59 @@ export default function App() {
   const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-sky-50/40 via-slate-50 to-blue-50/30 font-sans text-slate-800 selection:bg-blue-500 selection:text-white pb-20 sm:pb-16">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-sky-50/40 via-slate-50 to-blue-50/30 font-sans text-slate-800 selection:bg-blue-500 selection:text-white pb-20 sm:pb-16 overflow-x-clip">
       
-      {/* PWA Install Banner */}
-      <InstallPwaBanner
-        isInstallable={isInstallable}
-        isInstalled={isInstalled}
-        isIOS={isIOS}
-        onInstall={handleRequestInstall}
-        guideMode={installGuideMode}
-        onCloseGuide={() => setInstallGuideMode(null)}
-      />
+      {/* Sticky Top Wrapper: PWA Install Banner + Offline Notice + Top Navbar */}
+      <div className="sticky top-0 z-40 w-full">
+        {/* PWA Install Banner */}
+        <InstallPwaBanner
+          isInstallable={isInstallable}
+          isInstalled={isInstalled}
+          isIOS={isIOS}
+          onInstall={handleRequestInstall}
+          guideMode={installGuideMode}
+          onCloseGuide={() => setInstallGuideMode(null)}
+        />
 
-      {/* Offline Alert Banner if Internet Disconnected */}
-      {isOffline && (
-        <div className="bg-amber-500 text-white text-xs font-semibold py-1.5 px-4 text-center flex items-center justify-center gap-2">
-          <WifiOff className="w-3.5 h-3.5" />
-          <span>Anda sedang dalam mod luar talian (Offline). Aplikasi menggunakan data simpanan cache PWA.</span>
-        </div>
-      )}
+        {/* Offline Alert Banner if Internet Disconnected */}
+        {isOffline && (
+          <div className="bg-amber-500 text-white text-xs font-semibold py-1.5 px-4 text-center flex items-center justify-center gap-2">
+            <WifiOff className="w-3.5 h-3.5" />
+            <span>Anda sedang dalam mod luar talian (Offline). Aplikasi menggunakan data simpanan cache PWA.</span>
+          </div>
+        )}
 
-      {/* Top Navbar */}
-      <Navbar
-        totalCartCount={totalCartCount}
-        totalCartValue={totalCartValue}
-        onOpenCart={() => setIsCartOpen(true)}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        whatsappNumber={whatsappNumber}
-        onRefresh={() => fetchData(true)}
-        isRefreshing={isRefreshing}
-        isInstallable={isInstallable}
-        isInstalled={isInstalled}
-        onInstall={() => {
-          void handleRequestInstall();
-        }}
-        isOffline={isOffline}
-        activeView={activeView}
-        onNavigateView={(view) => {
-          setActiveView(view);
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-        onNavigateToContact={() => {
-          setActiveView("feedback");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-        onOpenNotifications={() => {
-          setActiveView("schedule");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-      />
+        {/* Top Navbar */}
+        <Navbar
+          totalCartCount={totalCartCount}
+          totalCartValue={totalCartValue}
+          onOpenCart={() => setIsCartOpen(true)}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          whatsappNumber={whatsappNumber}
+          onRefresh={() => fetchData(true)}
+          isRefreshing={isRefreshing}
+          isInstallable={isInstallable}
+          isInstalled={isInstalled}
+          onInstall={() => {
+            void handleRequestInstall();
+          }}
+          isOffline={isOffline}
+          activeView={activeView}
+          onNavigateView={(view) => {
+            setActiveView(view);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          onNavigateToContact={() => {
+            setActiveView("feedback");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          onOpenNotifications={() => {
+            setActiveView("schedule");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
+      </div>
 
       {/* VIEW 1: UTAMA / HALAMAN UTAMA (Hero, All Time Promo, Seasonal Promo) */}
       {activeView === "home" && (

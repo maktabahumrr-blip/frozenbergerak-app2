@@ -49,7 +49,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
   onSelectPromoFilter,
 }) => {
   return (
-    <div id="mobile-category-bar" className="lg:hidden px-4 py-2.5 bg-white border-b border-slate-200 sticky top-20 z-30 shadow-2xs">
+    <div id="mobile-category-bar" className="lg:hidden px-4 py-2.5 bg-white border-b border-slate-200 relative z-20 shadow-2xs">
       <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
         
         {/* All Time Promo Filter Pill */}

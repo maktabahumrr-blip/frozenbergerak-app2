@@ -183,37 +183,37 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
       {!isInstalled && !dismissed && (
         <div
           id="pwa-install-banner"
-          className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white border-b border-blue-500/50 px-3 sm:px-4 py-2.5 shadow-md relative z-50"
+          className="w-full bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white border-b border-blue-500/50 px-2.5 sm:px-4 py-2 sm:py-2.5 shadow-md relative z-50"
         >
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2.5 sm:gap-3 text-xs sm:text-sm">
-            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center flex-shrink-0">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-3 text-xs sm:text-sm min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
                 <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <div className="min-w-0">
-                <p className="font-extrabold text-white flex items-center gap-1.5 truncate">
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold text-white flex items-center gap-1.5 text-[11px] sm:text-sm leading-tight">
                   <span className="truncate">Pasang Aplikasi FrozenBergerak</span>
-                  <span className="bg-white/20 text-white text-[10px] uppercase font-black px-1.5 py-0.5 rounded border border-white/25 shrink-0">
+                  <span className="bg-white/20 text-white text-[9px] sm:text-[10px] uppercase font-black px-1.5 py-0.5 rounded border border-white/25 shrink-0">
                     PWA
                   </span>
                 </p>
-                <p className="text-blue-100 text-[11px] sm:text-xs truncate">
-                  Tambah ke skrin utama telefon untuk akses pantas &amp; mod luar talian.
+                <p className="text-blue-100 text-[10px] sm:text-xs truncate leading-tight mt-0.5">
+                  Tambah ke skrin utama untuk akses pantas &amp; offline.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               {installedSuccess ? (
-                <span className="inline-flex items-center gap-1.5 bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-full shadow-xs">
-                  <Check className="w-3.5 h-3.5" /> Berjaya Dipasang
+                <span className="inline-flex items-center gap-1 bg-emerald-500 text-white font-bold text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full shadow-xs whitespace-nowrap">
+                  <Check className="w-3.5 h-3.5" /> Berjaya
                 </span>
               ) : (
                 <button
                   id="pwa-banner-install-cta"
                   type="button"
                   onClick={handleInstallClick}
-                  className="bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-[11px] sm:text-xs px-3 sm:px-3.5 py-1.5 rounded-full shadow-sm flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                  className="bg-white hover:bg-blue-50 active:scale-95 text-blue-700 font-extrabold text-[11px] sm:text-xs px-2.5 sm:px-3.5 py-1.5 rounded-full shadow-sm inline-flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <Download className="w-3.5 h-3.5 shrink-0" />
                   <span>{isIOS ? "Cara Pasang" : isInstallable ? "Pasang Sekarang" : "Pasang App"}</span>
@@ -224,7 +224,7 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
                 type="button"
                 onClick={() => setDismissed(true)}
                 aria-label="Tutup notis pasang aplikasi"
-                className="text-blue-100 hover:text-white p-1 rounded-full hover:bg-white/15 transition-colors cursor-pointer"
+                className="text-blue-100 hover:text-white p-1 rounded-full hover:bg-white/15 transition-colors cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>

@@ -1,9 +1,31 @@
 @import "tailwindcss";
 
 @layer base {
+  html,
+  body {
+    overflow-x: clip;
+    max-width: 100%;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
+}
+
+/* Forced Display for PWA Install Banner & Buttons on Mobile & Desktop */
+#pwa-install-banner,
+#home-install-pwa-cta {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+#header-install-pwa-btn,
+#pwa-banner-install-cta,
+#home-install-pwa-btn {
+  display: inline-flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 @keyframes fadeIn {
