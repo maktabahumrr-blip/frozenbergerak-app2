@@ -403,6 +403,73 @@ function registerTeamAccessInSheet_(ss, data) {
   };
 }
 
+function sendTeamDecisionEmail_(record, targetStatus) {
+  var recipient = String((record && record.email) || "").trim().toLowerCase();
+  if (!recipient || recipient.indexOf("@") === -1) return false;
+
+  var applicantName = (record && (record.nama || record.name)) ? (record.nama || record.name) : recipient.split("@")[0];
+  var recordId = (record && record.id) ? record.id : "-";
+  var isApproved = targetStatus === "Approved";
+
+  var subject = isApproved
+    ? "[FrozenBergerak] Tahniah! Permohonan Akses Team Anda Telah DILULUSKAN (Approved)"
+    : "[FrozenBergerak] Makluman Status Permohonan Akses Team (Rejected)";
+
+  var textBody = isApproved
+    ? ("Salam " + applicantName + ",\n\n"
+      + "Tahniah! Permohonan akses ahli team FrozenBergerak anda (ID: " + recordId + ") telah DILULUSKAN (Approved) oleh Admin.\n\n"
+      + "Butiran Akaun:\n"
+      + "ID: " + recordId + "\n"
+      + "Nama: " + applicantName + "\n"
+      + "Email: " + recipient + "\n"
+      + "Status: Approved\n\n"
+      + "Anda kini boleh log masuk ke aplikasi PWA FrozenBergerak (Akses Pasukan) menggunakan emel ini untuk mengakses dan mengemaskini jadual pergerakan team.\n\n"
+      + "Terima kasih.\nAdmin FrozenBergerak (" + ADMIN_NOTIFICATION_EMAIL + ")")
+    : ("Salam " + applicantName + ",\n\n"
+      + "Harap maaf. Permohonan akses ahli team FrozenBergerak anda (ID: " + recordId + ") tidak dapat diluluskan dan telah ditanda sebagai DITOLAK (Rejected) oleh Admin.\n\n"
+      + "Butiran Permohonan:\n"
+      + "ID: " + recordId + "\n"
+      + "Nama: " + applicantName + "\n"
+      + "Email: " + recipient + "\n"
+      + "Status: Rejected\n\n"
+      + "Jika terdapat sebarang pertanyaan atau keperluan semakan semula, sila hubungi pihak Admin di " + ADMIN_NOTIFICATION_EMAIL + ".\n\n"
+      + "Terima kasih.");
+
+  var badgeBg = isApproved ? "#dcfce7" : "#fee2e2";
+  var badgeColor = isApproved ? "#166534" : "#991b1b";
+  var headerColor = isApproved ? "#15803d" : "#b91c1c";
+  var headline = isApproved
+    ? "FrozenBergerak \uD83D\uDE9A Akses Team Diluluskan"
+    : "FrozenBergerak \uD83D\uDE9A Makluman Permohonan Akses Team";
+  var leadText = isApproved
+    ? "Tahniah! Permohonan anda untuk menyertai akses pasukan <strong>FrozenBergerak</strong> telah <strong>DILULUSKAN (Approved)</strong> oleh Admin."
+    : "Harap maaf. Permohonan anda untuk menyertai akses pasukan <strong>FrozenBergerak</strong> tidak diluluskan dan berstatus <strong>DITOLAK (Rejected)</strong>.";
+  var footerText = isApproved
+    ? "Anda kini boleh membuka aplikasi PWA FrozenBergerak, klik <strong>Akses Pasukan</strong>, dan log masuk menggunakan emel berdaftar anda."
+    : "Untuk maklumat lanjut atau permohonan semula, sila hubungi Admin di <strong>" + ADMIN_NOTIFICATION_EMAIL + "</strong>.";
+
+  var htmlBody = '<div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">'
+    + '<h2 style="color: ' + headerColor + '; margin-top: 0;">' + headline + '</h2>'
+    + '<p>Salam <strong>' + applicantName + '</strong>,</p>'
+    + '<p>' + leadText + '</p>'
+    + '<table style="width: 100%; border-collapse: collapse; margin: 16px 0; background: #f8fafc; border-radius: 8px;">'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569; width: 110px;">ID</td><td style="padding: 8px 12px;">' + recordId + '</td></tr>'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569;">Nama</td><td style="padding: 8px 12px;">' + applicantName + '</td></tr>'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569;">Email</td><td style="padding: 8px 12px;">' + recipient + '</td></tr>'
+    + '<tr><td style="padding: 8px 12px; font-weight: bold; color: #475569;">Status</td><td style="padding: 8px 12px;"><span style="background: ' + badgeBg + '; color: ' + badgeColor + '; padding: 3px 10px; border-radius: 999px; font-weight: bold; font-size: 12px;">' + targetStatus + '</span></td></tr>'
+    + '</table>'
+    + '<p>' + footerText + '</p>'
+    + '</div>';
+
+  MailApp.sendEmail({
+    to: recipient,
+    subject: subject,
+    body: textBody,
+    htmlBody: htmlBody
+  });
+  return true;
+}
+
 function updateTeamAccessStatusInSheet_(ss, data) {
   var sheet = getOrCreateAksesTeamSheet_(ss);
   if (!sheet) return { success: false, error: "Fail Jadual Team tidak dijumpai." };
@@ -479,9 +546,21 @@ function updateTeamAccessStatusInSheet_(ss, data) {
     return { success: false, error: "Rekod pemohon tidak ditemui di tab AKSES TEAM." };
   }
 
+  var applicantEmailSent = false;
+  var applicantEmailError = "";
+  if ((targetStatus === "Approved" || targetStatus === "Rejected") && data.sendEmail !== false) {
+    try {
+      applicantEmailSent = sendTeamDecisionEmail_(updatedRecord, targetStatus);
+    } catch (mailErr) {
+      applicantEmailError = mailErr && mailErr.message ? mailErr.message : String(mailErr);
+    }
+  }
+
   return {
     success: true,
     status: targetStatus,
+    applicantEmailSent: applicantEmailSent,
+    applicantEmailError: applicantEmailError || undefined,
     record: updatedRecord,
     teamAccess: readTeamAccessFromSheet_(ss)
   };

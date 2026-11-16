@@ -3530,13 +3530,14 @@ app.post("/api/team-access/update", requireAdminOnlyAuth, async (req: Request, r
     const normalizedStatus = normalizeTeamAccessStatus(status);
     const sheetStatus = toSheetTeamAccessStatus(normalizedStatus);
 
-    // 1. Update Google Sheets tab AKSES TEAM via Apps Script
+    // 1. Update Google Sheets tab AKSES TEAM via Apps Script (also sends decision email to applicant)
     const gasRes = await postToAppsScriptJson({
       action: "TEAM_ACCESS_UPDATE",
       email: cleanEmail,
       id: cleanId,
       nama,
-      status: sheetStatus
+      status: sheetStatus,
+      sendEmail: req.body?.sendEmail !== false
     });
 
     // 2. Update local approvals cache
@@ -3576,13 +3577,17 @@ app.post("/api/team-access/update", requireAdminOnlyAuth, async (req: Request, r
       }
     }
 
+    const applicantEmailSent = Boolean(gasRes && gasRes.applicantEmailSent);
     res.json({
       success: true,
       sheetsSynced: Boolean(gasRes && gasRes.success),
+      applicantEmailSent,
       status: normalizedStatus,
       sheetStatus,
       record: updatedRec,
-      message: `Status akses untuk ${updatedRec.email} dalam tab AKSES TEAM berjaya dikemaskini kepada ${sheetStatus}.`
+      message: (sheetStatus === "Approved" || sheetStatus === "Rejected")
+        ? `Status akses untuk ${updatedRec.email} dalam tab AKSES TEAM berjaya dikemaskini kepada ${sheetStatus}${applicantEmailSent ? " & emel makluman telah dihantar kepada pemohon" : ""}.`
+        : `Status akses untuk ${updatedRec.email} dalam tab AKSES TEAM berjaya dikemaskini kepada ${sheetStatus}.`
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message || "Gagal mengemaskini status AKSES TEAM." });

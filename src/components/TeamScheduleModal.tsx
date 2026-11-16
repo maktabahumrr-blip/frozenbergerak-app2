@@ -911,7 +911,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           id: item.id,
           email: targetEmail,
           nama: item.nama || item.name,
-          status: sheetStatus
+          status: sheetStatus,
+          sendEmail: true
         })
       });
 
@@ -927,7 +928,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           id: item.id,
           email: targetEmail,
           nama: item.nama || item.name,
-          status: sheetStatus
+          status: sheetStatus,
+          sendEmail: true
         });
       }
 
@@ -941,8 +943,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
       } catch {}
 
+      const emailNotice = (sheetStatus === "Approved" || sheetStatus === "Rejected")
+        ? ` Emel makluman telah dihantar ke ${targetEmail}.`
+        : "";
       setApprovalsSuccessMsg(
-        `Status untuk ${item.nama || targetEmail} dalam tab AKSES TEAM berjaya ditukar kepada ${sheetStatus}.`
+        `Status untuk ${item.nama || targetEmail} dalam tab AKSES TEAM berjaya ditukar kepada ${sheetStatus}.${emailNotice}`
       );
       setTimeout(() => setApprovalsSuccessMsg(null), 4000);
     } catch (err: any) {
