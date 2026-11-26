@@ -18,16 +18,27 @@ import {
   deleteDoc,
   Firestore 
 } from "firebase/firestore";
+import {
+  getMessaging,
+  getToken,
+  onMessage,
+  deleteToken,
+  isSupported as isFcmSupported,
+  Messaging,
+  MessagePayload
+} from "firebase/messaging";
 import { ScheduleItem } from "../types";
 
+const envVars = ((import.meta as any).env || {}) as Record<string, string | undefined>;
+
 export const firebaseConfig = {
-  apiKey: "AIzaSyDj2prRasRQ35xLzmxCbxJj2X0APh0gWIg",
-  authDomain: "frozen-bergerak-app.firebaseapp.com",
-  projectId: "frozen-bergerak-app",
-  storageBucket: "frozen-bergerak-app.firebasestorage.app",
-  messagingSenderId: "263646526368",
-  appId: "1:263646526368:web:66d4e42ced2e20821682c5",
-  measurementId: "G-JYDW6KSGCS"
+  apiKey: envVars.VITE_FIREBASE_API_KEY || "AIzaSyDj2prRasRQ35xLzmxCbxJj2X0APh0gWIg",
+  authDomain: envVars.VITE_FIREBASE_AUTH_DOMAIN || "frozen-bergerak-app.firebaseapp.com",
+  projectId: envVars.VITE_FIREBASE_PROJECT_ID || "frozen-bergerak-app",
+  storageBucket: envVars.VITE_FIREBASE_STORAGE_BUCKET || "frozen-bergerak-app.firebasestorage.app",
+  messagingSenderId: envVars.VITE_FIREBASE_MESSAGING_SENDER_ID || "263646526368",
+  appId: envVars.VITE_FIREBASE_APP_ID || "1:263646526368:web:66d4e42ced2e20821682c5",
+  measurementId: envVars.VITE_FIREBASE_MEASUREMENT_ID || "G-JYDW6KSGCS"
 };
 
 // Initialize Firebase App instance singleton
@@ -43,27 +54,100 @@ try {
 }
 export const db = firestoreDb;
 
+// Lazy singleton for Firebase Cloud Messaging (FCM)
+let messagingPromise: Promise<Messaging | null> | null = null;
+
+export async function getFirebaseMessaging(): Promise<Messaging | null> {
+  if (typeof window === "undefined") return null;
+  if (!messagingPromise) {
+    messagingPromise = (async () => {
+      try {
+        const supported = await isFcmSupported();
+        if (!supported) return null;
+        return getMessaging(app);
+      } catch (err) {
+        console.warn("[FCM] Messaging not supported in this browser:", err);
+        return null;
+      }
+    })();
+  }
+  return messagingPromise;
+}
+
+export async function requestFcmToken(
+  serviceWorkerRegistration?: ServiceWorkerRegistration | null,
+  vapidKeyOverride?: string | null
+): Promise<string | null> {
+  try {
+    const messaging = await getFirebaseMessaging();
+    if (!messaging) return null;
+
+    const envVapidKey = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || "";
+    const resolvedVapidKey = (vapidKeyOverride || envVapidKey || "").trim();
+
+    let swReg = serviceWorkerRegistration || undefined;
+    if (!swReg && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      swReg = await navigator.serviceWorker
+        .register("/firebase-messaging-sw.js", { scope: "/firebase-cloud-messaging-push-scope" })
+        .catch(() => navigator.serviceWorker.getRegistration().catch(() => undefined));
+    }
+
+    const tokenOptions: any = {};
+    if (resolvedVapidKey) tokenOptions.vapidKey = resolvedVapidKey;
+    if (swReg) tokenOptions.serviceWorkerRegistration = swReg;
+
+    const token = await getToken(messaging, tokenOptions);
+    if (token) {
+      try {
+        localStorage.setItem("fb_fcm_token", token);
+      } catch {}
+      return token;
+    }
+    return null;
+  } catch (err: any) {
+    console.warn("[FCM] Token generation note:", err?.message || err);
+    return null;
+  }
+}
+
+export async function revokeFcmToken(): Promise<void> {
+  try {
+    const messaging = await getFirebaseMessaging();
+    if (messaging) {
+      await deleteToken(messaging).catch(() => {});
+    }
+    localStorage.removeItem("fb_fcm_token");
+  } catch {}
+}
+
+export async function subscribeToFcmForegroundMessages(
+  callback: (payload: MessagePayload) => void
+): Promise<(() => void) | null> {
+  try {
+    const messaging = await getFirebaseMessaging();
+    if (!messaging) return null;
+    return onMessage(messaging, callback);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fetch schedule records from Firebase Firestore with a quick timeout.
  * Crucial rule: Firebase never blocks public access or throws uncaught exceptions.
- * If empty or permissions error occurs, returns [] gracefully so caller falls back to Google Sheets.
+ * If empty or permissions error occurs, returns [] gracefully.
  */
 export async function fetchSchedulesFromFirestore(): Promise<ScheduleItem[]> {
   if (!db) {
-    console.log("[ScheduleSync] Firestore db is not initialized. Skipping Firestore.");
     return [];
   }
 
   try {
-    console.log("[ScheduleSync] Checking Firebase Database for schedule data...");
-    
-    // Quick timeout to guarantee non-blocking access for public customers
     const timeoutPromise = new Promise<ScheduleItem[]>((resolve) => {
       setTimeout(() => resolve([]), 2500);
     });
 
     const fetchPromise = async (): Promise<ScheduleItem[]> => {
-      // 1. Try 'schedules' collection
       const schedulesColl = collection(db!, "schedules");
       const schedSnap = await getDocs(schedulesColl);
       if (!schedSnap.empty) {
@@ -85,7 +169,6 @@ export async function fetchSchedulesFromFirestore(): Promise<ScheduleItem[]> {
         return items;
       }
 
-      // 2. Try 'jadual' collection
       const jadualColl = collection(db!, "jadual");
       const jadualSnap = await getDocs(jadualColl);
       if (!jadualSnap.empty) {
@@ -112,11 +195,9 @@ export async function fetchSchedulesFromFirestore(): Promise<ScheduleItem[]> {
 
     const results = await Promise.race([fetchPromise(), timeoutPromise]);
     if (results && results.length > 0) {
-      console.log(`[ScheduleSync] ✅ Loaded ${results.length} schedule records from Firebase Database.`);
       return results;
     }
 
-    console.warn("[ScheduleSync] ℹ️ Firebase Database is empty. Proceeding to Google Sheets fallback...");
     return [];
   } catch (err: any) {
     console.warn("[ScheduleSync] Firebase Database read skipped or error encountered:", err?.message || err);
@@ -132,12 +213,10 @@ export async function saveScheduleToFirestore(item: ScheduleItem): Promise<boole
   try {
     const docRef = doc(db, "schedules", item.id);
     await setDoc(docRef, item, { merge: true });
-    // Also mirror to jadual collection for backwards compatibility
     try {
       const jadualRef = doc(db, "jadual", item.id);
       await setDoc(jadualRef, item, { merge: true });
     } catch {}
-    console.log(`[ScheduleSync] ✅ Saved schedule ${item.id} to Firebase Database.`);
     return true;
   } catch (err: any) {
     console.warn(`[ScheduleSync] Firebase Database save warning (${item.id}):`, err?.message || err);
@@ -157,7 +236,6 @@ export async function deleteScheduleFromFirestore(id: string): Promise<boolean> 
       const jadualRef = doc(db, "jadual", id);
       await deleteDoc(jadualRef);
     } catch {}
-    console.log(`[ScheduleSync] 🗑️ Deleted schedule ${id} from Firebase Database.`);
     return true;
   } catch (err: any) {
     console.warn(`[ScheduleSync] Firebase Database delete warning (${id}):`, err?.message || err);
@@ -178,6 +256,6 @@ export {
   setDoc,
   deleteDoc
 };
-export type { User, Firestore };
+export type { User, Firestore, MessagePayload };
 
 

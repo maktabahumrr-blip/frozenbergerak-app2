@@ -3,9 +3,9 @@
  * Version: 2.4.0 (Unified 2-Spreadsheet Live Sync + AKSES TEAM Access Control)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v27';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v27';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v27';
+const CACHE_NAME = 'frozenbergerak-static-v28';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v28';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v28';
 
 const STATIC_ASSETS = [
   '/',
@@ -198,7 +198,18 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       const parsed = event.data.json();
-      data = { ...data, ...parsed };
+      const notif = parsed.notification || {};
+      const fcmData = parsed.data || {};
+      data = {
+        ...data,
+        ...parsed,
+        title: notif.title || parsed.title || fcmData.title || data.title,
+        body: notif.body || parsed.body || fcmData.body || data.body,
+        icon: notif.icon || parsed.icon || data.icon,
+        badge: notif.badge || parsed.badge || data.badge,
+        image: notif.image || parsed.image || data.image,
+        url: fcmData.url || parsed.url || (parsed.fcmOptions && parsed.fcmOptions.link) || data.url
+      };
     } catch (e) {
       data.body = event.data.text() || data.body;
     }

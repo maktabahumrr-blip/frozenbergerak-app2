@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { X, MessageCircle, ShoppingBag, ShieldCheck, ThermometerSnowflake, Sparkles, Plus, Minus, Check, Tag, UtensilsCrossed, Package, Maximize2 } from "lucide-react";
+import { X, MessageCircle, ShoppingBag, ShieldCheck, ThermometerSnowflake, Sparkles, Plus, Minus, Check, Tag, UtensilsCrossed, Package, Maximize2, CalendarDays, AlertCircle } from "lucide-react";
 import { AgentContact, DeliveryArea, Product } from "../types";
 import { formatCurrency, generateSingleProductWhatsAppUrl } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage, handleOptimizedImageError } from "../utils/googleDrive";
+import { getLocalTodayIso } from "../utils/scheduleDateHelper";
 import { ImageLightbox } from "./ImageLightbox";
 import { FormattedDescription } from "./FormattedDescription";
-import { DEFAULT_DELIVERY_AREA } from "../data/deliveryAgents";
 import { AreaAgentSelector } from "./AreaAgentSelector";
 
 interface ProductModalProps {
@@ -20,21 +20,27 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   product,
   isOpen,
   onClose,
-  whatsappNumber,
+  whatsappNumber: _whatsappNumber,
   onAddToCart,
 }) => {
+  const todayIso = getLocalTodayIso();
   const [quantity, setQuantity] = useState<number>(1);
   const [justAdded, setJustAdded] = useState<boolean>(false);
   const [activeImageType, setActiveImageType] = useState<"cooked" | "packaging">("cooked");
   const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
-  const [selectedArea, setSelectedArea] = useState<DeliveryArea>(DEFAULT_DELIVERY_AREA);
-  const [selectedAgent, setSelectedAgent] = useState<AgentContact>(DEFAULT_DELIVERY_AREA.agents[0]);
+  // Explicitly start null so Husna is NEVER selected by default
+  const [selectedArea, setSelectedArea] = useState<DeliveryArea | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<AgentContact | null>(null);
+  const [plannedDate, setPlannedDate] = useState<string>(todayIso);
 
   useEffect(() => {
     if (isOpen) {
       setQuantity(1);
       setJustAdded(false);
       setIsLightboxOpen(false);
+      setSelectedArea(null);
+      setSelectedAgent(null);
+      setPlannedDate(getLocalTodayIso());
       // Default to cooked image if available, else packaging
       if (product?.cookedImageUrl) {
         setActiveImageType("cooked");
@@ -69,12 +75,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const hasBothImages = Boolean(product.cookedImageUrl && product.packagingImageUrl);
 
   const total = (Number(product?.price) || 0) * (Number(quantity) || 1);
-  const whatsappUrl = generateSingleProductWhatsAppUrl(
-    product, 
-    quantity, 
-    selectedAgent.phone || whatsappNumber,
-    { area: selectedArea.name, agentName: selectedAgent.name }
-  );
+  const canDirectWhatsApp = Boolean(selectedArea && selectedAgent && plannedDate);
+  const whatsappUrl = canDirectWhatsApp && selectedAgent && selectedArea
+    ? generateSingleProductWhatsAppUrl(
+        product,
+        quantity,
+        selectedAgent.phone,
+        { area: selectedArea.name, agentName: selectedAgent.name, plannedDate }
+      )
+    : "#";
   const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice);
 
   const handleAdd = () => {
@@ -366,29 +375,58 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               )}
             </button>
 
-            {/* Delivery Area & Linked Agent Selection */}
+            {/* Tarikh Pilihan */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-1.5">
+              <label htmlFor={`modal-date-${product?.id || "item"}`} className="text-[13px] font-bold text-slate-800 flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-blue-600" />
+                <span>Tarikh Rancangan Penghantaran:</span>
+              </label>
+              <input
+                id={`modal-date-${product?.id || "item"}`}
+                type="date"
+                min={todayIso}
+                value={plannedDate}
+                onChange={(e) => setPlannedDate(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            {/* Delivery Area & Manual Linked Agent Selection (resets agent on area change) */}
             <AreaAgentSelector
               selectedArea={selectedArea}
               selectedAgent={selectedAgent}
               onSelectArea={(area) => {
                 setSelectedArea(area);
-                setSelectedAgent(area.agents[0]);
+                setSelectedAgent(null);
               }}
               onSelectAgent={(agent) => setSelectedAgent(agent)}
               compact={true}
               idPrefix={`modal-${product?.id || "item"}`}
             />
 
-            <a
-              id={`modal-whatsapp-btn-${product?.id || "item"}`}
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-green-500 hover:bg-green-600 text-white shadow-xs flex items-center justify-center gap-2 transition-all active:scale-95"
-            >
-              <MessageCircle className="w-4 h-4 fill-current" />
-              <span>Pesan Terus di WhatsApp ({formatCurrency(total)})</span>
-            </a>
+            {/* Separated Price Note */}
+            <div className="text-xs text-slate-600 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 flex items-center justify-between">
+              <span>Subtotal Produk: <strong>{formatCurrency(total)}</strong></span>
+              <span className="text-blue-700 font-semibold">+ Caj hantar berasingan</span>
+            </div>
+
+            {!canDirectWhatsApp ? (
+              <div className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Sila pilih Kawasan &amp; tekan nama Agen secara manual di atas untuk WhatsApp.</span>
+              </div>
+            ) : (
+              <a
+                id={`modal-whatsapp-btn-${product?.id || "item"}`}
+                href={whatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-green-600 hover:bg-green-700 text-white shadow-xs flex items-center justify-center gap-2 transition-all active:scale-95"
+              >
+                <MessageCircle className="w-4 h-4 fill-current" />
+                <span>Pesan Terus ke {selectedAgent?.name} ({formatCurrency(total)})</span>
+              </a>
+            )}
           </div>
         </div>
       </div>

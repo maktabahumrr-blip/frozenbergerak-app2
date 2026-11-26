@@ -1,4 +1,5 @@
-// Utility for Web Push Notifications (VAPID / Service Worker Push API) and Standard Web Notification API Fallback
+// Utility for Web Push Notifications (Firebase Cloud Messaging + VAPID Push API + Standard Notification Fallback)
+import { requestFcmToken, revokeFcmToken } from "../lib/firebase";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   try {
@@ -21,7 +22,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 /**
- * Returns true if the device / browser supports notifications (Standard Web Notification API or Web Push)
+ * Returns true if the device / browser supports notifications (Standard Web Notification API, FCM, or Web Push)
  */
 export function isPushNotificationSupported(): boolean {
   return (
@@ -37,6 +38,14 @@ export function getNotificationPermission(): NotificationPermission {
   return Notification.permission;
 }
 
+export function getStoredFcmToken(): string | null {
+  try {
+    return localStorage.getItem('fb_fcm_token');
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Ensures the Service Worker is registered and active without hanging
  */
@@ -46,13 +55,11 @@ export async function getOrRegisterServiceWorker(): Promise<ServiceWorkerRegistr
   }
 
   try {
-    // Check existing registration or register anew
     let reg = await navigator.serviceWorker.getRegistration();
     if (!reg) {
       reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     }
 
-    // Wait for ready with a safe timeout
     const readyPromise = navigator.serviceWorker.ready;
     const timeoutPromise = new Promise<ServiceWorkerRegistration | null>((resolve) =>
       setTimeout(() => resolve(reg || null), 4000)
@@ -67,7 +74,6 @@ export async function getOrRegisterServiceWorker(): Promise<ServiceWorkerRegistr
 
 /**
  * Fetch VAPID Public Key from server with fallback endpoints.
- * Returns null smoothly on 404 or network errors so standard Web Notification API can take over.
  */
 export async function fetchVapidPublicKey(): Promise<string | null> {
   const endpoints = ['/api/push/vapid-public-key', '/api/vapid-public-key'];
@@ -91,7 +97,6 @@ export async function fetchVapidPublicKey(): Promise<string | null> {
     }
   }
 
-  console.warn('[PushNotification] VAPID Public Key endpoint unavailable or returned 404. Proceeding with standard Web Notification API fallback.');
   return null;
 }
 
@@ -99,6 +104,15 @@ export async function getExistingPushSubscription(): Promise<PushSubscription | 
   if (!isPushNotificationSupported()) return null;
 
   try {
+    const fcmToken = getStoredFcmToken();
+    if (fcmToken && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      return {
+        endpoint: `fcm:${fcmToken.slice(0, 20)}`,
+        fcmToken,
+        isFcm: true
+      };
+    }
+
     const registration = await getOrRegisterServiceWorker();
     if (registration && 'pushManager' in registration) {
       const sub = await registration.pushManager.getSubscription();
@@ -108,7 +122,6 @@ export async function getExistingPushSubscription(): Promise<PushSubscription | 
     console.warn('Error checking existing push subscription:', err);
   }
 
-  // Fallback: check if standard browser notification was granted and enabled
   if (typeof window !== 'undefined' && 'Notification' in window) {
     if (Notification.permission === 'granted' && localStorage.getItem('web_notification_enabled') === 'true') {
       return {
@@ -124,15 +137,14 @@ export async function getExistingPushSubscription(): Promise<PushSubscription | 
 export interface SubscribeResult {
   success: boolean;
   subscription?: PushSubscription | any;
+  fcmToken?: string | null;
   error?: string;
   isStandardWebNotification?: boolean;
   message?: string;
 }
 
 /**
- * Subscribes user to Push Notifications.
- * If server returns 404 for VAPID key, it smoothly falls back to standard Web Notification API
- * without crashing or showing error 404 to the user.
+ * Subscribes user to Firebase Cloud Messaging (FCM) Web Push AND VAPID PushManager.
  */
 export async function subscribeUserToPush(): Promise<SubscribeResult> {
   if (typeof window === 'undefined') {
@@ -147,7 +159,7 @@ export async function subscribeUserToPush(): Promise<SubscribeResult> {
   }
 
   try {
-    // 1. Trigger native browser/mobile permission prompt directly
+    // 1. Request native notification permission
     let permission = Notification.permission;
     if (permission !== 'granted') {
       permission = await Notification.requestPermission();
@@ -162,117 +174,123 @@ export async function subscribeUserToPush(): Promise<SubscribeResult> {
       };
     }
 
-    // Mark standard web notification as enabled locally immediately upon user granting permission
     try {
       localStorage.setItem('web_notification_enabled', 'true');
       localStorage.setItem('push_notification_permission', 'granted');
     } catch {}
 
-    // 2. Fetch VAPID key (supports smooth fallback on 404 or connection issues)
+    const registration = await getOrRegisterServiceWorker();
     const vapidPublicKey = await fetchVapidPublicKey();
 
-    // 3. If VAPID is available and PushManager supported, register background push subscription
-    if (vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window) {
+    // 2. Register Firebase Cloud Messaging (FCM) token when supported
+    let fcmToken: string | null = null;
+    try {
+      fcmToken = await requestFcmToken(registration, undefined);
+      if (fcmToken) {
+        fetch('/api/push/fcm-subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: fcmToken,
+            userAgent: navigator.userAgent
+          })
+        }).catch(() => {});
+      }
+    } catch (fcmErr) {
+      console.warn('[FCM] Non-fatal registration warning:', fcmErr);
+    }
+
+    // 3. Also register standard Web Push VAPID subscription if available
+    if (vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && registration && registration.pushManager) {
       try {
         const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
-        const registration = await getOrRegisterServiceWorker();
+        let subscription = await registration.pushManager.getSubscription();
 
-        if (registration && registration.pushManager) {
-          let subscription = await registration.pushManager.getSubscription();
-
-          try {
-            if (!subscription) {
-              subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: convertedVapidKey
-              });
-            }
-          } catch (subErr) {
-            console.warn('Initial PushManager subscription failed, trying re-subscribe:', subErr);
-            const existing = await registration.pushManager.getSubscription().catch(() => null);
-            if (existing) {
-              await existing.unsubscribe().catch(() => {});
-            }
+        try {
+          if (!subscription) {
             subscription = await registration.pushManager.subscribe({
               userVisibleOnly: true,
               applicationServerKey: convertedVapidKey
             });
           }
-
-          if (subscription) {
-            // Extract keys safely
-            const subJSON = subscription.toJSON();
-            let p256dh = subJSON.keys?.p256dh;
-            let auth = subJSON.keys?.auth;
-
-            if (!p256dh && subscription.getKey) {
-              const rawKey = subscription.getKey('p256dh');
-              if (rawKey) {
-                p256dh = btoa(String.fromCharCode(...new Uint8Array(rawKey)));
-              }
-            }
-
-            if (!auth && subscription.getKey) {
-              const rawAuth = subscription.getKey('auth');
-              if (rawAuth) {
-                auth = btoa(String.fromCharCode(...new Uint8Array(rawAuth)));
-              }
-            }
-
-            // Sync subscription to server
-            fetch('/api/push/subscribe', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                subscription: {
-                  endpoint: subscription.endpoint,
-                  keys: {
-                    p256dh: p256dh || '',
-                    auth: auth || ''
-                  }
-                },
-                userAgent: navigator.userAgent
-              })
-            }).catch((syncErr) => {
-              console.warn('Could not sync subscription to server (non-fatal):', syncErr);
-            });
-
-            return {
-              success: true,
-              subscription,
-              message: 'Notifikasi Web Push berjaya diaktifkan sepenuhnya!'
-            };
+        } catch {
+          const existing = await registration.pushManager.getSubscription().catch(() => null);
+          if (existing) {
+            await existing.unsubscribe().catch(() => {});
           }
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: convertedVapidKey
+          });
+        }
+
+        if (subscription) {
+          const subJSON = subscription.toJSON();
+          let p256dh = subJSON.keys?.p256dh;
+          let auth = subJSON.keys?.auth;
+
+          if (!p256dh && subscription.getKey) {
+            const rawKey = subscription.getKey('p256dh');
+            if (rawKey) {
+              p256dh = btoa(String.fromCharCode(...new Uint8Array(rawKey)));
+            }
+          }
+
+          if (!auth && subscription.getKey) {
+            const rawAuth = subscription.getKey('auth');
+            if (rawAuth) {
+              auth = btoa(String.fromCharCode(...new Uint8Array(rawAuth)));
+            }
+          }
+
+          fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subscription: {
+                endpoint: subscription.endpoint,
+                keys: {
+                  p256dh: p256dh || '',
+                  auth: auth || ''
+                }
+              },
+              fcmToken: fcmToken || undefined,
+              userAgent: navigator.userAgent
+            })
+          }).catch(() => {});
+
+          return {
+            success: true,
+            subscription,
+            fcmToken,
+            message: fcmToken
+              ? 'Notifikasi Firebase Cloud Messaging (FCM) & Web Push berjaya diaktifkan!'
+              : 'Notifikasi Web Push berjaya diaktifkan sepenuhnya!'
+          };
         }
       } catch (pushErr: any) {
-        console.warn('VAPID / Service Worker Push setup encountered non-fatal issue, using Web Notification fallback:', pushErr);
+        console.warn('VAPID Push setup warning (non-fatal):', pushErr);
       }
     }
 
-    // 4. Smooth fallback to Standard Web Notification API
-    // User already approved Notification.permission === 'granted'!
-    console.log('[PushNotification] ✅ Standard Web Notification API is active and granted.');
-
-    // Display welcome notification if supported
+    // 4. FCM token alone or Standard Web Notification fallback
     try {
       if (Notification.permission === 'granted') {
         const welcomeTitle = "FrozenBergerak 📍 Notifikasi Diaktifkan!";
-        const welcomeBody = "Notifikasi pelayar aktif. Anda akan menerima makluman pergerakan pasukan dan kemaskini pesanan terkini.";
-        
-        const reg = await getOrRegisterServiceWorker();
-        if (reg && reg.showNotification) {
-          reg.showNotification(welcomeTitle, {
+        const welcomeBody = "Anda akan menerima makluman pergerakan pasukan dan kemaskini terkini secara terus.";
+        if (registration && registration.showNotification) {
+          registration.showNotification(welcomeTitle, {
             body: welcomeBody,
-            icon: '/favicon.ico',
-            badge: '/favicon.ico'
+            icon: '/icons/icon-192.png',
+            badge: '/icons/icon-192.png'
           }).catch(() => {
             try {
-              new Notification(welcomeTitle, { body: welcomeBody, icon: '/favicon.ico' });
+              new Notification(welcomeTitle, { body: welcomeBody, icon: '/icons/icon-192.png' });
             } catch {}
           });
         } else {
           try {
-            new Notification(welcomeTitle, { body: welcomeBody, icon: '/favicon.ico' });
+            new Notification(welcomeTitle, { body: welcomeBody, icon: '/icons/icon-192.png' });
           } catch {}
         }
       }
@@ -280,12 +298,14 @@ export async function subscribeUserToPush(): Promise<SubscribeResult> {
 
     return {
       success: true,
-      isStandardWebNotification: true,
-      subscription: {
-        endpoint: 'standard-web-notification',
-        isStandardNotification: true
-      },
-      message: 'Kebenaran notifikasi pelayar berjaya diaktifkan! Anda akan menerima makluman pergerakan pasukan terus ke telefon anda.'
+      fcmToken,
+      isStandardWebNotification: !fcmToken,
+      subscription: fcmToken
+        ? { endpoint: `fcm:${fcmToken}`, fcmToken, isFcm: true }
+        : { endpoint: 'standard-web-notification', isStandardNotification: true },
+      message: fcmToken
+        ? 'Notifikasi Firebase Cloud Messaging (FCM) berjaya diaktifkan pada peranti ini!'
+        : 'Kebenaran notifikasi pelayar berjaya diaktifkan!'
     };
   } catch (err: any) {
     console.error('Error activating notification permission:', err);
@@ -298,6 +318,16 @@ export async function subscribeUserToPush(): Promise<SubscribeResult> {
 
 export async function unsubscribeUserFromPush(): Promise<boolean> {
   try {
+    const oldFcm = getStoredFcmToken();
+    if (oldFcm) {
+      fetch('/api/push/fcm-unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: oldFcm })
+      }).catch(() => {});
+    }
+    await revokeFcmToken();
+
     localStorage.removeItem('web_notification_enabled');
     localStorage.removeItem('push_notification_permission');
 
@@ -333,28 +363,33 @@ export async function sendTestPushNotification(): Promise<{ success: boolean; me
       };
     }
 
-    // 1. If standard real VAPID subscription exists on server, trigger via server
-    if (subscription && subscription.endpoint && subscription.endpoint.startsWith('http')) {
+    const storedFcmToken = getStoredFcmToken();
+    const hasHttpEndpoint = Boolean(subscription?.endpoint && subscription.endpoint.startsWith('http'));
+    const hasFcmToken = Boolean(subscription?.fcmToken || storedFcmToken);
+
+    if (hasHttpEndpoint || hasFcmToken) {
       try {
         const response = await fetch('/api/push/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: subscription.endpoint })
+          body: JSON.stringify({
+            endpoint: hasHttpEndpoint ? subscription.endpoint : undefined,
+            fcmToken: subscription?.fcmToken || storedFcmToken || undefined
+          })
         });
         if (response.ok) {
           const data = await response.json().catch(() => ({}));
-          dispatchLiveEvent();
-          return {
-            success: true,
-            message: data.message || 'Notifikasi ujian berjaya dihantar ke telefon anda!'
-          };
+          if (data?.sent > 0) {
+            dispatchLiveEvent();
+            return {
+              success: true,
+              message: data.message || 'Notifikasi ujian berjaya dihantar ke telefon anda!'
+            };
+          }
         }
-      } catch {
-        // Fallback to local notification below
-      }
+      } catch {}
     }
 
-    // 2. Standard Web Notification API fallback
     dispatchLiveEvent();
 
     const title = "FrozenBergerak 📍 Team Bergerak Sekarang!";
@@ -365,17 +400,17 @@ export async function sendTestPushNotification(): Promise<{ success: boolean; me
       if (reg && reg.showNotification) {
         await reg.showNotification(title, {
           body,
-          icon: '/favicon.ico',
-          badge: '/favicon.ico'
+          icon: '/icons/icon-192.png',
+          badge: '/icons/icon-192.png'
         });
       } else if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(title, { body, icon: '/favicon.ico' });
+        new Notification(title, { body, icon: '/icons/icon-192.png' });
       }
     } catch {}
 
     return {
       success: true,
-      message: 'Notifikasi ujian berjaya dipaparkan pada telefon anda!'
+      message: 'Notifikasi ujian berjaya dipaparkan pada peranti ini!'
     };
   } catch (err: any) {
     return {

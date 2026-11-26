@@ -133,6 +133,215 @@ function removeSubscription(endpoint: string) {
   }
 }
 
+const FCM_TOKENS_FILE = path.join(DATA_DIR, "fcm-tokens.json");
+
+interface FcmTokenRecord {
+  token: string;
+  userAgent?: string;
+  updatedAt: string;
+}
+
+function loadFcmTokens(): FcmTokenRecord[] {
+  if (fs.existsSync(FCM_TOKENS_FILE)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(FCM_TOKENS_FILE, "utf-8"));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {}
+  }
+  return [];
+}
+
+function saveFcmTokens(tokens: FcmTokenRecord[]) {
+  try {
+    fs.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
+  } catch {}
+}
+
+function upsertFcmToken(token: string, userAgent?: string): boolean {
+  const clean = String(token || "").trim();
+  if (!clean) return false;
+  const list = loadFcmTokens();
+  const idx = list.findIndex((item) => item.token === clean);
+  const record: FcmTokenRecord = {
+    token: clean,
+    userAgent: userAgent || "Unknown",
+    updatedAt: new Date().toISOString()
+  };
+  if (idx >= 0) {
+    list[idx] = record;
+  } else {
+    list.push(record);
+  }
+  saveFcmTokens(list);
+  return true;
+}
+
+function removeFcmToken(token: string) {
+  const clean = String(token || "").trim();
+  if (!clean) return;
+  const list = loadFcmTokens();
+  const filtered = list.filter((item) => item.token !== clean);
+  if (filtered.length !== list.length) {
+    saveFcmTokens(filtered);
+  }
+}
+
+interface FcmServiceAccount {
+  project_id: string;
+  client_email: string;
+  private_key: string;
+}
+
+function getFcmServiceAccount(): FcmServiceAccount | null {
+  try {
+    const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    if (rawJson && rawJson.trim().startsWith("{")) {
+      const parsed = JSON.parse(rawJson);
+      if (parsed?.project_id && parsed?.client_email && parsed?.private_key) {
+        return {
+          project_id: String(parsed.project_id),
+          client_email: String(parsed.client_email),
+          private_key: String(parsed.private_key).replace(/\\n/g, "\n")
+        };
+      }
+    }
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID || "frozen-bergerak-app";
+    if (clientEmail && privateKey) {
+      return {
+        project_id: projectId,
+        client_email: clientEmail,
+        private_key: privateKey.replace(/\\n/g, "\n")
+      };
+    }
+  } catch (err) {
+    console.warn("[FCM] Invalid service account configuration:", err);
+  }
+  return null;
+}
+
+let cachedFcmAccessToken: { token: string; expiresAt: number } | null = null;
+
+async function getFcmOAuthToken(sa: FcmServiceAccount): Promise<string | null> {
+  if (cachedFcmAccessToken && Date.now() < cachedFcmAccessToken.expiresAt - 60000) {
+    return cachedFcmAccessToken.token;
+  }
+  try {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+    const claim = Buffer.from(
+      JSON.stringify({
+        iss: sa.client_email,
+        scope: "https://www.googleapis.com/auth/firebase.messaging",
+        aud: "https://oauth2.googleapis.com/token",
+        exp: nowSec + 3600,
+        iat: nowSec
+      })
+    ).toString("base64url");
+
+    const unsignedJwt = `${header}.${claim}`;
+    const signer = crypto.createSign("RSA-SHA256");
+    signer.update(unsignedJwt);
+    const signature = signer.sign(sa.private_key, "base64url");
+    const assertion = `${unsignedJwt}.${signature}`;
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion
+      })
+    });
+    if (!tokenRes.ok) return null;
+    const tokenJson: any = await tokenRes.json();
+    if (tokenJson?.access_token) {
+      cachedFcmAccessToken = {
+        token: tokenJson.access_token,
+        expiresAt: Date.now() + (Number(tokenJson.expires_in) || 3500) * 1000
+      };
+      return tokenJson.access_token;
+    }
+  } catch (err) {
+    console.warn("[FCM] OAuth token fetch failed:", err);
+  }
+  return null;
+}
+
+async function sendFcmMessagesToTokens(
+  tokens: string[],
+  payload: {
+    title: string;
+    body: string;
+    url?: string;
+    icon?: string;
+    badge?: string;
+  }
+): Promise<{ sent: number; failed: number }> {
+  if (tokens.length === 0) return { sent: 0, failed: 0 };
+  const sa = getFcmServiceAccount();
+  if (!sa) return { sent: 0, failed: 0 };
+
+  const accessToken = await getFcmOAuthToken(sa);
+  if (!accessToken) return { sent: 0, failed: 0 };
+
+  let sent = 0;
+  let failed = 0;
+  const endpointUrl = `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`;
+
+  await Promise.all(
+    tokens.map(async (fcmToken) => {
+      try {
+        const res = await fetch(endpointUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            message: {
+              token: fcmToken,
+              notification: {
+                title: payload.title || "FrozenBergerak 📍 Jadual Pergerakan",
+                body: payload.body
+              },
+              data: {
+                url: payload.url || "/#section-jadual-pergerakan",
+                title: payload.title || "FrozenBergerak 📍 Jadual Pergerakan",
+                body: payload.body
+              },
+              webpush: {
+                fcm_options: {
+                  link: payload.url || "/#section-jadual-pergerakan"
+                },
+                notification: {
+                  icon: payload.icon || "/icons/icon-192.png",
+                  badge: payload.badge || "/icons/icon-192.png"
+                }
+              }
+            }
+          })
+        });
+        if (res.ok) {
+          sent++;
+        } else {
+          failed++;
+          const errJson: any = await res.json().catch(() => null);
+          const errorCode = errJson?.error?.details?.[0]?.errorCode || errJson?.error?.status || "";
+          if (errorCode === "UNREGISTERED" || errorCode === "INVALID_ARGUMENT" || res.status === 404) {
+            removeFcmToken(fcmToken);
+          }
+        }
+      } catch {
+        failed++;
+      }
+    })
+  );
+
+  return { sent, failed };
+}
+
 async function broadcastPushNotification(payload: {
   title: string;
   body: string;
@@ -142,7 +351,9 @@ async function broadcastPushNotification(payload: {
   image?: string;
 }): Promise<{ sent: number; failed: number; total: number }> {
   const subscriptions = loadSubscriptions();
-  if (subscriptions.length === 0) {
+  const fcmTokens = loadFcmTokens().map((item) => item.token);
+
+  if (subscriptions.length === 0 && fcmTokens.length === 0) {
     return { sent: 0, failed: 0, total: 0 };
   }
 
@@ -159,7 +370,7 @@ async function broadcastPushNotification(payload: {
     url: payload.url || "/#section-jadual-pergerakan"
   });
 
-  const promises = subscriptions.map(async (sub) => {
+  const vapidPromises = subscriptions.map(async (sub) => {
     try {
       await webpush.sendNotification(
         {
@@ -182,14 +393,20 @@ async function broadcastPushNotification(payload: {
     }
   });
 
-  await Promise.all(promises);
+  const [_, fcmResult] = await Promise.all([
+    Promise.all(vapidPromises),
+    sendFcmMessagesToTokens(fcmTokens, payload)
+  ]);
+
+  sent += fcmResult.sent;
+  failed += fcmResult.failed;
 
   if (invalidEndpoints.length > 0) {
     const updated = subscriptions.filter(s => !invalidEndpoints.includes(s.endpoint));
     saveSubscriptions(updated);
   }
 
-  return { sent, failed, total: subscriptions.length };
+  return { sent, failed, total: subscriptions.length + fcmTokens.length };
 }
 
 const SCHEDULE_FILE = path.join(DATA_DIR, "schedule.json");
@@ -304,7 +521,17 @@ function getMergedTeamEmails(): string[] {
     .map(e => e.trim().toLowerCase())
     .filter(Boolean);
   const fileTeams = loadRolesConfig().teamEmails;
-  return Array.from(new Set([...envTeams, ...fileTeams]));
+  const approvals = loadTeamApprovals();
+  const approvedFromApprovals = Object.values(approvals)
+    .filter((rec) => rec && rec.status === "approved" && rec.email)
+    .map((rec) => rec.email.trim().toLowerCase());
+  const nonApprovedSet = new Set(
+    Object.values(approvals)
+      .filter((rec) => rec && (rec.status === "rejected" || rec.status === "pending") && rec.email)
+      .map((rec) => rec.email.trim().toLowerCase())
+  );
+  const combinedFileTeams = fileTeams.filter((e) => !nonApprovedSet.has(e.toLowerCase()));
+  return Array.from(new Set([...envTeams, ...combinedFileTeams, ...approvedFromApprovals]));
 }
 
 const PASSWORDS_FILE = path.join(DATA_DIR, "user_passwords.json");
@@ -2939,47 +3166,90 @@ app.post("/api/push/unsubscribe", (req: Request, res: Response) => {
   }
 });
 
+// Register Firebase Cloud Messaging (FCM) Web Push Token
+app.post("/api/push/fcm-subscribe", (req: Request, res: Response) => {
+  try {
+    const { token, userAgent } = req.body;
+    if (!token || typeof token !== "string") {
+      res.status(400).json({ success: false, error: "Token FCM diperlukan." });
+      return;
+    }
+    upsertFcmToken(token, userAgent);
+    const allTokens = loadFcmTokens();
+    const subs = loadSubscriptions();
+    res.json({
+      success: true,
+      message: "Token FCM berjaya didaftarkan.",
+      totalFcmTokens: allTokens.length,
+      totalSubscribers: subs.length + allTokens.length
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Gagal menyimpan token FCM." });
+  }
+});
+
+// Unregister FCM Token
+app.post("/api/push/fcm-unsubscribe", (req: Request, res: Response) => {
+  try {
+    const { token } = req.body;
+    if (token) {
+      removeFcmToken(token);
+    }
+    res.json({ success: true, message: "Token FCM dinyahaktifkan." });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Push notification system status
 app.get("/api/push/status", (_req: Request, res: Response) => {
   const subs = loadSubscriptions();
+  const fcmTokens = loadFcmTokens();
   res.json({
     isConfigured: Boolean(vapidKeys.publicKey),
-    totalSubscribers: subs.length,
-    vapidSubject: VAPID_SUBJECT,
-    googleSheetWebhookConfigured: Boolean(process.env.GOOGLE_SHEET_WEBHOOK_URL)
+    fcmEnabled: true,
+    fcmServerConfigured: Boolean(getFcmServiceAccount()),
+    totalVapidSubscribers: subs.length,
+    totalFcmTokens: fcmTokens.length,
+    totalSubscribers: subs.length + fcmTokens.length,
+    vapidSubject: VAPID_SUBJECT
   });
 });
 
-// Send test push notification
+// Send test push notification (supports both VAPID endpoint and FCM token)
 app.post("/api/push/test", async (req: Request, res: Response) => {
   try {
-    const { endpoint } = req.body;
+    const { endpoint, fcmToken } = req.body;
     const subscriptions = loadSubscriptions();
+    const fcmTokens = loadFcmTokens().map((item) => item.token);
 
-    if (subscriptions.length === 0) {
+    if (subscriptions.length === 0 && fcmTokens.length === 0 && !fcmToken) {
       res.status(400).json({
         error: "Tiada peranti yang melanggan notifikasi lagi. Sila klik butang 'Aktifkan Notifikasi' pada peranti anda terlebih dahulu."
       });
       return;
     }
 
-    const targetSubs = endpoint 
-      ? subscriptions.filter(s => s.endpoint === endpoint) 
+    const targetSubs = endpoint
+      ? subscriptions.filter(s => s.endpoint === endpoint)
       : subscriptions;
 
-    if (targetSubs.length === 0) {
-      res.status(404).json({ error: "Langganan peranti ini tidak ditemui pada server. Sila aktifkan semula." });
-      return;
-    }
+    const targetFcmTokens = fcmToken
+      ? [String(fcmToken)]
+      : endpoint
+      ? []
+      : fcmTokens;
 
-    const testPayload = JSON.stringify({
+    const testPayloadObj = {
       title: "FrozenBergerak 📍 Jadual Pergerakan",
-      body: "Team Frozen 1 akan bergerak di Seremban 2 hari ini, 9:00 PG - 1:00 PTG. Stok tersedia untuk dihantar.",
+      body: "Team Frozen sedang bergerak ke kawasan liputan hari ini. Stok sedia dihantar terus ke rumah.",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
       image: "/icons/icon-512.png",
       url: "/#section-jadual-pergerakan"
-    });
+    };
+
+    const testPayload = JSON.stringify(testPayloadObj);
 
     let sent = 0;
     for (const sub of targetSubs) {
@@ -2991,6 +3261,11 @@ app.post("/api/push/test", async (req: Request, res: Response) => {
           removeSubscription(sub.endpoint);
         }
       }
+    }
+
+    if (targetFcmTokens.length > 0) {
+      const fcmRes = await sendFcmMessagesToTokens(targetFcmTokens, testPayloadObj);
+      sent += fcmRes.sent;
     }
 
     res.json({
@@ -3616,9 +3891,10 @@ app.post("/api/team-access/update", requireAdminOnlyAuth, async (req: Request, r
       status: normalizedStatus,
       sheetStatus,
       record: updatedRec,
+      teamEmails: getMergedTeamEmails(),
       message: (sheetStatus === "Approved" || sheetStatus === "Rejected")
-        ? `Status akses untuk ${updatedRec.email} dalam tab AKSES TEAM berjaya dikemaskini kepada ${sheetStatus}${applicantEmailSent ? " & emel makluman telah dihantar kepada pemohon" : ""}.`
-        : `Status akses untuk ${updatedRec.email} dalam tab AKSES TEAM berjaya dikemaskini kepada ${sheetStatus}.`
+        ? `Status akses untuk ${updatedRec.email} berjaya dikemaskini kepada ${sheetStatus}${applicantEmailSent ? " & emel makluman telah dihantar kepada pemohon" : ""}.`
+        : `Status akses untuk ${updatedRec.email} berjaya dikemaskini kepada ${sheetStatus}.`
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message || "Gagal mengemaskini status AKSES TEAM." });

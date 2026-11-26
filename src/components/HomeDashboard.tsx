@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import { 
   Flame, 
@@ -9,13 +9,14 @@ import {
   ArrowRight, 
   ShieldCheck, 
   Tag, 
-  ChevronRight, 
+  ChevronRight,
+  ChevronLeft,
   Gift, 
-  FileSpreadsheet,
   Sun,
   Star,
   CheckCircle2,
   CalendarDays,
+  CalendarPlus,
   Grid
 } from "lucide-react";
 import { Product, Category, StoreConfig, PromoItem } from "../types";
@@ -31,6 +32,7 @@ interface HomeDashboardProps {
   isLoading?: boolean;
   onNavigateToCatalog: (categoryId?: string, promoType?: "alltime" | "seasonal" | "popular" | boolean) => void;
   onNavigateToSchedule?: () => void;
+  onOpenSlotBooking?: () => void;
   onNavigateView?: (view: "home" | "catalog" | "schedule" | "loyalty" | "feedback") => void;
   onViewProductDetails: (product: Product) => void;
   onAddToCart: (product: Product, quantity?: number) => void;
@@ -48,11 +50,20 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   isLoading = false,
   onNavigateToCatalog,
   onNavigateToSchedule,
+  onOpenSlotBooking,
   onNavigateView,
   onViewProductDetails,
   onAddToCart,
   onOpenFeedback,
 }) => {
+  const allTimeCarouselRef = useRef<HTMLDivElement | null>(null);
+  const seasonalCarouselRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollCarousel = (ref: React.RefObject<HTMLDivElement | null>, direction: "left" | "right") => {
+    if (!ref.current) return;
+    const distance = direction === "left" ? -310 : 310;
+    ref.current.scrollBy({ left: distance, behavior: "smooth" });
+  };
 
   // Active promos from Alltimepromo tab or fallback to promo products
   const activeAllTimePromos = useMemo(() => {
@@ -177,7 +188,64 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       className="w-full space-y-6 sm:space-y-8 pb-8 max-w-7xl mx-auto"
     >
       {/* ============================================================ */}
-      {/* 1. 🔥 ALL TIME PROMO SECTION */}
+      {/* 0. 🎯 DWI-BUTANG TINDAKAN UTAMA (DUAL ACTION BUTTONS)       */}
+      {/* ============================================================ */}
+      <motion.section
+        variants={itemVariants}
+        className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-3xl p-5 sm:p-7 text-white shadow-md border border-blue-800/40"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-200 border border-blue-400/30">
+              <Truck className="w-3.5 h-3.5 text-amber-300" />
+              <span>FrozenBergerak • Penghantaran Terus Ke Rumah</span>
+            </span>
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white">
+              Semak Lokasi Pasukan atau Rancang Tempahan Anda
+            </h1>
+            <p className="text-[13px] sm:text-sm text-blue-100/90 max-w-2xl leading-relaxed">
+              Lihat laluan semasa pasukan kami di lapangan atau tempah tarikh penghantaran pilihan anda secara terus mengikut kawasan.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0 w-full lg:w-auto">
+            <button
+              id="home-btn-jadual-keberadaan"
+              type="button"
+              onClick={() => {
+                if (onNavigateToSchedule) {
+                  onNavigateToSchedule();
+                } else if (onNavigateView) {
+                  onNavigateView("schedule");
+                }
+              }}
+              className="px-4 py-3.5 rounded-2xl bg-white hover:bg-blue-50 active:scale-98 text-slate-900 font-extrabold text-sm shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <CalendarDays className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>Jadual Keberadaan Pasukan</span>
+            </button>
+
+            <button
+              id="home-btn-tempah-slot"
+              type="button"
+              onClick={() => {
+                if (onOpenSlotBooking) {
+                  onOpenSlotBooking();
+                } else if (onNavigateToSchedule) {
+                  onNavigateToSchedule();
+                }
+              }}
+              className="px-4 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-extrabold text-sm shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <CalendarPlus className="w-4 h-4 text-white shrink-0" />
+              <span>Tempah Slot Anda Sekarang</span>
+            </button>
+          </div>
+        </div>
+      </motion.section>
+
+      {/* ============================================================ */}
+      {/* 1. 🔥 ALL TIME PROMO SECTION (HORIZONTAL SLIDING CAROUSEL)  */}
       {/* ============================================================ */}
       <motion.section 
         variants={itemVariants}
@@ -194,24 +262,49 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 🔥 All Time Promo
               </h2>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Tawaran istimewa yang sentiasa tersedia untuk anda. Nikmati pilihan promosi menarik daripada FrozenBergerak.
+            <p className="text-[13px] text-slate-500 mt-1">
+              Luncur ke tepi untuk lihat tawaran istimewa yang sentiasa tersedia daripada FrozenBergerak.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigateToCatalog("all", "alltime")}
-            className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 self-start sm:self-auto hover:underline cursor-pointer"
-          >
-            <span>Lihat Produk Promo Dalam Katalog</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {activeAllTimePromos.length > 1 && (
+              <div className="hidden sm:flex items-center gap-1.5 mr-1">
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel(allTimeCarouselRef, "left")}
+                  aria-label="Skrol All Time Promo ke kiri"
+                  className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel(allTimeCarouselRef, "right")}
+                  aria-label="Skrol All Time Promo ke kanan"
+                  className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => onNavigateToCatalog("all", "alltime")}
+              className="text-[13px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 hover:underline cursor-pointer"
+            >
+              <span>Lihat Semua di Katalog</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Dynamic Promo Grid from Alltimepromo Google Sheet */}
+        {/* Horizontal Sliding Carousel */}
         {activeAllTimePromos.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div
+            ref={allTimeCarouselRef}
+            className="flex gap-4 sm:gap-5 overflow-x-auto snap-x snap-mandatory pb-3 scroll-smooth"
+          >
             {activeAllTimePromos.map((promo) => {
               const hasDiscount = Boolean(
                 promo.originalPrice && promo.promoPrice && promo.originalPrice > promo.promoPrice
@@ -283,7 +376,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               return (
                 <div
                   key={`promo-item-${promo.id}`}
-                  className="bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group hover:border-blue-300"
+                  className="w-[272px] sm:w-[300px] lg:w-[320px] shrink-0 snap-start bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group hover:border-blue-300"
                 >
                   {/* Gambar Promo with Click to View Modal */}
                   <div 
@@ -466,7 +559,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <button
             type="button"
             onClick={() => onNavigateToCatalog("all", "seasonal")}
-            className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center gap-1 self-start sm:self-auto hover:underline cursor-pointer"
+            className="text-[13px] font-bold text-amber-700 hover:text-amber-800 flex items-center gap-1 self-start sm:self-auto hover:underline cursor-pointer"
           >
             <span>Terokai Promosi Bermusim Dalam Katalog</span>
             <ChevronRight className="w-4 h-4" />
@@ -532,18 +625,45 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-            {displaySeasonalItems?.map((product) => {
-              if (!product) return null;
-              const hasPromoPrice = Boolean(
-                product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice
-              );
+          <div className="space-y-3">
+            {displaySeasonalItems.length > 1 && (
+              <div className="flex items-center justify-between text-[13px] text-slate-500">
+                <span>Luncur ke tepi untuk lihat pakej bermusim ({displaySeasonalItems.length} item)</span>
+                <div className="hidden sm:flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => scrollCarousel(seasonalCarouselRef, "left")}
+                    aria-label="Skrol Promosi Bermusim ke kiri"
+                    className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollCarousel(seasonalCarouselRef, "right")}
+                    aria-label="Skrol Promosi Bermusim ke kanan"
+                    className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+            <div
+              ref={seasonalCarouselRef}
+              className="flex gap-4 sm:gap-5 overflow-x-auto snap-x snap-mandatory pb-3 scroll-smooth"
+            >
+              {displaySeasonalItems?.map((product) => {
+                if (!product) return null;
+                const hasPromoPrice = Boolean(
+                  product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice
+                );
 
-              return (
-                <div
-                  key={`seasonal-${product?.id || Math.random()}`}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group"
-                >
+                return (
+                  <div
+                    key={`seasonal-${product?.id || Math.random()}`}
+                    className="w-[265px] sm:w-[290px] lg:w-[300px] shrink-0 snap-start bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group"
+                  >
                   <div
                     onClick={() => onViewProductDetails(product)}
                     className="relative aspect-4/3 bg-slate-100 overflow-hidden cursor-pointer"
@@ -622,9 +742,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </motion.section>

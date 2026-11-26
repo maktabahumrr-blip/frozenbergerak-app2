@@ -204,7 +204,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={onRefresh}
-            title="Segar semula data dari Google Sheet"
+            title="Segar semula katalog & data terkini"
             disabled={isRefreshing}
             className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
           >

@@ -71,6 +71,8 @@ export interface CustomerOrderInfo {
   deliveryArea?: string;
   agentName?: string;
   agentPhone?: string;
+  plannedDate?: string;
+  deliveryFee?: number;
   notes: string;
 }
 

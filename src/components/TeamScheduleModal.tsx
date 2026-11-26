@@ -1,27 +1,22 @@
-import React, { useState, useEffect } from "react";
-import { 
-  X, 
-  Users, 
-  Bell, 
-  Lock, 
-  CheckCircle2, 
-  AlertCircle, 
-  Calendar, 
-  Clock, 
-  MapPin, 
-  Sparkles, 
-  Send, 
-  Trash2, 
-  Plus, 
-  Edit3, 
-  RefreshCw, 
-  ShieldCheck, 
-  UserCheck, 
-  LogOut, 
-  Settings, 
-  FileSpreadsheet, 
-  Copy, 
-  ExternalLink,
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  X,
+  Users,
+  Bell,
+  CheckCircle2,
+  AlertCircle,
+  Calendar,
+  Clock,
+  MapPin,
+  Sparkles,
+  Send,
+  Trash2,
+  Plus,
+  Edit3,
+  RefreshCw,
+  ShieldCheck,
+  UserCheck,
+  LogOut,
   Eye,
   EyeOff,
   KeyRound,
@@ -30,26 +25,71 @@ import {
   Clock3,
   UserX,
   Check,
-  Flame
+  Flame,
+  ChevronRight,
+  ChevronLeft,
+  Search
 } from "lucide-react";
-import { ScheduleItem, AuthUser, ScheduleStatus } from "../types";
-import { 
-  auth, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut as firebaseSignOut, 
-  sendPasswordResetEmail, 
+import { ScheduleItem, AuthUser } from "../types";
+import {
+  auth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  sendPasswordResetEmail,
   updatePassword as firebaseUpdatePassword,
   onAuthStateChanged,
-  db,
-  doc,
-  setDoc,
-  deleteDoc,
   saveScheduleToFirestore,
   deleteScheduleFromFirestore
 } from "../lib/firebase";
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
-import { GOOGLE_APPS_SCRIPT_WEB_APP_URL, UNIFIED_APPS_SCRIPT_CODE } from "../config/googleSheets";
+import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
+import {
+  getTodayAndUpcomingSchedules,
+  getLocalTodayIso,
+  parseScheduleDate
+} from "../utils/scheduleDateHelper";
+
+export const TEAM_NAME_OPTIONS = ["Izyan", "Ahda", "Husna", "Alia"] as const;
+
+export const COVERAGE_AREA_OPTIONS = [
+  "Nilai",
+  "Seremban",
+  "Senawang",
+  "Seri Putra",
+  "Bukit Mahkota",
+  "Salak",
+  "BBST",
+  "Sepang",
+  "Kota Warisan",
+  "Dengkil",
+  "Jenderam",
+  "Langat Murni",
+  "Olak Lempit",
+  "Banting",
+  "Teluk Panglima Garang",
+  "Putrajaya",
+  "Cyberjaya",
+  "Puchong",
+  "PUJ",
+  "Lestari",
+  "Bangi",
+  "Kajang",
+  "Serdang",
+  "Sri Kembangan",
+  "Cheras",
+  "BTHO",
+  "Alam Damai",
+  "Kuala Lumpur",
+  "Bdr Saujana Putra",
+  "Putra Heights",
+  "USJ",
+  "Klang",
+  "Shah Alam",
+  "Bukit Jelutong",
+  "Denai Alam",
+  "Alam Idaman"
+] as const;
 
 interface TeamScheduleModalProps {
   isOpen: boolean;
@@ -72,6 +112,8 @@ export interface TeamApprovalItem {
   notes?: string;
   hasPassword?: boolean;
 }
+
+type ModalTab = "manage" | "approvals" | "roles" | "password";
 
 export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   isOpen,
@@ -101,13 +143,21 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
 
   // Active view tab inside modal for authenticated users
-  const [activeTab, setActiveTab] = useState<"manage" | "approvals" | "roles" | "password" | "sheets">(initialTab || "manage");
+  const resolveInitialTab = (tab?: TeamScheduleModalProps["initialTab"]): ModalTab => {
+    if (tab === "approvals" || tab === "roles" || tab === "password" || tab === "manage") {
+      return tab;
+    }
+    return "manage";
+  };
+  const [activeTab, setActiveTab] = useState<ModalTab>(() => resolveInitialTab(initialTab));
+
+  // Step-by-step wizard state for Manage Schedule (keeps form compact on mobile)
+  const [manageStep, setManageStep] = useState<1 | 2>(1);
 
   // Team Approvals Management states (for Admin)
   const [teamApprovals, setTeamApprovals] = useState<TeamApprovalItem[]>([]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState<number>(0);
   const [isLoadingApprovals, setIsLoadingApprovals] = useState<boolean>(false);
-  const [approvalsSource, setApprovalsSource] = useState<string>("");
   const [approvalsErrorMsg, setApprovalsErrorMsg] = useState<string | null>(null);
   const [updatingApprovalEmail, setUpdatingApprovalEmail] = useState<string | null>(null);
   const [isTestingEmail, setIsTestingEmail] = useState<boolean>(false);
@@ -129,18 +179,17 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const [allSchedules, setAllSchedules] = useState<ScheduleItem[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
 
-  // Form fields matching Google Sheets JADUAL columns
+  // Form fields (tick/chip backed)
   const [customId, setCustomId] = useState<string>("");
-  const [teamName, setTeamName] = useState<string>("");
-  const [rawDateIso, setRawDateIso] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
+  const [rawDateIso, setRawDateIso] = useState<string>(() => getLocalTodayIso());
   const [date, setDate] = useState<string>("");
-  const [timeSlot, setTimeSlot] = useState<string>("");
-  const [locations, setLocations] = useState<string>("");
-  const [notes, setNotes] = useState<string>("");
+  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
+  const [areaFilterQuery, setAreaFilterQuery] = useState<string>("");
   const [status, setStatus] = useState<"Akan Datang" | "Sedang Bergerak" | "Selesai">("Sedang Bergerak");
   const [sendPushNotification, setSendPushNotification] = useState<boolean>(true);
 
-  // Notification and Sheet Sync Info
+  // Notification & Status Info
   const [subscriberCount, setSubscriberCount] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -148,22 +197,44 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Roles Configuration (for Admin)
-  const [adminEmailsList, setAdminEmailsList] = useState<string[]>([]);
+  const [adminEmailsList, setAdminEmailsList] = useState<string[]>(["maktabahumrr@gmail.com"]);
   const [teamEmailsList, setTeamEmailsList] = useState<string[]>([]);
   const [newAdminEmail, setNewAdminEmail] = useState<string>("");
   const [newTeamEmail, setNewTeamEmail] = useState<string>("");
   const [rolesSaving, setRolesSaving] = useState<boolean>(false);
   const [rolesSuccess, setRolesSuccess] = useState<string | null>(null);
 
-  // Apps Script Code Copy state
-  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  // Derived combined strings
+  const teamName = useMemo(() => selectedTeams.join(", "), [selectedTeams]);
+  const locations = useMemo(() => selectedAreas.join(", "), [selectedAreas]);
+
+  // Strictly show only TODAY and FUTURE schedules in the slot picker (auto-hide past)
+  const upcomingSchedules = useMemo(
+    () => getTodayAndUpcomingSchedules(allSchedules),
+    [allSchedules]
+  );
+
+  // Filtered area options for tick grid
+  const filteredCoverageAreas = useMemo(() => {
+    const q = areaFilterQuery.trim().toLowerCase();
+    // Include any non-standard area from currently edited schedule so it isn't lost
+    const extraCustom = selectedAreas.filter(
+      (a) => !(COVERAGE_AREA_OPTIONS as readonly string[]).includes(a)
+    );
+    const combined = [...COVERAGE_AREA_OPTIONS, ...extraCustom];
+    if (!q) return combined;
+    return combined.filter((area) => area.toLowerCase().includes(q));
+  }, [areaFilterQuery, selectedAreas]);
+
+  const todayIso = getLocalTodayIso();
 
   // Helper for formatting date to Malay
   const formatDateMalay = (isoOrDate: string | Date): string => {
     try {
-      const d = typeof isoOrDate === "string" 
-        ? new Date(isoOrDate + (isoOrDate.includes("T") ? "" : "T00:00:00")) 
-        : isoOrDate;
+      const d =
+        typeof isoOrDate === "string"
+          ? new Date(isoOrDate + (isoOrDate.includes("T") ? "" : "T00:00:00"))
+          : isoOrDate;
       if (isNaN(d.getTime())) return typeof isoOrDate === "string" ? isoOrDate : "";
       return new Intl.DateTimeFormat("ms-MY", {
         weekday: "long",
@@ -176,11 +247,81 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Helper for current date formatted in Malay
   const todayFormatted = formatDateMalay(new Date());
 
-  // Send request to Google Apps Script Web App directly via Client-side Form POST (no backend fetch)
-  const postToGoogleAppsScript = async (payload: any): Promise<{ success: boolean; isHtml?: boolean; error?: string; data?: any }> => {
+  // Sync Approved Team Members automatically into Akaun TEAM (teamEmailsList + localStorage)
+  const syncApprovedIntoTeamEmails = (
+    approvals: TeamApprovalItem[],
+    serverTeamEmails?: string[]
+  ) => {
+    const approvedSet = new Set(
+      approvals
+        .filter((a) => a.status === "approved" && a.email)
+        .map((a) => a.email.trim().toLowerCase())
+    );
+    const blockedSet = new Set(
+      approvals
+        .filter((a) => (a.status === "rejected" || a.status === "pending") && a.email)
+        .map((a) => a.email.trim().toLowerCase())
+    );
+
+    let baseList: string[] = [];
+    if (Array.isArray(serverTeamEmails)) {
+      baseList = serverTeamEmails.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
+    } else {
+      try {
+        const stored = localStorage.getItem("fb_team_emails");
+        const parsed = stored ? JSON.parse(stored) : [];
+        baseList = Array.isArray(parsed)
+          ? parsed.map((e: any) => String(e).trim().toLowerCase()).filter(Boolean)
+          : teamEmailsList;
+      } catch {
+        baseList = teamEmailsList;
+      }
+    }
+
+    const merged = Array.from(
+      new Set([
+        ...baseList.filter((em) => !blockedSet.has(em.toLowerCase())),
+        ...Array.from(approvedSet)
+      ])
+    ).sort();
+
+    setTeamEmailsList(merged);
+    try {
+      localStorage.setItem("fb_team_emails", JSON.stringify(merged));
+    } catch {}
+  };
+
+  // Fetch push subscriber count for preview badge
+  const fetchSubscriberCount = async () => {
+    try {
+      const res = await fetch(`/api/push/status?_t=${Date.now()}`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await safeParseJson(res);
+        if (data && typeof data.totalSubscribers === "number") {
+          setSubscriberCount(data.totalSubscribers);
+        }
+      }
+    } catch {}
+  };
+
+  // Safe JSON parser so empty/HTML responses never trigger syntax errors
+  const safeParseJson = async (res: Response): Promise<any> => {
+    try {
+      const text = await res.text();
+      const trimmed = text.trim();
+      if (!trimmed || trimmed.startsWith("<")) return null;
+      return JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  };
+
+  // Background silent sync to Apps Script endpoint
+  const postToGoogleAppsScript = async (
+    payload: any
+  ): Promise<{ success: boolean; error?: string }> => {
     return new Promise((resolve) => {
       try {
         const iframeId = "gas_hidden_submission_iframe";
@@ -227,7 +368,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       } catch (err: any) {
         resolve({
           success: false,
-          error: err?.message || "Ralat memulakan penghantaran borang ke Google Apps Script."
+          error: err?.message || "Ralat memulakan penghantaran rekod latar belakang."
         });
       }
     });
@@ -242,24 +383,55 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     } catch {}
   };
 
+  const parseTeamsFromString = (raw: string): string[] => {
+    const clean = String(raw || "").trim();
+    if (!clean) return [];
+    const tokens = clean
+      .split(/[,&/+]+|\bdan\b/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const matched: string[] = [];
+    tokens.forEach((tok) => {
+      const canonical = TEAM_NAME_OPTIONS.find(
+        (opt) => opt.toLowerCase() === tok.toLowerCase()
+      );
+      matched.push(canonical || tok);
+    });
+    return Array.from(new Set(matched));
+  };
+
+  const parseAreasFromString = (raw: string): string[] => {
+    const clean = String(raw || "").trim();
+    if (!clean) return [];
+    const tokens = clean
+      .split(/[,;\n•|]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const matched: string[] = [];
+    tokens.forEach((tok) => {
+      const canonical = COVERAGE_AREA_OPTIONS.find(
+        (opt) => opt.toLowerCase() === tok.toLowerCase()
+      );
+      matched.push(canonical || tok);
+    });
+    return Array.from(new Set(matched));
+  };
+
   const populateFormWithSchedule = (item?: ScheduleItem | null) => {
+    setManageStep(1);
+    setAreaFilterQuery("");
     if (item) {
       setSelectedId(item.id);
       setCustomId(item.id);
-      setTeamName(item.teamName || item.driverName || "");
+      setSelectedTeams(parseTeamsFromString(item.teamName || item.driverName || ""));
       setDate(item.date || "");
-      setTimeSlot(item.timeSlot || "");
-      setLocations(item.locations || "");
-      setNotes(item.notes || "");
+      setSelectedAreas(parseAreasFromString(item.locations || ""));
 
-      // Try to parse ISO date if matches
-      try {
-        const parsed = new Date(item.date);
-        if (!isNaN(parsed.getTime())) {
-          setRawDateIso(parsed.toISOString().split("T")[0]);
-        }
-      } catch {
-        // Keep current rawDateIso
+      const parsedDate = parseScheduleDate(item.date, item.lastUpdated);
+      if (parsedDate) {
+        setRawDateIso(getLocalTodayIso(parsedDate));
+      } else {
+        setRawDateIso(getLocalTodayIso());
       }
 
       const s = String(item.status || "").toLowerCase();
@@ -273,19 +445,17 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     } else {
       setSelectedId("");
       setCustomId(`JAD-${(allSchedules.length + 1).toString().padStart(2, "0")}`);
-      setTeamName("");
-      const todayIso = new Date().toISOString().split("T")[0];
-      setRawDateIso(todayIso);
-      setDate(formatDateMalay(todayIso));
-      setTimeSlot("");
-      setLocations("");
-      setNotes("");
+      setSelectedTeams([]);
+      const today = getLocalTodayIso();
+      setRawDateIso(today);
+      setDate(formatDateMalay(today));
+      setSelectedAreas([]);
       setStatus("Sedang Bergerak");
     }
   };
 
-  // Load Roles config for admin from local storage
-  const loadRoles = () => {
+  // Load Roles config from localStorage AND backend /api/auth/roles (which auto-merges Approved team accounts)
+  const loadRoles = async (explicitToken?: string) => {
     try {
       const storedAdmins = localStorage.getItem("fb_admin_emails");
       const storedTeam = localStorage.getItem("fb_team_emails");
@@ -295,6 +465,35 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     } catch {
       setAdminEmailsList(["maktabahumrr@gmail.com"]);
     }
+
+    const token =
+      explicitToken ||
+      authToken ||
+      localStorage.getItem("fb_auth_token") ||
+      (await auth.currentUser?.getIdToken().catch(() => "")) ||
+      "";
+    if (!token) return;
+
+    try {
+      const res = await fetch(`/api/auth/roles?_t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await safeParseJson(res);
+        if (data) {
+          if (Array.isArray(data.adminEmails) && data.adminEmails.length > 0) {
+            setAdminEmailsList(data.adminEmails);
+            try {
+              localStorage.setItem("fb_admin_emails", JSON.stringify(data.adminEmails));
+            } catch {}
+          }
+          if (Array.isArray(data.teamEmails)) {
+            syncApprovedIntoTeamEmails(teamApprovals, data.teamEmails);
+          }
+        }
+      }
+    } catch {}
   };
 
   // Helper: check if an email is Admin
@@ -314,29 +513,21 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     return adminEmailsList.map((e) => e.toLowerCase()).includes(clean);
   };
 
-  // Helper: normalize AKSES TEAM status
+  // Helper: normalize team access status
   const normalizeAccessStatus = (raw: any): "approved" | "pending" | "rejected" | "unregistered" => {
     const s = String(raw || "").trim().toLowerCase();
-    if (s === "approved" || s === "lulus" || s === "diluluskan" || s === "aktif" || s === "active") return "approved";
-    if (s === "rejected" || s === "tolak" || s === "ditolak" || s === "batal" || s === "sekat") return "rejected";
+    if (s === "approved" || s === "lulus" || s === "diluluskan" || s === "aktif" || s === "active")
+      return "approved";
+    if (s === "rejected" || s === "tolak" || s === "ditolak" || s === "batal" || s === "sekat")
+      return "rejected";
     if (s === "unregistered" || s === "tiada") return "unregistered";
     return "pending";
   };
 
-  // Safe JSON parser so empty/HTML responses never trigger "Unexpected end of JSON input"
-  const safeParseJson = async (res: Response): Promise<any> => {
-    try {
-      const text = await res.text();
-      const trimmed = text.trim();
-      if (!trimmed || trimmed.startsWith("<")) return null;
-      return JSON.parse(trimmed);
-    } catch {
-      return null;
-    }
-  };
-
-  // Helper: verify user's AKSES TEAM approval status via server API (or direct Google Apps Script fallback)
-  const checkTeamAccessStatus = async (email: string): Promise<{
+  // Verify user's team approval status via server API (with silent background fallback)
+  const checkTeamAccessStatus = async (
+    email: string
+  ): Promise<{
     status: "approved" | "pending" | "rejected" | "unregistered";
     isAdmin: boolean;
     record?: TeamApprovalItem | null;
@@ -347,9 +538,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
 
     try {
-      const res = await fetch(`/api/team-access/status?email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`, {
-        cache: "no-store"
-      });
+      const res = await fetch(
+        `/api/team-access/status?email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`,
+        { cache: "no-store" }
+      );
       if (res.ok) {
         const data = await safeParseJson(res);
         if (data?.success) {
@@ -362,11 +554,12 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       }
     } catch {}
 
-    // Direct Google Apps Script fallback
+    // Silent remote fallback
     try {
-      const gasRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=checkTeamAccess&email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`, {
-        cache: "no-store"
-      });
+      const gasRes = await fetch(
+        `${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=checkTeamAccess&email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`,
+        { cache: "no-store" }
+      );
       if (gasRes.ok) {
         const gasData = await safeParseJson(gasRes);
         if (gasData && typeof gasData.found === "boolean" && "status" in gasData) {
@@ -396,8 +589,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     return { status: "pending", isAdmin: false, record: null };
   };
 
-  // Helper: register new team member directly to AKSES TEAM (Status: Pending) + trigger email to maktabahumrr@gmail.com
-  const registerTeamAccessToSheet = async (email: string, nama: string): Promise<{
+  // Register new team member (Status: Pending) + email notification to admin
+  const registerTeamAccess = async (
+    email: string,
+    nama: string
+  ): Promise<{
     success: boolean;
     status: "approved" | "pending" | "rejected";
     record?: TeamApprovalItem;
@@ -421,7 +617,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             try {
               const stored = localStorage.getItem("fb_team_approvals");
               const arr = stored ? JSON.parse(stored) : [];
-              const next = Array.isArray(arr) ? arr.filter((x: any) => String(x.email || "").toLowerCase() !== cleanEmail) : [];
+              const next = Array.isArray(arr)
+                ? arr.filter((x: any) => String(x.email || "").toLowerCase() !== cleanEmail)
+                : [];
               next.unshift({ ...data.record, status: finalStatus });
               localStorage.setItem("fb_team_approvals", JSON.stringify(next));
               window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
@@ -437,7 +635,6 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       }
     } catch {}
 
-    // Direct Google Apps Script fallback if backend proxy is unavailable
     await postToGoogleAppsScript({
       action: "TEAM_ACCESS_REGISTER",
       email: cleanEmail,
@@ -450,21 +647,26 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     return {
       success: true,
       status: "pending",
-      message: `Permohonan akses untuk ${cleanName} (${cleanEmail}) telah dihantar ke tab AKSES TEAM dengan status Pending.`
+      message: `Permohonan akses untuk ${cleanName} (${cleanEmail}) telah dihantar dengan status Pending.`
     };
   };
 
-  // Load Team Approvals list for admin directly from Google Sheets tab AKSES TEAM (via server proxy + direct GAS fallback)
+  // Load Team Approvals list & automatically sync Approved emails into Akaun TEAM
   const loadApprovals = async (explicitToken?: string) => {
     setIsLoadingApprovals(true);
     setApprovalsErrorMsg(null);
-    const token = explicitToken || authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+    const token =
+      explicitToken ||
+      authToken ||
+      localStorage.getItem("fb_auth_token") ||
+      (await auth.currentUser?.getIdToken().catch(() => "")) ||
+      "";
 
     try {
       if (token) {
         const res = await fetch(`/api/team-access/list?_t=${Date.now()}`, {
           cache: "no-store",
-          headers: { "Authorization": `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
           const data = await safeParseJson(res);
@@ -475,7 +677,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
               nama: item.nama || item.name || "",
               name: item.nama || item.name || "",
               tarikh: item.tarikh || item.requestedAt || "",
-              status: normalizeAccessStatus(item.status) === "unregistered" ? "pending" : (normalizeAccessStatus(item.status) as "approved" | "pending" | "rejected"),
+              status:
+                normalizeAccessStatus(item.status) === "unregistered"
+                  ? "pending"
+                  : (normalizeAccessStatus(item.status) as "approved" | "pending" | "rejected"),
               requestedAt: item.tarikh || item.requestedAt || "",
               reviewedAt: item.reviewedAt,
               reviewedBy: item.reviewedBy,
@@ -484,7 +689,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             }));
             setTeamApprovals(normalized);
             setPendingApprovalCount(normalized.filter((a) => a.status === "pending").length);
-            setApprovalsSource(data.source === "google_sheets_akses_team" ? "Tab AKSES TEAM (Google Sheets)" : "Cache Pelayan");
+            syncApprovedIntoTeamEmails(normalized);
             try {
               localStorage.setItem("fb_team_approvals", JSON.stringify(normalized));
               window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
@@ -495,10 +700,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         }
       }
 
-      // Direct Google Apps Script fallback
-      const gasRes = await fetch(`${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getTeamAccess&_t=${Date.now()}`, {
-        cache: "no-store"
-      });
+      // Silent direct fallback
+      const gasRes = await fetch(
+        `${GOOGLE_APPS_SCRIPT_WEB_APP_URL}?action=getTeamAccess&_t=${Date.now()}`,
+        { cache: "no-store" }
+      );
       if (gasRes.ok) {
         const gasData = await safeParseJson(gasRes);
         if (gasData?.success && Array.isArray(gasData.teamAccess)) {
@@ -508,13 +714,16 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             nama: item.nama || item.name || "",
             name: item.nama || item.name || "",
             tarikh: item.tarikh || item.requestedAt || "",
-            status: normalizeAccessStatus(item.status) === "unregistered" ? "pending" : (normalizeAccessStatus(item.status) as "approved" | "pending" | "rejected"),
+            status:
+              normalizeAccessStatus(item.status) === "unregistered"
+                ? "pending"
+                : (normalizeAccessStatus(item.status) as "approved" | "pending" | "rejected"),
             requestedAt: item.tarikh || item.requestedAt || "",
             hasPassword: true
           }));
           setTeamApprovals(normalized);
           setPendingApprovalCount(normalized.filter((a) => a.status === "pending").length);
-          setApprovalsSource("Tab AKSES TEAM (Google Sheets)");
+          syncApprovedIntoTeamEmails(normalized);
           try {
             localStorage.setItem("fb_team_approvals", JSON.stringify(normalized));
             window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
@@ -524,9 +733,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         }
       }
 
-      throw new Error("Tidak dapat membaca data daripada tab AKSES TEAM. Pastikan Code.gs terbaru telah di-deploy.");
+      throw new Error("Tidak dapat memuatkan senarai permohonan team buat masa ini.");
     } catch (err: any) {
-      // Fallback to localStorage cache if offline
       try {
         const stored = localStorage.getItem("fb_team_approvals");
         if (stored) {
@@ -534,16 +742,17 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           if (Array.isArray(parsed)) {
             setTeamApprovals(parsed);
             setPendingApprovalCount(parsed.filter((a: any) => a.status === "pending").length);
+            syncApprovedIntoTeamEmails(parsed);
           }
         }
       } catch {}
-      setApprovalsErrorMsg(err?.message || "Gagal memuatkan senarai daripada tab AKSES TEAM.");
+      setApprovalsErrorMsg(err?.message || "Gagal memuatkan senarai kelulusan team.");
     } finally {
       setIsLoadingApprovals(false);
     }
   };
 
-  // Firebase Auth State Listener (Restores session ONLY if Admin or Approved in AKSES TEAM)
+  // Firebase Auth State Listener (Restores session ONLY if Admin or Approved)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser && fbUser.email) {
@@ -562,12 +771,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setAuthToken(token);
             localStorage.setItem("fb_auth_token", token);
             localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
-            loadRoles();
-            loadApprovals(token);
+            await loadApprovals(token);
+            await loadRoles(token);
             return;
           }
 
-          // For non-admin team member: enforce AKSES TEAM status check before restoring session!
           const access = await checkTeamAccessStatus(cleanEmail);
           if (access.status === "approved") {
             const userObj: AuthUser = {
@@ -581,41 +789,44 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             localStorage.setItem("fb_auth_token", token);
             localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
           } else {
-            // Block Pending / Rejected / Unregistered team member
             localStorage.removeItem("fb_auth_token");
             localStorage.removeItem("fb_auth_user");
             setCurrentUser(null);
             setAuthToken("");
             if (access.status === "rejected") {
               setPendingApprovalNotice(null);
-              setAuthError(`Akses Ditolak: Akaun (${cleanEmail}) berstatus Rejected dalam tab AKSES TEAM. Sila hubungi Admin (maktabahumrr@gmail.com).`);
+              setAuthError(
+                `Akses Ditolak: Akaun (${cleanEmail}) berstatus Rejected. Sila hubungi Admin (maktabahumrr@gmail.com).`
+              );
             } else if (access.status === "pending") {
               setPendingApplicantEmail(cleanEmail);
               setPendingApplicantName(access.record?.nama || cleanEmail.split("@")[0]);
               setPendingApprovalNotice(
-                `Akaun anda (${cleanEmail}) masih berstatus Pending dalam tab AKSES TEAM. Akses mengubah jadual disekat sehingga Admin (maktabahumrr@gmail.com) menukar status anda kepada Approved.`
+                `Akaun anda (${cleanEmail}) masih berstatus Pending. Akses mengubah jadual disekat sehingga Admin (maktabahumrr@gmail.com) menukar status anda kepada Approved.`
               );
             }
           }
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // Test Admin Email Notification (sends real email to maktabahumrr@gmail.com + Web Push)
+  // Test Admin Email Notification
   const handleTestEmailNotification = async () => {
     setIsTestingEmail(true);
     setEmailTestResult(null);
     try {
-      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+      const token =
+        authToken ||
+        localStorage.getItem("fb_auth_token") ||
+        (await auth.currentUser?.getIdToken().catch(() => "")) ||
+        "";
       const res = await fetch("/api/team-access/test-email", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         }
       });
       const data = await safeParseJson(res);
@@ -624,7 +835,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       }
       setEmailTestResult(`✅ ${data.message}`);
     } catch (err: any) {
-      setEmailTestResult(`❌ ${err?.message || "Gagal menghantar emel ujian ke maktabahumrr@gmail.com"}`);
+      setEmailTestResult(
+        `❌ ${err?.message || "Gagal menghantar emel ujian ke maktabahumrr@gmail.com"}`
+      );
     } finally {
       setIsTestingEmail(false);
     }
@@ -632,11 +845,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      if (initialTab) {
-        setActiveTab(initialTab);
-      }
+      setActiveTab(resolveInitialTab(initialTab));
+      fetchSubscriberCount();
 
-      // Check cached user and strictly verify non-admin status against AKSES TEAM
       const cachedUserStr = localStorage.getItem("fb_auth_user");
       const storedToken = localStorage.getItem("fb_auth_token");
       if (cachedUserStr && storedToken) {
@@ -646,29 +857,33 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             if (isAdminEmail(parsed.email)) {
               setCurrentUser({ ...parsed, role: "admin" });
               setAuthToken(storedToken);
-              loadRoles();
               loadApprovals(storedToken);
+              loadRoles(storedToken);
             } else {
-              checkTeamAccessStatus(parsed.email).then((access) => {
-                if (access.status === "approved") {
-                  setCurrentUser({ ...parsed, role: "team" });
-                  setAuthToken(storedToken);
-                } else {
-                  localStorage.removeItem("fb_auth_token");
-                  localStorage.removeItem("fb_auth_user");
-                  setCurrentUser(null);
-                  setAuthToken("");
-                  if (access.status === "pending") {
-                    setPendingApplicantEmail(parsed.email.toLowerCase());
-                    setPendingApplicantName(access.record?.nama || parsed.name || parsed.email.split("@")[0]);
-                    setPendingApprovalNotice(
-                      `Akaun anda (${parsed.email}) masih berstatus Pending dalam tab AKSES TEAM. Akses disekat sehingga Admin meluluskan permohonan anda.`
-                    );
-                  } else if (access.status === "rejected") {
-                    setAuthError(`Akses Ditolak: Akaun (${parsed.email}) berstatus Rejected dalam tab AKSES TEAM.`);
+              checkTeamAccessStatus(parsed.email)
+                .then((access) => {
+                  if (access.status === "approved") {
+                    setCurrentUser({ ...parsed, role: "team" });
+                    setAuthToken(storedToken);
+                  } else {
+                    localStorage.removeItem("fb_auth_token");
+                    localStorage.removeItem("fb_auth_user");
+                    setCurrentUser(null);
+                    setAuthToken("");
+                    if (access.status === "pending") {
+                      setPendingApplicantEmail(parsed.email.toLowerCase());
+                      setPendingApplicantName(
+                        access.record?.nama || parsed.name || parsed.email.split("@")[0]
+                      );
+                      setPendingApprovalNotice(
+                        `Akaun anda (${parsed.email}) masih berstatus Pending. Akses disekat sehingga Admin meluluskan permohonan anda.`
+                      );
+                    } else if (access.status === "rejected") {
+                      setAuthError(`Akses Ditolak: Akaun (${parsed.email}) berstatus Rejected.`);
+                    }
                   }
-                }
-              }).catch(() => {});
+                })
+                .catch(() => {});
             }
           }
         } catch {}
@@ -688,11 +903,26 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   useEffect(() => {
     if (!isOpen || currentUser?.role !== "admin") return;
     loadApprovals();
+    loadRoles();
   }, [isOpen, currentUser]);
 
   if (!isOpen) return null;
 
-  // Single Unified Form: Firebase Authentication + AKSES TEAM Pending/Approved/Rejected Gate
+  // Toggle Team Name selection
+  const toggleTeamOption = (name: string) => {
+    setSelectedTeams((prev) =>
+      prev.includes(name) ? prev.filter((item) => item !== name) : [...prev, name]
+    );
+  };
+
+  // Toggle Area selection
+  const toggleAreaOption = (area: string) => {
+    setSelectedAreas((prev) =>
+      prev.includes(area) ? prev.filter((item) => item !== area) : [...prev, area]
+    );
+  };
+
+  // Single Unified Form: Firebase Authentication + Approval Gate
   const handleUnifiedLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = googleEmailInput.trim().toLowerCase();
@@ -705,18 +935,19 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       return;
     }
 
-    // Mode: Lupa Kata Laluan via Firebase Reset Email
     if (authMode === "forgot") {
       setIsAuthenticating(true);
       setAuthError("");
       setForgotSuccess(null);
       try {
         await sendPasswordResetEmail(auth, cleanEmail);
-        setForgotSuccess(`Pautan reset kata laluan Firebase telah dihantar ke ${cleanEmail}. Sila semak peti masuk atau folder spam email anda.`);
+        setForgotSuccess(
+          `Pautan reset kata laluan telah dihantar ke ${cleanEmail}. Sila semak peti masuk atau folder spam email anda.`
+        );
       } catch (err: any) {
         let msg = err.message || "Gagal menghantar email reset kata laluan.";
         if (err.code === "auth/user-not-found") {
-          msg = "Akaun Firebase dengan email ini belum wujud. Sila daftar akaun baru.";
+          msg = "Akaun dengan email ini belum wujud. Sila daftar akaun baru.";
         } else if (err.code === "auth/invalid-email") {
           msg = "Format alamat email tidak sah.";
         }
@@ -738,7 +969,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
 
     if (cleanPassword.length < 6) {
-      setAuthError("Kata laluan Firebase mestilah sekurang-kurangnya 6 aksara.");
+      setAuthError("Kata laluan mestilah sekurang-kurangnya 6 aksara.");
       return;
     }
 
@@ -774,13 +1005,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       const adminUser = isAdminEmail(userEmail);
       const role: "admin" | "team" = adminUser ? "admin" : "team";
 
-      // 1. If TEAM (non-admin): verify or register in Google Sheets tab AKSES TEAM
       if (role === "team") {
         const applicantName = cleanName || fbUser.displayName || userEmail.split("@")[0];
 
         if (authMode === "signup") {
-          // New registration: write directly to tab AKSES TEAM as Pending + email maktabahumrr@gmail.com
-          const regRes = await registerTeamAccessToSheet(userEmail, applicantName);
+          const regRes = await registerTeamAccess(userEmail, applicantName);
           if (regRes.status !== "approved") {
             await firebaseSignOut(auth).catch(() => {});
             localStorage.removeItem("fb_auth_token");
@@ -792,20 +1021,18 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setPendingApplicantEmail(userEmail);
             setPendingApplicantName(applicantName);
             if (regRes.status === "rejected") {
-              setAuthError(`Akses Ditolak: Akaun (${userEmail}) berstatus Rejected dalam tab AKSES TEAM.`);
+              setAuthError(`Akses Ditolak: Akaun (${userEmail}) berstatus Rejected.`);
             } else {
               setPendingApprovalNotice(
-                `Pendaftaran berjaya! Permohonan anda (${applicantName} - ${userEmail}) telah dihantar terus ke tab AKSES TEAM dengan status Pending dan notifikasi emel telah dihantar ke maktabahumrr@gmail.com. Akses ke jadual disekat sehingga Admin meluluskan permohonan anda.`
+                `Pendaftaran berjaya! Permohonan anda (${applicantName} - ${userEmail}) berstatus Pending dan notifikasi emel telah dihantar ke Admin. Akses ke jadual disekat sehingga Admin meluluskan permohonan anda.`
               );
             }
             return;
           }
         } else {
-          // Login mode: check AKSES TEAM status strictly
           const accessCheck = await checkTeamAccessStatus(userEmail);
           if (accessCheck.status === "unregistered") {
-            // Existing Firebase account not yet recorded in AKSES TEAM -> register as Pending and block
-            await registerTeamAccessToSheet(userEmail, applicantName);
+            await registerTeamAccess(userEmail, applicantName);
             await firebaseSignOut(auth).catch(() => {});
             localStorage.removeItem("fb_auth_token");
             localStorage.removeItem("fb_auth_user");
@@ -815,7 +1042,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setPendingApplicantEmail(userEmail);
             setPendingApplicantName(applicantName);
             setPendingApprovalNotice(
-              `Akaun anda (${userEmail}) telah direkodkan ke tab AKSES TEAM dengan status Pending dan notifikasi telah dihantar ke Admin (maktabahumrr@gmail.com). Sila tunggu kelulusan (Approved) sebelum mengubah jadual.`
+              `Akaun anda (${userEmail}) telah direkodkan dengan status Pending dan notifikasi telah dihantar ke Admin (maktabahumrr@gmail.com). Sila tunggu kelulusan (Approved) sebelum mengubah jadual.`
             );
             return;
           }
@@ -829,7 +1056,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setPendingApplicantEmail(userEmail);
             setPendingApplicantName(accessCheck.record?.nama || applicantName);
             setPendingApprovalNotice(
-              `Akaun anda (${userEmail}) masih berstatus Pending dalam tab AKSES TEAM. Akses mengakses atau mengubah jadual disekat sehingga Admin meluluskan permohonan anda (Approved).`
+              `Akaun anda (${userEmail}) masih berstatus Pending. Akses mengurus jadual disekat sehingga Admin meluluskan permohonan anda (Approved).`
             );
             return;
           }
@@ -840,7 +1067,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setCurrentUser(null);
             setAuthToken("");
             setPasswordInput("");
-            setAuthError(`Akses Ditolak: Permohonan akaun (${userEmail}) telah ditolak (Rejected) oleh Admin dalam tab AKSES TEAM.`);
+            setAuthError(
+              `Akses Ditolak: Permohonan akaun (${userEmail}) telah ditolak (Rejected) oleh Admin.`
+            );
             return;
           }
         }
@@ -863,19 +1092,20 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       setAuthError("");
 
       if (role === "admin") {
-        loadRoles();
-        loadApprovals(idToken);
+        await loadApprovals(idToken);
+        await loadRoles(idToken);
       }
     } catch (err: any) {
       let msg = err.message || "Ralat log masuk.";
       if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
-        msg = "Email atau kata laluan tidak sepadan. Sila semak semula atau gunakan pilihan 'Lupa Kata Laluan'.";
+        msg =
+          "Email atau kata laluan tidak sepadan. Sila semak semula atau gunakan pilihan 'Lupa Kata Laluan'.";
       } else if (err.code === "auth/user-not-found") {
-        msg = "Akaun Firebase ini belum wujud. Sila klik pendaftaran akaun pasukan baru.";
+        msg = "Akaun ini belum wujud. Sila klik pendaftaran akaun pasukan baru.";
       } else if (err.code === "auth/email-already-in-use") {
-        msg = "Email ini telah didaftarkan dalam Firebase Authentication. Sila pilih mod Log Masuk atau reset kata laluan.";
+        msg = "Email ini telah didaftarkan. Sila pilih mod Log Masuk atau reset kata laluan.";
       } else if (err.code === "auth/weak-password") {
-        msg = "Kata laluan Firebase mestilah sekurang-kurangnya 6 aksara.";
+        msg = "Kata laluan mestilah sekurang-kurangnya 6 aksara.";
       } else if (err.code === "auth/invalid-email") {
         msg = "Format alamat email tidak sah.";
       } else if (err.code === "auth/too-many-requests") {
@@ -887,31 +1117,44 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Admin Approve / Reject Team Member -> Writes directly to Google Sheets tab AKSES TEAM
-  const handleApproveTeamMember = async (itemOrEmail: TeamApprovalItem | string, status: "approved" | "rejected" | "pending") => {
-    const item = typeof itemOrEmail === "string"
-      ? teamApprovals.find((a) => a.email.toLowerCase() === itemOrEmail.toLowerCase()) || { email: itemOrEmail, status: "pending", requestedAt: "" }
-      : itemOrEmail;
+  // Admin Approve / Reject Team Member -> Automatically updates Akaun TEAM & backend permissions
+  const handleApproveTeamMember = async (
+    itemOrEmail: TeamApprovalItem | string,
+    nextStatus: "approved" | "rejected" | "pending"
+  ) => {
+    const item =
+      typeof itemOrEmail === "string"
+        ? teamApprovals.find((a) => a.email.toLowerCase() === itemOrEmail.toLowerCase()) || {
+            email: itemOrEmail,
+            status: "pending",
+            requestedAt: ""
+          }
+        : itemOrEmail;
     const targetEmail = item.email.trim().toLowerCase();
-    const sheetStatus = status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Pending";
+    const formattedStatus =
+      nextStatus === "approved" ? "Approved" : nextStatus === "rejected" ? "Rejected" : "Pending";
 
     setUpdatingApprovalEmail(targetEmail);
     setApprovalsSuccessMsg(null);
     setApprovalsErrorMsg(null);
 
     try {
-      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+      const token =
+        authToken ||
+        localStorage.getItem("fb_auth_token") ||
+        (await auth.currentUser?.getIdToken().catch(() => "")) ||
+        "";
       const res = await fetch("/api/team-access/update", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           id: item.id,
           email: targetEmail,
           nama: item.nama || item.name,
-          status: sheetStatus,
+          status: formattedStatus,
           sendEmail: true
         })
       });
@@ -922,42 +1165,49 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       }
 
       if (!res.ok || !data?.success || !data?.sheetsSynced) {
-        // Fallback terus ke Google Apps Script jika pelayan tidak mengembalikan JSON atau gagal sync
         await postToGoogleAppsScript({
           action: "TEAM_ACCESS_UPDATE",
           id: item.id,
           email: targetEmail,
           nama: item.nama || item.name,
-          status: sheetStatus,
+          status: formattedStatus,
           sendEmail: true
         });
       }
 
       const updated = teamApprovals.map((a) =>
-        a.email.toLowerCase() === targetEmail ? { ...a, status } : a
+        a.email.toLowerCase() === targetEmail ? { ...a, status: nextStatus } : a
       );
       setTeamApprovals(updated);
       setPendingApprovalCount(updated.filter((a) => a.status === "pending").length);
+      syncApprovedIntoTeamEmails(
+        updated,
+        Array.isArray(data?.teamEmails) ? data.teamEmails : undefined
+      );
+
       try {
         localStorage.setItem("fb_team_approvals", JSON.stringify(updated));
         window.dispatchEvent(new CustomEvent("fb_approvals_updated"));
       } catch {}
 
-      const emailNotice = (sheetStatus === "Approved" || sheetStatus === "Rejected")
-        ? ` Emel makluman telah dihantar ke ${targetEmail}.`
-        : "";
+      const emailNotice =
+        formattedStatus === "Approved" || formattedStatus === "Rejected"
+          ? ` Emel makluman telah dihantar ke ${targetEmail}.`
+          : "";
       setApprovalsSuccessMsg(
-        `Status untuk ${item.nama || targetEmail} dalam tab AKSES TEAM berjaya ditukar kepada ${sheetStatus}.${emailNotice}`
+        nextStatus === "approved"
+          ? `Status ${item.nama || targetEmail} ditukar kepada Approved & terus dimasukkan ke Akaun TEAM.${emailNotice}`
+          : `Status untuk ${item.nama || targetEmail} berjaya ditukar kepada ${formattedStatus}.${emailNotice}`
       );
-      setTimeout(() => setApprovalsSuccessMsg(null), 4000);
+      setTimeout(() => setApprovalsSuccessMsg(null), 4500);
     } catch (err: any) {
-      setApprovalsErrorMsg(err?.message || "Ralat semasa mengemaskini kelulusan AKSES TEAM.");
+      setApprovalsErrorMsg(err?.message || "Ralat semasa mengemaskini kelulusan team.");
     } finally {
       setUpdatingApprovalEmail(null);
     }
   };
 
-  // Team Member: Check live AKSES TEAM status from Pending notice card
+  // Team Member: Check live approval status from Pending notice card
   const handleCheckPendingApprovalStatus = async () => {
     const cleanEmail = (pendingApplicantEmail || googleEmailInput).trim().toLowerCase();
     if (!cleanEmail) return;
@@ -968,20 +1218,26 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       if (access.status === "approved") {
         setPendingApprovalNotice(null);
         setAuthError("");
-        setForgotSuccess(`Tahniah! Akaun anda (${cleanEmail}) telah DILULUSKAN (Approved) oleh Admin. Sila masukkan kata laluan untuk log masuk.`);
+        setForgotSuccess(
+          `Tahniah! Akaun anda (${cleanEmail}) telah DILULUSKAN (Approved) oleh Admin. Sila masukkan kata laluan untuk log masuk.`
+        );
         setAuthMode("login");
       } else if (access.status === "rejected") {
         setPendingApprovalNotice(null);
-        setAuthError(`Akses Ditolak: Akaun (${cleanEmail}) telah ditukar kepada Rejected oleh Admin dalam tab AKSES TEAM.`);
+        setAuthError(
+          `Akses Ditolak: Akaun (${cleanEmail}) telah ditukar kepada Rejected oleh Admin.`
+        );
       } else {
-        setResendApprovalSuccess("Status dalam tab AKSES TEAM masih Pending. Sila tunggu Admin meluluskan permohonan anda.");
+        setResendApprovalSuccess(
+          "Status permohonan masih Pending. Sila tunggu Admin meluluskan permohonan anda."
+        );
       }
     } finally {
       setIsCheckingPendingStatus(false);
     }
   };
 
-  // Team Member: Re-send approval email request to Admin maktabahumrr@gmail.com
+  // Team Member: Re-send approval email request to Admin
   const handleResendApprovalNotification = async () => {
     const cleanEmail = (pendingApplicantEmail || googleEmailInput).trim().toLowerCase();
     const cleanName = pendingApplicantName || fullNameInput.trim() || cleanEmail.split("@")[0];
@@ -1001,9 +1257,13 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           nama: cleanName
         });
       }
-      setResendApprovalSuccess("Notifikasi emel permohonan telah dihantar ke maktabahumrr@gmail.com!");
+      setResendApprovalSuccess(
+        "Notifikasi emel permohonan telah dihantar ke maktabahumrr@gmail.com!"
+      );
     } catch {
-      setResendApprovalSuccess("Permintaan notifikasi telah dihantar ke pihak Admin (maktabahumrr@gmail.com).");
+      setResendApprovalSuccess(
+        "Permintaan notifikasi telah dihantar ke pihak Admin (maktabahumrr@gmail.com)."
+      );
     } finally {
       setIsResendingApproval(false);
     }
@@ -1020,8 +1280,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       setChangePasswordError("Pengesahan password baharu tidak sepadan.");
       return;
     }
-    if (newPasswordInput.length < 3) {
-      setChangePasswordError("Password baharu mestilah sekurang-kurangnya 3 aksara/digit.");
+    if (newPasswordInput.length < 6) {
+      setChangePasswordError("Password baharu mestilah sekurang-kurangnya 6 aksara/digit.");
       return;
     }
 
@@ -1031,42 +1291,44 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
     try {
       if (!auth.currentUser) {
-        throw new Error("Sesi pengguna Firebase tidak ditemui. Sila log masuk semula.");
+        throw new Error("Sesi pengguna tidak ditemui. Sila log masuk semula.");
       }
       await firebaseUpdatePassword(auth.currentUser, newPasswordInput.trim());
 
-      setChangePasswordSuccess("Password Firebase anda telah berjaya dikemaskini!");
+      setChangePasswordSuccess("Kata laluan anda telah berjaya dikemaskini!");
       setCurrentPasswordInput("");
       setNewPasswordInput("");
       setConfirmNewPasswordInput("");
     } catch (err: any) {
-      setChangePasswordError(err.message || "Ralat menukar password.");
+      setChangePasswordError(err.message || "Ralat menukar kata laluan.");
     } finally {
       setIsChangingPassword(false);
     }
   };
 
-  // Admin Reset User Password via Firebase SDK
+  // Admin Reset User Password
   const handleAdminResetPassword = async (targetEmail: string) => {
-    if (!window.confirm(`Adakah anda pasti ingin reset password untuk ${targetEmail}? Pautan reset kata laluan Firebase akan dihantar ke email pengguna.`)) {
+    if (
+      !window.confirm(
+        `Adakah anda pasti ingin reset kata laluan untuk ${targetEmail}? Pautan reset akan dihantar ke email pengguna.`
+      )
+    ) {
       return;
     }
 
     try {
       await sendPasswordResetEmail(auth, targetEmail.trim().toLowerCase());
-      setRolesSuccess(`Pautan reset kata laluan Firebase telah dihantar ke ${targetEmail}.`);
+      setRolesSuccess(`Pautan reset kata laluan telah dihantar ke ${targetEmail}.`);
       setTimeout(() => setRolesSuccess(null), 4000);
     } catch (err: any) {
-      alert(err.message || "Ralat reset password Firebase.");
+      setApprovalsErrorMsg(err.message || "Ralat reset kata laluan.");
     }
   };
 
   const handleLogout = async () => {
     try {
       await firebaseSignOut(auth);
-    } catch {
-      // ignore
-    }
+    } catch {}
     localStorage.removeItem("fb_auth_token");
     localStorage.removeItem("fb_auth_user");
     setCurrentUser(null);
@@ -1081,7 +1343,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setConfirmPasswordInput("");
   };
 
-  // Submit Schedule (Create or Update) to Google Apps Script Web App
+  // Submit Schedule (Create or Update)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) {
@@ -1094,14 +1356,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         await handleLogout();
         setAuthError(
           access.status === "rejected"
-            ? `Akses Ditolak: Akaun (${currentUser.email}) berstatus Rejected dalam tab AKSES TEAM.`
-            : `Akses Disekat: Akaun (${currentUser.email}) berstatus Pending dalam tab AKSES TEAM.`
+            ? `Akses Ditolak: Akaun (${currentUser.email}) berstatus Rejected.`
+            : `Akses Disekat: Akaun (${currentUser.email}) berstatus Pending.`
         );
         return;
       }
     }
-    if (!locations.trim()) {
-      setSubmitError("Sila masukkan kawasan pergerakan.");
+    if (selectedAreas.length === 0) {
+      setSubmitError("Sila pilih sekurang-kurangnya satu kawasan liputan.");
+      setManageStep(2);
       return;
     }
 
@@ -1109,7 +1372,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setSubmitError(null);
     setSubmitSuccess(null);
 
-    const scheduleId = selectedId || customId || `JAD-${(allSchedules.length + 1).toString().padStart(2, "0")}`;
+    const scheduleId =
+      selectedId || customId || `JAD-${(allSchedules.length + 1).toString().padStart(2, "0")}`;
     const action = selectedId ? "SCHEDULE_UPDATE" : "SCHEDULE_CREATE";
     const finalTeam = teamName.trim();
     const finalDate = (date.trim() || todayFormatted).trim();
@@ -1118,8 +1382,6 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     const finalNotes = "";
     const finalStatus = status;
 
-    // Google Apps Script doPost(e) expected payload:
-    // Tab: JADUAL (7 lajur: ID JADUAL | NAMA TEAM | TARIKH | MASA | KAWASAN | CATATAN | STATUS)
     const webAppPayload = {
       idJadual: scheduleId,
       namaTeam: finalTeam,
@@ -1159,25 +1421,24 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     };
 
     try {
-      // 1. Direct POST to Google Apps Script Web App URL via client-side form submit
       const webAppResult = await postToGoogleAppsScript(webAppPayload);
 
-      // 2. Broadcast notification locally if enabled
       const notifTitle = "FrozenBergerak 📍 Jadual Pergerakan Dikemaskini";
       const notifBody = `${finalTeam ? `${finalTeam}: ` : ""}Pergerakan di ${finalLocations} (${finalDate}).`;
 
       if (sendPushNotification && typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("frozen_live_notification", {
-          detail: {
-            title: notifTitle,
-            body: notifBody,
-            url: "/#section-jadual-pergerakan",
-            timestamp: Date.now()
-          }
-        }));
+        window.dispatchEvent(
+          new CustomEvent("frozen_live_notification", {
+            detail: {
+              title: notifTitle,
+              body: notifBody,
+              url: "/#section-jadual-pergerakan",
+              timestamp: Date.now()
+            }
+          })
+        );
       }
 
-      // Update local storage and allSchedules
       const newScheduleObj: ScheduleItem = {
         id: scheduleId,
         teamName: finalTeam,
@@ -1191,32 +1452,31 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
       setAllSchedules((prev) => {
         const idx = prev.findIndex((s) => s.id === scheduleId);
-        let updated;
-        if (idx >= 0) {
-          updated = [...prev];
-          updated[idx] = newScheduleObj;
-        } else {
-          updated = [newScheduleObj, ...prev];
-        }
+        const updated =
+          idx >= 0
+            ? prev.map((item, i) => (i === idx ? newScheduleObj : item))
+            : [newScheduleObj, ...prev];
         try {
           localStorage.setItem("frozen_schedules", JSON.stringify(updated));
         } catch {}
         return updated;
       });
 
-      // 1. Save to Firebase Database (Firestore) globally across all devices
       saveScheduleToFirestore(newScheduleObj).catch((fbErr) => {
         console.warn("[ScheduleSync] Firestore save note:", fbErr);
       });
 
-      // 2. Persist to Server Database (/api/schedule/update) globally
-      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+      const token =
+        authToken ||
+        localStorage.getItem("fb_auth_token") ||
+        (await auth.currentUser?.getIdToken().catch(() => "")) ||
+        "";
       try {
         const updateRes = await fetch("/api/schedule/update", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(token ? { "Authorization": `Bearer ${token}` } : {})
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
           body: JSON.stringify({
             id: scheduleId,
@@ -1238,7 +1498,6 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
               localStorage.setItem("frozen_schedules", JSON.stringify(updateData.schedules));
             } catch {}
           }
-          console.log("[ScheduleSync] ✅ Rekod jadual disimpan secara global pada server:", scheduleId);
         } else if (updateRes.status === 403) {
           const errBody = (await safeParseJson(updateRes)) || {};
           setSubmitError(errBody.error || "Akses disekat: Akaun belum diluluskan oleh Admin.");
@@ -1250,10 +1509,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       }
 
       if (webAppResult.success) {
-        setSubmitSuccess(`Jadual pergerakan berjaya disimpan & disegerakkan ke Google Sheets tab JADUAL`);
+        setSubmitSuccess("Jadual pergerakan berjaya disimpan dan dikemaskini untuk pelanggan!");
         setTimeout(() => setSubmitSuccess(null), 3500);
       } else {
-        setSubmitError(webAppResult.error || "Gagal memulakan penghantaran ke Google Sheets Web App.");
+        setSubmitError(webAppResult.error || "Gagal menyimpan rekod jadual.");
       }
 
       onScheduleUpdated();
@@ -1264,18 +1523,18 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Delete Schedule globally across all devices (Server, Firebase Database, & Google Sheets)
+  // Delete Schedule globally
   const handleDelete = async () => {
     if (!selectedId || !currentUser) return;
     if (currentUser.role !== "admin") {
       const access = await checkTeamAccessStatus(currentUser.email);
       if (access.status !== "approved") {
         await handleLogout();
-        setAuthError("Akses disekat: Akaun anda belum diluluskan oleh Admin dalam tab AKSES TEAM.");
+        setAuthError("Akses disekat: Akaun anda belum diluluskan oleh Admin.");
         return;
       }
     }
-    if (!window.confirm("Adakah anda pasti mahu memadam slot jadual ini daripada sistem & Google Sheets tab JADUAL?")) return;
+    if (!window.confirm("Adakah anda pasti mahu memadam slot jadual ini?")) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -1290,14 +1549,17 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     };
 
     try {
-      // 1. Delete from Server Database globally (/api/schedule/delete)
-      const token = authToken || localStorage.getItem("fb_auth_token") || (await auth.currentUser?.getIdToken().catch(() => "")) || "";
+      const token =
+        authToken ||
+        localStorage.getItem("fb_auth_token") ||
+        (await auth.currentUser?.getIdToken().catch(() => "")) ||
+        "";
       try {
         const delRes = await fetch("/api/schedule/delete", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(token ? { "Authorization": `Bearer ${token}` } : {})
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
           body: JSON.stringify({ id: targetIdToDelete, token })
         });
@@ -1309,7 +1571,6 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
               localStorage.setItem("frozen_schedules", JSON.stringify(resData.schedules));
             } catch {}
           }
-          console.log("[ScheduleSync] ✅ Rekod jadual dipadam secara global dari server:", targetIdToDelete);
         } else if (delRes.status === 403) {
           const errBody = (await safeParseJson(delRes)) || {};
           setSubmitError(errBody.error || "Akses disekat: Akaun belum diluluskan oleh Admin.");
@@ -1320,17 +1581,14 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         console.warn("[ScheduleSync] Server delete call note:", serverErr);
       }
 
-      // 2. Delete from Firebase Database (Firestore) globally
       try {
         await deleteScheduleFromFirestore(targetIdToDelete);
       } catch (fbErr) {
         console.warn("[ScheduleSync] Firestore delete note:", fbErr);
       }
 
-      // 3. Post delete to Google Apps Script Web App
-      const webAppResult = await postToGoogleAppsScript(deletePayload);
+      await postToGoogleAppsScript(deletePayload);
 
-      // 4. Update local state
       setAllSchedules((prev) => {
         const filtered = prev.filter((s) => s.id !== targetIdToDelete);
         try {
@@ -1339,11 +1597,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         return filtered;
       });
 
-      if (webAppResult.success) {
-        setSubmitSuccess(`Jadual (${targetIdToDelete}) berjaya dipadam secara kekal di semua peranti & tab JADUAL.`);
-      } else {
-        setSubmitSuccess(`Jadual (${targetIdToDelete}) dipadam secara kekal dari pangkalan data sistem.`);
-      }
+      setSubmitSuccess(`Jadual (${targetIdToDelete}) berjaya dipadam secara kekal.`);
       setTimeout(() => setSubmitSuccess(null), 3500);
 
       populateFormWithSchedule(null);
@@ -1355,39 +1609,62 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   };
 
-  // Sync fresh from Google Sheets tab JADUAL / Firebase Database
-  const handleSyncFromSheets = async () => {
+  // Refresh schedules silently in background
+  const handleRefreshSchedules = async () => {
     setIsSyncing(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
       const result = await fetchScheduleWithFallback();
       if (result.source === "sync_error" || result.error) {
-        setSubmitError(result.error || "Gagal menyegerakkan jadual langsung dari Google Sheets / Firebase.");
+        setSubmitError(result.error || "Gagal memuatkan jadual terkini. Sila cuba sebentar lagi.");
         return;
       }
 
-      setAllSchedules(Array.isArray(result.schedules) ? result.schedules : []);
+      const rawList = Array.isArray(result.schedules) ? result.schedules : [];
+      setAllSchedules(rawList);
+      const activeCount = getTodayAndUpcomingSchedules(rawList).length;
       onScheduleUpdated();
 
-      if (result.source === "firebase_database") {
-        setSubmitSuccess(`Berjaya menyegerakkan ${result.schedules.length} rekod dari Firebase Database.`);
-      } else {
-        setSubmitSuccess(`Berjaya menyegerakkan ${result.schedules.length} rekod terus dari Google Sheets tab JADUAL!`);
-      }
+      setSubmitSuccess(`Senarai jadual dikemaskini (${activeCount} slot aktif hari ini & akan datang).`);
       setTimeout(() => setSubmitSuccess(null), 3500);
     } catch (err: any) {
-      setSubmitError(err?.message || "Gagal menyegerakkan data jadual buat masa ini.");
+      setSubmitError(err?.message || "Gagal memuat semula data jadual buat masa ini.");
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Save updated Roles (Admin Only) via localStorage
+  // Save updated Roles (Admin Only) -> persists to server AND localStorage
   const handleSaveRoles = async () => {
     setRolesSaving(true);
     setRolesSuccess(null);
     try {
+      const token =
+        authToken ||
+        localStorage.getItem("fb_auth_token") ||
+        (await auth.currentUser?.getIdToken().catch(() => "")) ||
+        "";
+
+      if (token) {
+        const res = await fetch("/api/auth/roles", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            adminEmails: adminEmailsList,
+            teamEmails: teamEmailsList
+          })
+        });
+        if (res.ok) {
+          const data = await safeParseJson(res);
+          if (Array.isArray(data?.adminEmails)) setAdminEmailsList(data.adminEmails);
+          if (Array.isArray(data?.teamEmails)) setTeamEmailsList(data.teamEmails);
+        }
+      }
+
       localStorage.setItem("fb_admin_emails", JSON.stringify(adminEmailsList));
       localStorage.setItem("fb_team_emails", JSON.stringify(teamEmailsList));
       setRolesSuccess("Senarai akaun ADMIN & TEAM berjaya dikemaskini.");
@@ -1424,67 +1701,30 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setTeamEmailsList(teamEmailsList.filter((e) => e !== emailToRemove));
   };
 
-  const copyAppsScript = async () => {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(UNIFIED_APPS_SCRIPT_CODE);
-      } else {
-        throw new Error("Clipboard API unavailable");
-      }
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = UNIFIED_APPS_SCRIPT_CODE;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      try {
-        document.execCommand("copy");
-      } finally {
-        document.body.removeChild(ta);
-      }
-    }
-    setCopiedScript(true);
-    setTimeout(() => setCopiedScript(false), 2500);
-  };
-
-  const downloadAppsScript = () => {
-    const blob = new Blob([UNIFIED_APPS_SCRIPT_CODE], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "Code.gs";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto animate-fade-in">
-      <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl border border-slate-200 overflow-hidden my-6 max-h-[90vh] flex flex-col">
-        
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto animate-fade-in">
+      <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden my-4 sm:my-6 max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white p-5 sm:p-6 relative flex-shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+            aria-label="Tutup tetingkap"
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
-          
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-amber-300 border border-white/20">
+
+          <div className="flex items-center gap-3.5 pr-8">
+            <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-amber-300 border border-white/20 shrink-0">
               <Users className="w-6 h-6" />
             </div>
             <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider mb-1">
-                <Sparkles className="w-3 h-3" />
-                Team Update &bull; Tab JADUAL
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-400/20 text-amber-200 border border-amber-400/30 tracking-wide mb-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Panel Pasukan FrozenBergerak</span>
               </div>
-              <h2 className="text-xl font-bold tracking-tight text-white">
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
                 Kemas Kini Jadual Pasukan
               </h2>
             </div>
@@ -1492,23 +1732,25 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
           {/* User badge if logged in */}
           {currentUser && (
-            <div className="mt-3 pt-3 border-t border-white/15 flex items-center justify-between flex-wrap gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
-                  currentUser.role === "admin" 
-                    ? "bg-amber-400 text-amber-950" 
-                    : "bg-emerald-400 text-emerald-950"
-                }`}>
+            <div className="mt-3.5 pt-3 border-t border-white/15 flex items-center justify-between flex-wrap gap-2 text-sm">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase tracking-wider shrink-0 ${
+                    currentUser.role === "admin"
+                      ? "bg-amber-400 text-amber-950"
+                      : "bg-emerald-400 text-emerald-950"
+                  }`}
+                >
                   {currentUser.role === "admin" ? "🛡️ ADMIN" : "🚚 TEAM"}
                 </span>
-                <span className="text-white/90 font-medium truncate max-w-[200px]">{currentUser.email}</span>
+                <span className="text-white/95 font-medium truncate">{currentUser.email}</span>
               </div>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors"
+                className="px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <LogOut className="w-3 h-3" />
+                <LogOut className="w-3.5 h-3.5" />
                 <span>Log Keluar</span>
               </button>
             </div>
@@ -1517,18 +1759,18 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
         {/* Navigation Tabs for Logged in Users */}
         {currentUser && (
-          <div className="flex border-b border-slate-200 bg-slate-50 px-5 flex-shrink-0 overflow-x-auto">
+          <div className="flex border-b border-slate-200 bg-slate-50 px-4 sm:px-6 flex-shrink-0 overflow-x-auto">
             <button
               type="button"
               onClick={() => setActiveTab("manage")}
-              className={`py-3 px-4 text-xs font-bold border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
+              className={`py-3.5 px-4 text-sm font-bold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
                 activeTab === "manage"
-                  ? "border-blue-600 text-blue-600 bg-white"
+                  ? "border-blue-600 text-blue-700 bg-white"
                   : "border-transparent text-slate-600 hover:text-slate-900"
               }`}
             >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Urus Jadual JADUAL</span>
+              <Edit3 className="w-4 h-4" />
+              <span>Urus Jadual</span>
             </button>
 
             {currentUser.role === "admin" && (
@@ -1539,16 +1781,16 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                     setActiveTab("approvals");
                     loadApprovals();
                   }}
-                  className={`py-3 px-4 text-xs font-bold border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
+                  className={`py-3.5 px-4 text-sm font-bold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
                     activeTab === "approvals"
-                      ? "border-blue-600 text-blue-600 bg-white"
+                      ? "border-blue-600 text-blue-700 bg-white"
                       : "border-transparent text-slate-600 hover:text-slate-900"
                   }`}
                 >
-                  <Mail className="w-3.5 h-3.5" />
+                  <Mail className="w-4 h-4" />
                   <span>Kelulusan Team</span>
                   {pendingApprovalCount > 0 && (
-                    <span className="px-1.5 py-0.2 text-[10px] font-extrabold bg-amber-500 text-white rounded-full ml-0.5">
+                    <span className="px-2 py-0.5 text-xs font-extrabold bg-amber-500 text-white rounded-full">
                       {pendingApprovalCount}
                     </span>
                   )}
@@ -1556,15 +1798,18 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setActiveTab("roles")}
-                  className={`py-3 px-4 text-xs font-bold border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
+                  onClick={() => {
+                    setActiveTab("roles");
+                    loadRoles();
+                  }}
+                  className={`py-3.5 px-4 text-sm font-bold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
                     activeTab === "roles"
-                      ? "border-blue-600 text-blue-600 bg-white"
+                      ? "border-blue-600 text-blue-700 bg-white"
                       : "border-transparent text-slate-600 hover:text-slate-900"
                   }`}
                 >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Kebenaran Admin &amp; Team</span>
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Akaun TEAM &amp; Admin</span>
                 </button>
               </>
             )}
@@ -1572,27 +1817,14 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab("password")}
-              className={`py-3 px-4 text-xs font-bold border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
+              className={`py-3.5 px-4 text-sm font-bold border-b-2 flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
                 activeTab === "password"
-                  ? "border-blue-600 text-blue-600 bg-white"
+                  ? "border-blue-600 text-blue-700 bg-white"
                   : "border-transparent text-slate-600 hover:text-slate-900"
               }`}
             >
-              <Key className="w-3.5 h-3.5" />
-              <span>Tukar Password Saya</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab("sheets")}
-              className={`py-3 px-4 text-xs font-bold border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer ${
-                activeTab === "sheets"
-                  ? "border-blue-600 text-blue-600 bg-white"
-                  : "border-transparent text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Panduan Google Sheets</span>
+              <Key className="w-4 h-4" />
+              <span>Tukar Password</span>
             </button>
           </div>
         )}
@@ -1601,81 +1833,78 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         <div className="p-5 sm:p-6 overflow-y-auto flex-1">
           {!currentUser ? (
             /* =========================================================================
-               AUTH GATE: Firebase Authentication (Email/Password & Password Reset)
+               AUTH GATE
                ========================================================================= */
-            <div className="space-y-4 py-2">
+            <div className="space-y-5 py-2">
               <div className="text-center space-y-2">
                 <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-xs border border-amber-200">
                   <Flame className="w-6 h-6 fill-amber-500 text-amber-600" />
                 </div>
-                <h3 className="font-bold text-slate-800 text-base">
-                  {authMode === "login" 
-                    ? "Log Masuk Pasukan (Firebase)" 
-                    : authMode === "signup" 
-                    ? "Pendaftaran Akaun Pasukan (Firebase)" 
-                    : "Reset Kata Laluan (Firebase)"}
-                </h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                  {authMode === "login" 
-                    ? "Sila log masuk menggunakan email dan kata laluan Firebase anda untuk menguruskan Jadual & Lokasi." 
+                <h3 className="font-bold text-slate-800 text-lg">
+                  {authMode === "login"
+                    ? "Log Masuk Pasukan"
                     : authMode === "signup"
-                    ? "Sila masukkan email dan cipta kata laluan (min. 6 aksara) untuk pendaftaran Firebase."
-                    : "Masukkan email anda untuk menerima pautan reset kata laluan terus ke email anda."}
+                    ? "Pendaftaran Akaun Pasukan"
+                    : "Reset Kata Laluan"}
+                </h3>
+                <p className="text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                  {authMode === "login"
+                    ? "Sila log masuk menggunakan email dan kata laluan anda untuk menguruskan Jadual & Lokasi."
+                    : authMode === "signup"
+                    ? "Masukkan email dan cipta kata laluan (minimum 6 aksara) untuk permohonan akses pasukan."
+                    : "Masukkan email anda untuk menerima pautan reset kata laluan terus ke peti masuk."}
                 </p>
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200/80 rounded-full text-[11px] font-semibold text-amber-800">
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Disahkan oleh Firebase Authentication</span>
-                </div>
               </div>
 
               {pendingApprovalNotice ? (
-                /* Pending Approval Notification Card */
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-3">
+                <div className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-2xl space-y-3.5">
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0 mt-0.5">
                       <Clock3 className="w-5 h-5" />
                     </div>
                     <div className="space-y-1">
-                      <h4 className="text-xs font-bold text-amber-950">
+                      <h4 className="text-sm font-bold text-amber-950">
                         Status Akaun: Pending (Menunggu Kelulusan Admin)
                       </h4>
-                      <p className="text-xs text-amber-900 leading-relaxed">
+                      <p className="text-sm text-amber-900 leading-relaxed">
                         {pendingApprovalNotice}
                       </p>
                     </div>
                   </div>
 
-                  <div className="p-2.5 bg-white/80 rounded-xl border border-amber-200/80 text-[11px] text-amber-950 space-y-1">
-                    <p className="text-amber-800">
-                      Permohonan anda direkodkan di tab <strong>AKSES TEAM</strong> dan notifikasi telah dihantar ke <strong>maktabahumrr@gmail.com</strong>. Sebaik sahaja status anda ditukar kepada <strong>Approved</strong>, anda boleh log masuk dan menguruskan jadual.
-                    </p>
+                  <div className="p-3 bg-white/85 rounded-xl border border-amber-200/80 text-[13px] text-amber-950">
+                    Permohonan anda telah direkodkan dan notifikasi telah dihantar ke{" "}
+                    <strong>maktabahumrr@gmail.com</strong>. Sebaik sahaja status ditukar kepada{" "}
+                    <strong>Approved</strong>, akaun anda automatik aktif untuk menguruskan jadual.
                   </div>
 
                   {resendApprovalSuccess && (
-                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-1.5 font-semibold">
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 flex items-center gap-2 font-semibold">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                       <span>{resendApprovalSuccess}</span>
                     </div>
                   )}
 
-                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                  <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
                     <button
                       type="button"
                       onClick={handleCheckPendingApprovalStatus}
                       disabled={isCheckingPendingStatus}
-                      className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                      className="flex-1 py-2.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingPendingStatus ? "animate-spin" : ""}`} />
-                      <span>{isCheckingPendingStatus ? "Menyemak..." : "Semak Status Terkini"}</span>
+                      <RefreshCw
+                        className={`w-4 h-4 ${isCheckingPendingStatus ? "animate-spin" : ""}`}
+                      />
+                      <span>{isCheckingPendingStatus ? "Menyemak..." : "Semak Status"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleResendApprovalNotification}
                       disabled={isResendingApproval}
-                      className="flex-1 py-2 px-3 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                      className="flex-1 py-2.5 px-3.5 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
                     >
-                      <Mail className="w-3.5 h-3.5" />
-                      <span>{isResendingApproval ? "Menghantar..." : "Hantar Semula Notifikasi"}</span>
+                      <Mail className="w-4 h-4" />
+                      <span>{isResendingApproval ? "Menghantar..." : "Hantar Notifikasi"}</span>
                     </button>
                     <button
                       type="button"
@@ -1684,20 +1913,17 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                         setResendApprovalSuccess(null);
                         setAuthMode("login");
                       }}
-                      className="py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-colors cursor-pointer"
                     >
                       Kembali
                     </button>
                   </div>
                 </div>
               ) : (
-                /* Login / Sign Up / Forgot Password Form */
-                <form onSubmit={handleUnifiedLogin} className="space-y-3.5 pt-1">
-
-                  {/* Field 0: Nama (For Sign-Up mode -> written to AKSES TEAM column NAMA) */}
+                <form onSubmit={handleUnifiedLogin} className="space-y-4 pt-1">
                   {authMode === "signup" && (
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-700">
+                    <div className="space-y-1.5">
+                      <label className="block text-[13px] font-bold text-slate-700">
                         Nama Penuh / Nama Team:
                       </label>
                       <input
@@ -1705,34 +1931,32 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                         value={fullNameInput}
                         onChange={(e) => setFullNameInput(e.target.value)}
                         placeholder="Contoh: Izyan / Team Frozen 2"
-                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
                         required
                       />
                     </div>
                   )}
-                  
-                  {/* Field 1: Email */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-slate-700">
-                      Email:
-                    </label>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[13px] font-bold text-slate-700">Email:</label>
                     <input
                       type="email"
                       value={googleEmailInput}
                       onChange={(e) => setGoogleEmailInput(e.target.value)}
                       placeholder="Masukkan alamat email anda..."
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
                       autoFocus={authMode !== "signup"}
                       required
                     />
                   </div>
 
-                  {/* Field 2: Password (for Login and Signup modes) */}
                   {authMode !== "forgot" && (
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="block text-xs font-bold text-slate-700">
-                          {authMode === "login" ? "Kata Laluan / Password:" : "Cipta Kata Laluan (min 6 aksara):"}
+                        <label className="block text-[13px] font-bold text-slate-700">
+                          {authMode === "login"
+                            ? "Kata Laluan / Password:"
+                            : "Cipta Kata Laluan (min 6 aksara):"}
                         </label>
                         {authMode === "login" && (
                           <button
@@ -1742,7 +1966,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                               setAuthError("");
                               setForgotSuccess(null);
                             }}
-                            className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer"
+                            className="text-[13px] font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer"
                           >
                             Lupa kata laluan?
                           </button>
@@ -1754,25 +1978,28 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                           value={passwordInput}
                           onChange={(e) => setPasswordInput(e.target.value)}
                           placeholder="Masukkan kata laluan..."
-                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none pr-10"
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none pr-11"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                           title={showPassword ? "Sembunyikan" : "Tunjukkan"}
                         >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Field 3: Sahkan Password (Only for Sign-Up) */}
                   {authMode === "signup" && (
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-700">
+                    <div className="space-y-1.5">
+                      <label className="block text-[13px] font-bold text-slate-700">
                         Sahkan Kata Laluan:
                       </label>
                       <div className="relative">
@@ -1781,61 +2008,63 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                           value={confirmPasswordInput}
                           onChange={(e) => setConfirmPasswordInput(e.target.value)}
                           placeholder="Sahkan semula kata laluan..."
-                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none pr-10"
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none pr-11"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                           title={showConfirmPassword ? "Sembunyikan" : "Tunjukkan"}
                         >
-                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showConfirmPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
                         </button>
                       </div>
                     </div>
                   )}
 
                   {authError && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-700 flex items-center gap-2">
                       <AlertCircle className="w-4 h-4 flex-shrink-0" />
                       <span>{authError}</span>
                     </div>
                   )}
 
                   {forgotSuccess && (
-                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+                    <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-600" />
                       <span>{forgotSuccess}</span>
                     </div>
                   )}
 
-                  {/* Submit / Cancel Buttons */}
-                  <div className="pt-2 flex gap-2">
+                  <div className="pt-2 flex gap-2.5">
                     <button
                       type="button"
                       onClick={onClose}
-                      className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors cursor-pointer"
+                      className="flex-1 py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-colors cursor-pointer"
                     >
                       Batal
                     </button>
                     <button
                       type="submit"
                       disabled={isAuthenticating}
-                      className="flex-1 py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="flex-1 py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      {isAuthenticating 
-                        ? "Memproses..." 
-                        : authMode === "login" 
-                        ? "Log Masuk Firebase ➔" 
+                      {isAuthenticating
+                        ? "Memproses..."
+                        : authMode === "login"
+                        ? "Log Masuk Pasukan ➔"
                         : authMode === "signup"
                         ? "Daftar Akaun Pasukan ➔"
                         : "Hantar Email Reset ➔"}
                     </button>
                   </div>
 
-                  {/* Mode Switch (Login vs Signup vs Forgot) */}
-                  <div className="pt-2 text-center border-t border-slate-100 space-y-1.5">
+                  <div className="pt-2.5 text-center border-t border-slate-100 space-y-2">
                     {authMode === "login" && (
                       <button
                         type="button"
@@ -1845,7 +2074,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                           setForgotSuccess(null);
                           setConfirmPasswordInput("");
                         }}
-                        className="text-xs font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer block w-full text-center"
+                        className="text-sm font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer block w-full text-center"
                       >
                         Pendaftaran kali pertama? Cipta kata laluan &amp; mohon akses di sini.
                       </button>
@@ -1860,9 +2089,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                           setForgotSuccess(null);
                           setConfirmPasswordInput("");
                         }}
-                        className="text-xs font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer block w-full text-center"
+                        className="text-sm font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer block w-full text-center"
                       >
-                        Sudah mempunyai akaun Firebase? Log masuk di sini.
+                        Sudah mempunyai akaun? Log masuk di sini.
                       </button>
                     )}
 
@@ -1874,7 +2103,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                           setAuthError("");
                           setForgotSuccess(null);
                         }}
-                        className="text-xs font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer block w-full text-center"
+                        className="text-sm font-semibold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer block w-full text-center"
                       >
                         Kembali ke paparan Log Masuk
                       </button>
@@ -1885,67 +2114,79 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             </div>
           ) : activeTab === "manage" ? (
             /* =========================================================================
-               TAB 1: MANAGE SCHEDULES (CRUD + Google Sheets JADUAL Sync)
+               TAB 1: MANAGE SCHEDULES (COMPACT 2-STEP WIZARD + TICK CHIPS)
                ========================================================================= */
             <form onSubmit={handleSubmit} className="space-y-4">
-              
-              {/* Actions Header: Sync Google Sheets & Create New */}
-              <div className="flex items-center justify-between gap-2 pb-1">
-                <span className="text-xs font-bold text-slate-700">
-                  Senarai Slot Jadual:
-                </span>
-                <div className="flex items-center gap-2">
+              {/* Top Actions Header: Refresh & Create New */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-1">
+                <div>
+                  <span className="text-sm font-bold text-slate-800 block">
+                    Slot Jadual Aktif ({upcomingSchedules.length})
+                  </span>
+                  <span className="text-[13px] text-slate-500">
+                    Slot tarikh lepas disembunyikan secara automatik.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
-                    onClick={handleSyncFromSheets}
+                    onClick={handleRefreshSchedules}
                     disabled={isSyncing}
-                    className="text-xs font-bold text-slate-600 hover:text-blue-600 flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-blue-50 rounded-lg transition-colors border border-slate-200 cursor-pointer"
-                    title="Segerak data terus dari Google Sheets tab JADUAL"
+                    className="text-sm font-bold text-slate-700 hover:text-blue-700 flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-blue-50 rounded-xl transition-colors border border-slate-200 cursor-pointer"
+                    title="Muat semula senarai jadual terkini"
                   >
-                    <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin text-blue-600" : ""}`} />
-                    <span>{isSyncing ? "Menyegerak..." : "Sync Sheets"}</span>
+                    <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin text-blue-600" : ""}`} />
+                    <span>{isSyncing ? "Memuat..." : "Muat Semula"}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => populateFormWithSchedule(null)}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 cursor-pointer"
+                    className="text-sm font-bold text-blue-700 hover:text-blue-800 flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors border border-blue-200 cursor-pointer"
                   >
-                    <Plus className="w-3 h-3" />
+                    <Plus className="w-4 h-4" />
                     <span>+ Tambah Baru</span>
                   </button>
                 </div>
               </div>
 
-              {/* Horizontal Slot Picker */}
-              {allSchedules.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
-                  {allSchedules.map((s) => {
+              {/* Compact Horizontal Slot Picker (Upcoming Only, Larger Readable Font) */}
+              {upcomingSchedules.length > 0 && (
+                <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-thin">
+                  {upcomingSchedules.map((s) => {
                     const isSel = selectedId === s.id;
                     return (
                       <button
                         key={s.id}
                         type="button"
                         onClick={() => populateFormWithSchedule(s)}
-                        className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold border text-left transition-all cursor-pointer ${
-                          isSel 
-                            ? "bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20" 
-                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                        className={`flex-shrink-0 w-56 px-3.5 py-3 rounded-2xl border text-left transition-all cursor-pointer space-y-1.5 ${
+                          isSel
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-500/25"
+                            : "bg-white text-slate-800 border-slate-200 hover:bg-slate-50"
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-semibold opacity-90 truncate max-w-[100px]">{s.date || "Jadual"}</span>
-                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
-                            isSel ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
-                          }`}>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-[13px] font-semibold opacity-95 whitespace-normal break-words">
+                            {s.date || "Jadual"}
+                          </span>
+                          <span
+                            className={`text-[12px] px-2 py-0.5 rounded-lg font-bold ${
+                              isSel ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
                             {s.status}
                           </span>
                         </div>
-                        <div className="text-xs font-bold truncate max-w-[140px] mt-0.5">
+                        <div className="text-sm font-bold whitespace-normal break-words">
                           {s.teamName || s.driverName || "Slot Pergerakan"}
                         </div>
-                        <div className={`text-[10px] font-normal truncate max-w-[140px] ${isSel ? "text-blue-100" : "text-slate-500"}`}>
-                          {s.locations || "Kawasan"}
+                        <div
+                          className={`text-[13px] font-normal line-clamp-2 whitespace-normal break-words ${
+                            isSel ? "text-blue-100" : "text-slate-600"
+                          }`}
+                        >
+                          {s.locations || "Kawasan Liputan"}
                         </div>
                       </button>
                     );
@@ -1953,351 +2194,549 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                 </div>
               )}
 
-              {/* Form Schema: Clean Schedule Fields (Name, Date Calendar, Area, Status) */}
-              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 space-y-3.5">
-                
-                {/* 1. NAMA TEAM */}
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700">
-                    NAMA TEAM:
-                  </label>
-                  <input
-                    type="text"
-                    value={teamName}
-                    onChange={(e) => setTeamName(e.target.value)}
-                    placeholder="Masukkan nama team (atau biarkan kosong)..."
-                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                {/* 2. TARIKH (Link Kalendar) */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-700">
-                      TARIKH:
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const todayIso = new Date().toISOString().split("T")[0];
-                          setRawDateIso(todayIso);
-                          setDate(formatDateMalay(todayIso));
-                        }}
-                        className="px-2 py-0.5 text-[10px] font-bold bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-700 transition-colors cursor-pointer"
-                      >
-                        📅 Hari Ini
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const tomorrow = new Date();
-                          tomorrow.setDate(tomorrow.getDate() + 1);
-                          const tomorrowIso = tomorrow.toISOString().split("T")[0];
-                          setRawDateIso(tomorrowIso);
-                          setDate(formatDateMalay(tomorrowIso));
-                        }}
-                        className="px-2 py-0.5 text-[10px] font-bold bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-700 transition-colors cursor-pointer"
-                      >
-                        📅 Esok
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div className="sm:col-span-1">
-                      <input
-                        type="date"
-                        value={rawDateIso}
-                        onChange={(e) => {
-                          setRawDateIso(e.target.value);
-                          if (e.target.value) {
-                            setDate(formatDateMalay(e.target.value));
-                          }
-                        }}
-                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                        title="Pilih dari Kalendar"
-                      />
-                    </div>
-                    <div className="sm:col-span-2 relative">
-                      <input
-                        type="text"
-                        value={date}
-                        onChange={(e) => setDate(e.target.value)}
-                        placeholder="cth: Rabu, 26 Ogos 2026"
-                        className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                        required
-                      />
-                      <Calendar className="w-3.5 h-3.5 text-blue-600 absolute left-2.5 top-2.5 pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. KAWASAN */}
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700">
-                    KAWASAN:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={locations}
-                      onChange={(e) => setLocations(e.target.value)}
-                      placeholder="cth: Seremban 2, Sendayan, Rasah, Senawang..."
-                      className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                      required
-                    />
-                    <MapPin className="w-3.5 h-3.5 text-blue-600 absolute left-2.5 top-2.5" />
-                  </div>
-                </div>
-
-                {/* 4. STATUS */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700">
-                    STATUS:
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setStatus("Akan Datang")}
-                      className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                        status === "Akan Datang"
-                          ? "bg-amber-50 border-amber-500 text-amber-700 ring-2 ring-amber-500/20"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <Clock className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Akan Datang ⏳</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setStatus("Sedang Bergerak")}
-                      className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                        status === "Sedang Bergerak"
-                          ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                      <span>Sedang Bergerak 🚗</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setStatus("Selesai")}
-                      className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                        status === "Selesai"
-                          ? "bg-slate-200 border-slate-400 text-slate-800"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Selesai ✅</span>
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Push Notification Toggle */}
-              <div className="p-3.5 bg-slate-900 text-white rounded-2xl space-y-2.5 shadow-inner">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={sendPushNotification}
-                      onChange={(e) => setSendPushNotification(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 accent-blue-600"
-                    />
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Bell className="w-3.5 h-3.5 text-amber-400" />
-                      Hantar Notifikasi Push Ke Telefon Pelanggan
-                    </span>
-                  </label>
-                  <span className="text-[10px] text-blue-300 font-bold">
-                    {subscriberCount} Melanggan
+              {/* Stepper Tabs (Prevents tall one-page scrolling) */}
+              <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setManageStep(1)}
+                  className={`py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    manageStep === 1
+                      ? "bg-white text-blue-700 shadow-xs border border-blue-200"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <span
+                    className={`w-6 h-6 rounded-full text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                      manageStep === 1
+                        ? "bg-blue-600 text-white"
+                        : selectedTeams.length > 0 && date
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-slate-200 text-slate-600"
+                    }`}
+                  >
+                    1
                   </span>
-                </div>
-
-                {sendPushNotification && (
-                  <div className="p-2.5 bg-white/10 rounded-xl border border-white/15 text-[11px] text-white/90">
-                    <strong>FrozenBergerak 📍 Jadual Pergerakan:</strong> {teamName ? `${teamName}: ` : ""}Pergerakan di {locations || "Kawasan Perkhidmatan"} ({date || "Hari Ini"}).
-                  </div>
-                )}
-              </div>
-
-              {/* Success / Error Messages */}
-              {submitError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span>{submitError}</span>
-                </div>
-              )}
-
-              {submitSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2 font-bold">
-                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                  <span>{submitSuccess}</span>
-                </div>
-              )}
-
-              {/* Action Buttons: Delete / Save / Cancel */}
-              <div className="pt-2 flex items-center justify-between gap-3">
-                {selectedId ? (
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={isSubmitting}
-                    className="py-2.5 px-4 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 font-bold text-xs flex items-center gap-1.5 transition-colors border border-rose-200 cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Padam Slot</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    Tutup
-                  </button>
-                )}
+                  <span className="whitespace-normal text-center">Team, Tarikh &amp; Status</span>
+                </button>
 
                 <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+                  type="button"
+                  onClick={() => setManageStep(2)}
+                  className={`py-2.5 px-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    manageStep === 2
+                      ? "bg-white text-blue-700 shadow-xs border border-blue-200"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
                 >
-                  {isSubmitting ? (
-                    <span>Sedang Menyimpan &amp; Menghantar...</span>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>{selectedId ? "Simpan Perubahan Jadual" : "Tambah & Segerak ke Google Sheets"}</span>
-                    </>
-                  )}
+                  <span
+                    className={`w-6 h-6 rounded-full text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                      manageStep === 2
+                        ? "bg-blue-600 text-white"
+                        : selectedAreas.length > 0
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-slate-200 text-slate-600"
+                    }`}
+                  >
+                    2
+                  </span>
+                  <span className="whitespace-normal text-center">
+                    Kawasan ({selectedAreas.length}) &amp; Simpan
+                  </span>
                 </button>
               </div>
 
+              {manageStep === 1 ? (
+                /* ================= STEP 1: NAMA TEAM (TICK), TARIKH & STATUS ================= */
+                <div className="bg-slate-50/90 p-4 sm:p-5 rounded-2xl border border-slate-200 space-y-5">
+                  {/* 1. NAMA TEAM (Tick/Select Chips - Tanpa Perlu Menaip) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="block text-[13px] font-bold text-slate-800 uppercase tracking-wide">
+                        1. Pilih / Tick Nama Team:
+                      </label>
+                      <span className="text-[13px] font-semibold text-blue-700">
+                        {selectedTeams.length > 0
+                          ? `Dipilih: ${selectedTeams.join(", ")}`
+                          : "Ketik untuk pilih nama team"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      {TEAM_NAME_OPTIONS.map((name) => {
+                        const isTicked = selectedTeams.includes(name);
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => toggleTeamOption(name)}
+                            className={`py-3 px-3.5 rounded-xl text-[15px] font-bold border transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                              isTicked
+                                ? "bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20"
+                                : "bg-white text-slate-800 border-slate-200 hover:border-blue-300 hover:bg-blue-50/50"
+                            }`}
+                          >
+                            <span
+                              className={`w-5 h-5 rounded-md flex items-center justify-center border shrink-0 ${
+                                isTicked
+                                  ? "bg-white text-blue-600 border-white"
+                                  : "bg-slate-50 border-slate-300 text-transparent"
+                              }`}
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </span>
+                            <span>{name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 2. TARIKH (Kalendar + Butang Hari Ini / Esok Jelas) */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="block text-[13px] font-bold text-slate-800 uppercase tracking-wide">
+                        2. Tarikh Pergerakan:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const todayStr = getLocalTodayIso();
+                            setRawDateIso(todayStr);
+                            setDate(formatDateMalay(todayStr));
+                          }}
+                          className="px-3.5 py-2 text-sm font-bold bg-white hover:bg-blue-50 border border-slate-300 hover:border-blue-400 rounded-xl text-slate-800 transition-colors cursor-pointer"
+                        >
+                          📅 Hari Ini
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const tomorrow = new Date();
+                            tomorrow.setDate(tomorrow.getDate() + 1);
+                            const tomorrowStr = getLocalTodayIso(tomorrow);
+                            setRawDateIso(tomorrowStr);
+                            setDate(formatDateMalay(tomorrowStr));
+                          }}
+                          className="px-3.5 py-2 text-sm font-bold bg-white hover:bg-blue-50 border border-slate-300 hover:border-blue-400 rounded-xl text-slate-800 transition-colors cursor-pointer"
+                        >
+                          📅 Esok
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <input
+                          type="date"
+                          min={todayIso}
+                          value={rawDateIso}
+                          onChange={(e) => {
+                            setRawDateIso(e.target.value);
+                            if (e.target.value) {
+                              setDate(formatDateMalay(e.target.value));
+                            }
+                          }}
+                          className="w-full px-3.5 py-3 bg-white border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                          title="Pilih tarikh dari kalendar"
+                        />
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={date}
+                          onChange={(e) => setDate(e.target.value)}
+                          placeholder="cth: Khamis, 19 November 2026"
+                          className="w-full pl-10 pr-3.5 py-3 bg-white border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:ring-2 focus:ring-blue-500 outline-none"
+                          required
+                        />
+                        <Calendar className="w-4 h-4 text-blue-600 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. STATUS */}
+                  <div className="space-y-2">
+                    <label className="block text-[13px] font-bold text-slate-800 uppercase tracking-wide">
+                      3. Status Pergerakan:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setStatus("Akan Datang")}
+                        className={`py-3 px-3 rounded-xl text-sm font-bold border transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                          status === "Akan Datang"
+                            ? "bg-amber-50 border-amber-500 text-amber-800 ring-2 ring-amber-500/20"
+                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Akan Datang ⏳</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setStatus("Sedang Bergerak")}
+                        className={`py-3 px-3 rounded-xl text-sm font-bold border transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                          status === "Sedang Bergerak"
+                            ? "bg-emerald-50 border-emerald-500 text-emerald-800 ring-2 ring-emerald-500/20"
+                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                        <span>Sedang Bergerak 🚗</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setStatus("Selesai")}
+                        className={`py-3 px-3 rounded-xl text-sm font-bold border transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                          status === "Selesai"
+                            ? "bg-slate-200 border-slate-500 text-slate-900"
+                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-slate-600 shrink-0" />
+                        <span>Selesai ✅</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Step 1 Navigation Footer */}
+                  <div className="pt-2 flex items-center justify-between gap-3">
+                    {selectedId ? (
+                      <button
+                        type="button"
+                        onClick={handleDelete}
+                        disabled={isSubmitting}
+                        className="py-3 px-4 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-sm flex items-center gap-1.5 transition-colors border border-rose-200 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Padam Slot</span>
+                      </button>
+                    ) : (
+                      <span className="text-[13px] text-slate-500 font-medium">
+                        Langkah 1 daripada 2
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setManageStep(2)}
+                      className="py-3 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[15px] flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
+                    >
+                      <span>Seterusnya: Pilih Kawasan</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ================= STEP 2: KAWASAN LIPUTAN (TICK CHIPS) & SIMPAN ================= */
+                <div className="space-y-4">
+                  <div className="bg-slate-50/90 p-4 sm:p-5 rounded-2xl border border-slate-200 space-y-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <label className="block text-[13px] font-bold text-slate-800 uppercase tracking-wide">
+                          4. Pilih / Tick Kawasan Liputan:
+                        </label>
+                        <span className="text-[13px] text-slate-600">
+                          {selectedAreas.length > 0
+                            ? `${selectedAreas.length} kawasan dipilih`
+                            : "Pilih kawasan penghantaran daripada senarai di bawah"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAreas([...COVERAGE_AREA_OPTIONS])}
+                          className="px-3 py-1.5 bg-white hover:bg-blue-50 border border-slate-200 text-blue-700 rounded-xl text-[13px] font-bold transition-colors cursor-pointer"
+                        >
+                          Pilih Semua
+                        </button>
+                        {selectedAreas.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAreas([])}
+                            className="px-3 py-1.5 bg-white hover:bg-rose-50 border border-slate-200 text-rose-700 rounded-xl text-[13px] font-bold transition-colors cursor-pointer"
+                          >
+                            Padam Pilihan
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Optional quick filter over tick list */}
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={areaFilterQuery}
+                        onChange={(e) => setAreaFilterQuery(e.target.value)}
+                        placeholder="Tapis kawasan dengan pantas (pilihan)..."
+                        className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 placeholder:text-[13px] focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+
+                    {/* Scrollable Area Tick Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-1 py-0.5">
+                      {filteredCoverageAreas.map((area) => {
+                        const isTicked = selectedAreas.includes(area);
+                        return (
+                          <button
+                            key={area}
+                            type="button"
+                            onClick={() => toggleAreaOption(area)}
+                            className={`px-3 py-2.5 rounded-xl text-sm font-semibold border text-left transition-all flex items-center gap-2 cursor-pointer ${
+                              isTicked
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                                : "bg-white text-slate-800 border-slate-200 hover:border-blue-300 hover:bg-blue-50/40"
+                            }`}
+                          >
+                            <span
+                              className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                                isTicked
+                                  ? "bg-white text-emerald-600 border-white"
+                                  : "bg-slate-50 border-slate-300 text-transparent"
+                              }`}
+                            >
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </span>
+                            <span className="whitespace-normal break-words leading-snug">
+                              {area}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {filteredCoverageAreas.length === 0 && (
+                        <div className="col-span-full py-4 text-center text-sm text-slate-500">
+                          Tiada kawasan sepadan dengan tapisan anda.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Selected Summary Box */}
+                    {selectedAreas.length > 0 && (
+                      <div className="p-3 bg-white rounded-xl border border-slate-200 text-sm text-slate-700 leading-relaxed">
+                        <span className="font-bold text-slate-900">Kawasan Dipilih: </span>
+                        <span>{locations}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Push Notification Toggle */}
+                  <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-2.5 shadow-inner">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={sendPushNotification}
+                          onChange={(e) => setSendPushNotification(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 accent-blue-600"
+                        />
+                        <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <Bell className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>Hantar Notifikasi Push Ke Telefon Pelanggan</span>
+                        </span>
+                      </label>
+                      <span className="text-[13px] text-blue-300 font-bold">
+                        {subscriberCount} Melanggan
+                      </span>
+                    </div>
+
+                    {sendPushNotification && (
+                      <div className="p-3 bg-white/10 rounded-xl border border-white/15 text-[13px] text-white/95 leading-relaxed">
+                        <strong>FrozenBergerak 📍 Jadual Pergerakan:</strong>{" "}
+                        {teamName ? `${teamName}: ` : ""}Pergerakan di{" "}
+                        {locations || "Kawasan Perkhidmatan"} ({date || "Hari Ini"}).
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Success / Error Messages */}
+                  {submitError && (
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>{submitError}</span>
+                    </div>
+                  )}
+
+                  {submitSuccess && (
+                    <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 flex items-center gap-2 font-bold">
+                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                      <span>{submitSuccess}</span>
+                    </div>
+                  )}
+
+                  {/* Step 2 Action Buttons */}
+                  <div className="pt-1 flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setManageStep(1)}
+                        className="py-3 px-4 rounded-xl border border-slate-300 bg-white text-slate-800 font-bold text-sm hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        <span>Langkah 1</span>
+                      </button>
+
+                      {selectedId && (
+                        <button
+                          type="button"
+                          onClick={handleDelete}
+                          disabled={isSubmitting}
+                          className="py-3 px-4 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-sm flex items-center gap-1.5 transition-colors border border-rose-200 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Padam</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="flex-1 min-w-[200px] py-3.5 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-[15px] flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSubmitting ? (
+                        <span>Sedang Menyimpan &amp; Menghantar...</span>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          <span>
+                            {selectedId ? "Simpan Perubahan Jadual" : "Simpan & Hantar Jadual"}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
             </form>
           ) : activeTab === "approvals" ? (
             /* =========================================================================
-               TAB: TEAM ACCESS APPROVALS MANAGEMENT (ADMIN ONLY -> Tab AKSES TEAM)
+               TAB 2: TEAM ACCESS APPROVALS MANAGEMENT (ADMIN ONLY)
                ========================================================================= */
             <div className="space-y-4 py-1">
-              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-amber-50 border border-blue-200/80 p-4 rounded-2xl text-xs space-y-2">
+              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-amber-50 border border-blue-200/80 p-4 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="font-bold flex items-center gap-1.5 text-blue-950 text-sm">
-                    <UserCheck className="w-4 h-4 text-blue-600" />
-                    <span>Kelulusan Team (Tab AKSES TEAM)</span>
+                  <div className="font-bold flex items-center gap-2 text-blue-950 text-base">
+                    <UserCheck className="w-5 h-5 text-blue-600" />
+                    <span>Kelulusan Team</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => loadApprovals()}
                     disabled={isLoadingApprovals}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                    className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    <RefreshCw className={`w-3 h-3 ${isLoadingApprovals ? "animate-spin text-blue-600" : ""}`} />
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${isLoadingApprovals ? "animate-spin text-blue-600" : ""}`}
+                    />
                     <span>Muat Semula</span>
                   </button>
                 </div>
-                <p className="text-[11px] leading-relaxed text-slate-600">
-                  Senarai permohonan di bawah ditarik terus daripada tab <code className="bg-white px-1 rounded font-bold text-blue-900">AKSES TEAM</code> dalam Google Sheets Jadual Team. Tukar status kepada <strong>Approved</strong> untuk membenarkan akses jadual atau <strong>Rejected</strong> untuk menyekat.
+                <p className="text-[13px] leading-relaxed text-slate-700">
+                  Tukar status pemohon kepada <strong>Approved</strong> untuk mengaktifkan akses
+                  jadual secara automatik dan memasukkan emel ke dalam senarai{" "}
+                  <strong>Akaun TEAM</strong>, atau <strong>Rejected</strong> untuk menyekat.
                 </p>
-                {approvalsSource && (
-                  <div className="inline-flex items-center gap-1.5 text-[10px] font-bold text-blue-800 bg-white/80 border border-blue-200 px-2 py-0.5 rounded-full">
-                    <FileSpreadsheet className="w-3 h-3 text-blue-600" />
-                    <span>Sumber: {approvalsSource}</span>
-                  </div>
-                )}
               </div>
 
               {/* Status Summary Counters */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2.5">
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
-                  <span className="block text-[11px] font-bold text-amber-800">Pending</span>
-                  <span className="text-lg font-black text-amber-900">
+                  <span className="block text-[13px] font-bold text-amber-800">Pending</span>
+                  <span className="text-xl font-black text-amber-900">
                     {teamApprovals.filter((a) => a.status === "pending").length}
                   </span>
                 </div>
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
-                  <span className="block text-[11px] font-bold text-emerald-800">Approved</span>
-                  <span className="text-lg font-black text-emerald-900">
+                  <span className="block text-[13px] font-bold text-emerald-800">Approved</span>
+                  <span className="text-xl font-black text-emerald-900">
                     {teamApprovals.filter((a) => a.status === "approved").length}
                   </span>
                 </div>
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-center">
-                  <span className="block text-[11px] font-bold text-rose-800">Rejected</span>
-                  <span className="text-lg font-black text-rose-900">
+                  <span className="block text-[13px] font-bold text-rose-800">Rejected</span>
+                  <span className="text-xl font-black text-rose-900">
                     {teamApprovals.filter((a) => a.status === "rejected").length}
                   </span>
                 </div>
               </div>
 
-              {/* Email Notification Diagnostics & Test */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs">
-                <div className="flex items-center gap-2">
+              {/* Email Notification Test */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between flex-wrap gap-2.5 text-sm">
+                <div className="flex items-center gap-2.5">
                   <Mail className="w-4 h-4 text-blue-600 shrink-0" />
                   <div>
                     <span className="font-bold text-slate-800 block">Notifikasi Emel Admin</span>
-                    <span className="text-[11px] text-slate-500 font-mono">maktabahumrr@gmail.com</span>
+                    <span className="text-[13px] text-slate-500 font-mono">
+                      maktabahumrr@gmail.com
+                    </span>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleTestEmailNotification}
                   disabled={isTestingEmail}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[13px] flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
                 >
                   <Send className={`w-3.5 h-3.5 ${isTestingEmail ? "animate-pulse" : ""}`} />
-                  <span>{isTestingEmail ? "Menghantar Ujian..." : "Uji Hantar Emel & Push"}</span>
+                  <span>{isTestingEmail ? "Menghantar Ujian..." : "Uji Emel & Push"}</span>
                 </button>
               </div>
 
               {emailTestResult && (
-                <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-                  emailTestResult.startsWith("✅") 
-                    ? "bg-emerald-50 text-emerald-800 border border-emerald-200" 
-                    : "bg-rose-50 text-rose-800 border border-rose-200"
-                }`}>
+                <div
+                  className={`p-3.5 rounded-xl text-sm font-semibold flex items-center gap-2 ${
+                    emailTestResult.startsWith("✅")
+                      ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                      : "bg-rose-50 text-rose-800 border border-rose-200"
+                  }`}
+                >
                   <span>{emailTestResult}</span>
                 </div>
               )}
 
               {approvalsErrorMsg && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-semibold flex items-center gap-2">
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800 font-semibold flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                   <span>{approvalsErrorMsg}</span>
                 </div>
               )}
 
               {approvalsSuccessMsg && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-bold flex items-center gap-2">
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 font-bold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>{approvalsSuccessMsg}</span>
                 </div>
               )}
 
               {/* Approvals List */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-800 pb-1">
-                  <span>Senarai Pemohon (Tab AKSES TEAM):</span>
-                  <span className="text-[10px] text-slate-400 font-normal">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between text-sm font-bold text-slate-800 pb-1">
+                  <span>Senarai Pemohon Akses Pasukan:</span>
+                  <span className="text-[13px] text-slate-500 font-normal">
                     {teamApprovals.length} Rekod
                   </span>
                 </div>
 
                 {isLoadingApprovals ? (
-                  <div className="p-8 text-center text-xs text-slate-400">
+                  <div className="p-8 text-center text-sm text-slate-500">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-600" />
-                    <span>Memuatkan senarai daripada tab AKSES TEAM...</span>
+                    <span>Memuatkan senarai permohonan team...</span>
                   </div>
                 ) : teamApprovals.length === 0 ? (
-                  <div className="p-6 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-xs text-slate-500 space-y-1">
+                  <div className="p-6 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-sm text-slate-500 space-y-1">
                     <Clock3 className="w-6 h-6 mx-auto text-slate-400 mb-1" />
-                    <p className="font-semibold text-slate-700">Tiada Permohonan Dalam Tab AKSES TEAM</p>
-                    <p className="text-[11px]">Setiap pendaftaran baharu akan dihantar terus ke tab AKSES TEAM dan dipaparkan di sini.</p>
+                    <p className="font-semibold text-slate-700">
+                      Tiada Permohonan Akses Team Buat Masa Ini
+                    </p>
+                    <p className="text-[13px]">
+                      Setiap pendaftaran baharu ahli pasukan akan dipaparkan secara automatik di
+                      sini.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
@@ -2306,7 +2745,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                       return (
                         <div
                           key={item.email + (item.id || "")}
-                          className={`p-3.5 rounded-2xl border transition-all ${
+                          className={`p-4 rounded-2xl border transition-all ${
                             item.status === "pending"
                               ? "bg-amber-50/60 border-amber-300 ring-1 ring-amber-300/50"
                               : item.status === "approved"
@@ -2314,19 +2753,19 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                               : "bg-rose-50/40 border-rose-200"
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div className="space-y-1 min-w-[200px]">
                               <div className="flex items-center gap-2 flex-wrap">
                                 {item.id && (
-                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono text-[10px] font-bold">
+                                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono text-xs font-bold">
                                     {item.id}
                                   </span>
                                 )}
-                                <span className="font-bold text-xs text-slate-900">
+                                <span className="font-bold text-[15px] text-slate-900">
                                   {item.nama || item.name || item.email.split("@")[0]}
                                 </span>
                                 <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                                  className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase ${
                                     item.status === "approved"
                                       ? "bg-emerald-100 text-emerald-800"
                                       : item.status === "pending"
@@ -2341,25 +2780,25 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                                     : "❌ Rejected"}
                                 </span>
                               </div>
-                              <div className="text-xs text-blue-700 font-medium break-all">{item.email}</div>
-                              <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                                <span>
-                                  Tarikh: {item.tarikh || item.requestedAt || "-"}
-                                </span>
+                              <div className="text-sm text-blue-700 font-medium break-all">
+                                {item.email}
+                              </div>
+                              <div className="text-[13px] text-slate-500">
+                                Tarikh: {item.tarikh || item.requestedAt || "-"}
                               </div>
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex items-center gap-1.5 shrink-0 pt-1 sm:pt-0">
+                            <div className="flex items-center gap-2 shrink-0 pt-1 sm:pt-0">
                               {item.status !== "approved" && (
                                 <button
                                   type="button"
                                   disabled={isRowUpdating}
                                   onClick={() => handleApproveTeamMember(item, "approved")}
-                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
                                   title="Tukar status kepada Approved"
                                 >
-                                  <Check className="w-3.5 h-3.5" />
+                                  <Check className="w-4 h-4" />
                                   <span>{isRowUpdating ? "..." : "Approved"}</span>
                                 </button>
                               )}
@@ -2369,10 +2808,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                                   type="button"
                                   disabled={isRowUpdating}
                                   onClick={() => handleApproveTeamMember(item, "rejected")}
-                                  className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                                   title="Tukar status kepada Rejected"
                                 >
-                                  <UserX className="w-3.5 h-3.5" />
+                                  <UserX className="w-4 h-4" />
                                   <span>{isRowUpdating ? "..." : "Rejected"}</span>
                                 </button>
                               )}
@@ -2380,10 +2819,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleAdminResetPassword(item.email)}
-                                className="p-1.5 text-amber-700 hover:bg-amber-100 rounded-xl transition-colors border border-amber-200 cursor-pointer"
-                                title="Hantar email reset password Firebase"
+                                className="p-2 text-amber-700 hover:bg-amber-100 rounded-xl transition-colors border border-amber-200 cursor-pointer"
+                                title="Hantar email reset password"
                               >
-                                <KeyRound className="w-3.5 h-3.5" />
+                                <KeyRound className="w-4 h-4" />
                               </button>
                             </div>
                           </div>
@@ -2396,27 +2835,30 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             </div>
           ) : activeTab === "roles" ? (
             /* =========================================================================
-               TAB 2: ROLES & ACCESS CONTROL CONFIGURATION (ADMIN ONLY)
+               TAB 3: ROLES & ACCESS CONTROL CONFIGURATION (ADMIN ONLY)
                ========================================================================= */
             <div className="space-y-5 py-1">
-              <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl text-xs text-amber-900 space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-amber-950">
-                  <ShieldCheck className="w-4 h-4 text-amber-600" />
+              <div className="bg-amber-50/80 border border-amber-200 p-4 rounded-2xl text-sm text-amber-900 space-y-1.5">
+                <div className="font-bold flex items-center gap-2 text-amber-950 text-base">
+                  <ShieldCheck className="w-5 h-5 text-amber-600" />
                   <span>Kawalan Akses Pengguna ADMIN &amp; TEAM</span>
                 </div>
-                <p className="text-[11px] leading-relaxed text-amber-800">
-                  Tetapkan senarai email Google yang dibenarkan untuk menguruskan jadual pergerakan. Anda juga boleh menetapkan pembolehubah persekitaran <code className="bg-amber-100 px-1 rounded">ADMIN_EMAILS</code> dan <code className="bg-amber-100 px-1 rounded">TEAM_EMAILS</code> di fail persekitaran (.env).
+                <p className="text-[13px] leading-relaxed text-amber-900">
+                  Setiap ahli pasukan yang diluluskan (<strong>Approved</strong>) di tab{" "}
+                  <strong>Kelulusan Team</strong> akan dimasukkan secara automatik ke dalam senarai{" "}
+                  <strong>Akaun TEAM</strong> di bawah supaya mereka terus boleh mengemas kini
+                  jadual.
                 </p>
               </div>
 
               {/* Admin Emails Section */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
-                  <span>Akaun ADMIN (Kuasa Penuh &amp; Tetapan Kebenaran):</span>
-                  <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-bold">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between text-sm font-bold text-slate-800">
+                  <span>Akaun ADMIN (Kuasa Penuh):</span>
+                  <span className="text-[13px] text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full font-bold">
                     {adminEmailsList.length} Akaun
                   </span>
-                </label>
+                </div>
 
                 <div className="flex gap-2">
                   <input
@@ -2424,45 +2866,48 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                     value={newAdminEmail}
                     onChange={(e) => setNewAdminEmail(e.target.value)}
                     placeholder="tambah.admin@gmail.com"
-                    className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                   <button
                     type="button"
                     onClick={handleAddAdminEmail}
-                    className="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors"
+                    className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors cursor-pointer"
                   >
                     Tambah
                   </button>
                 </div>
 
-                <div className="space-y-1 max-h-36 overflow-y-auto">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {adminEmailsList.map((em) => {
                     const isPrimary = em.toLowerCase() === "maktabahumrr@gmail.com";
                     return (
-                      <div key={em} className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs gap-2">
-                        <div className="flex items-center gap-1.5 truncate">
+                      <div
+                        key={em}
+                        className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm gap-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
                           <span className="font-semibold text-slate-800 truncate">{em}</span>
                           {isPrimary && (
-                            <span className="px-1.5 py-0.5 text-[9px] bg-blue-100 text-blue-800 rounded font-bold shrink-0">
+                            <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded font-bold shrink-0">
                               Utama
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
                             onClick={() => handleAdminResetPassword(em)}
-                            className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-md text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[13px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
                             title="Reset password akaun ini"
                           >
-                            <KeyRound className="w-3 h-3 text-amber-600" />
-                            <span>Reset PIN</span>
+                            <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Reset</span>
                           </button>
                           {!isPrimary && (
                             <button
                               type="button"
                               onClick={() => handleRemoveAdminEmail(em)}
-                              className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded text-xs font-bold transition-colors cursor-pointer"
+                              className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg text-sm font-bold transition-colors cursor-pointer"
                               title="Buang daripada senarai"
                             >
                               ✕
@@ -2473,19 +2918,21 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                     );
                   })}
                   {adminEmailsList.length === 0 && (
-                    <p className="text-[11px] text-slate-400 italic">Tiada admin tambahan ditetapkan.</p>
+                    <p className="text-[13px] text-slate-400 italic">
+                      Tiada admin tambahan ditetapkan.
+                    </p>
                   )}
                 </div>
               </div>
 
               {/* Team Emails Section */}
-              <div className="space-y-2 pt-2 border-t border-slate-100">
-                <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
+              <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between text-sm font-bold text-slate-800">
                   <span>Akaun TEAM (Tambah / Edit / Padam Jadual):</span>
-                  <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">
+                  <span className="text-[13px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-bold">
                     {teamEmailsList.length} Akaun
                   </span>
-                </label>
+                </div>
 
                 <div className="flex gap-2">
                   <input
@@ -2493,35 +2940,38 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                     value={newTeamEmail}
                     onChange={(e) => setNewTeamEmail(e.target.value)}
                     placeholder="ahli.pasukan@gmail.com"
-                    className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                   <button
                     type="button"
                     onClick={handleAddTeamEmail}
-                    className="px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors"
+                    className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors cursor-pointer"
                   >
                     Tambah
                   </button>
                 </div>
 
-                <div className="space-y-1 max-h-36 overflow-y-auto">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {teamEmailsList.map((em) => (
-                    <div key={em} className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs gap-2">
+                    <div
+                      key={em}
+                      className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm gap-2"
+                    >
                       <span className="font-semibold text-slate-800 truncate">{em}</span>
-                      <div className="flex items-center gap-1 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleAdminResetPassword(em)}
-                          className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-md text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                          className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[13px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
                           title="Reset password akaun ini"
                         >
-                          <KeyRound className="w-3 h-3 text-amber-600" />
-                          <span>Reset PIN</span>
+                          <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Reset</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleRemoveTeamEmail(em)}
-                          className="p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded text-xs font-bold transition-colors cursor-pointer"
+                          className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg text-sm font-bold transition-colors cursor-pointer"
                           title="Buang daripada senarai"
                         >
                           ✕
@@ -2530,13 +2980,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                     </div>
                   ))}
                   {teamEmailsList.length === 0 && (
-                    <p className="text-[11px] text-slate-400 italic">Tiada email team tambahan ditetapkan.</p>
+                    <p className="text-[13px] text-slate-400 italic">
+                      Tiada email team tambahan ditetapkan.
+                    </p>
                   )}
                 </div>
               </div>
 
               {rolesSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2 font-bold">
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 flex items-center gap-2 font-bold">
                   <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                   <span>{rolesSuccess}</span>
                 </div>
@@ -2547,69 +2999,76 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                   type="button"
                   onClick={handleSaveRoles}
                   disabled={rolesSaving}
-                  className="py-2.5 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors disabled:opacity-50"
+                  className="py-3 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {rolesSaving ? "Menyimpan..." : "Simpan Senarai Kebenaran"}
                 </button>
               </div>
             </div>
-          ) : activeTab === "password" ? (
+          ) : (
             /* =========================================================================
-               TAB: CHANGE PASSWORD (ADMIN / TEAM SELF SERVICE)
+               TAB 4: CHANGE PASSWORD
                ========================================================================= */
             <form onSubmit={handleChangePassword} className="space-y-4 py-1">
               <div className="p-4 bg-gradient-to-br from-slate-50 to-blue-50/40 border border-slate-200 rounded-2xl space-y-2">
-                <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+                <div className="flex items-center gap-2 text-slate-800 font-bold text-base">
                   <Key className="w-4 h-4 text-blue-600" />
-                  <span>Tukar Password / PIN Akaun Anda</span>
+                  <span>Tukar Kata Laluan Akaun Anda</span>
                 </div>
-                <p className="text-xs text-slate-600">
-                  Akaun Semasa: <strong className="text-blue-900 font-mono">{currentUser?.email}</strong> ({currentUser?.role.toUpperCase()})
+                <p className="text-sm text-slate-700">
+                  Akaun Semasa:{" "}
+                  <strong className="text-blue-900 font-mono">{currentUser?.email}</strong> (
+                  {currentUser?.role.toUpperCase()})
                 </p>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Tetapkan kata laluan baharu untuk memudahkan anda log masuk secara selamat pada masa hadapan.
+                <p className="text-[13px] text-slate-500 leading-relaxed">
+                  Tetapkan kata laluan baharu untuk memudahkan anda log masuk secara selamat pada
+                  masa hadapan.
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  Password Semasa (jika pernah ditetapkan):
+                <label className="block text-[13px] font-bold text-slate-700">
+                  Kata Laluan Semasa (jika perlu):
                 </label>
                 <div className="relative">
                   <input
                     type={showCurrentPassword ? "text" : "password"}
                     value={currentPasswordInput}
                     onChange={(e) => setCurrentPasswordInput(e.target.value)}
-                    placeholder="Masukkan password semasa (biarkan kosong jika kali pertama)..."
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none pr-10"
+                    placeholder="Masukkan kata laluan semasa..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none pr-11"
                   />
                   <button
                     type="button"
                     onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
-                    {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showCurrentPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  Password / PIN Baharu:
+                <label className="block text-[13px] font-bold text-slate-700">
+                  Kata Laluan Baharu (minimum 6 aksara):
                 </label>
                 <div className="relative">
                   <input
                     type={showNewPassword ? "text" : "password"}
                     value={newPasswordInput}
                     onChange={(e) => setNewPasswordInput(e.target.value)}
-                    placeholder="Contoh: 1234 atau kata laluan baharu..."
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none pr-10"
+                    placeholder="Masukkan kata laluan baharu..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none pr-11"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowNewPassword(!showNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -2617,37 +3076,41 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  Sahkan Password Baharu:
+                <label className="block text-[13px] font-bold text-slate-700">
+                  Sahkan Kata Laluan Baharu:
                 </label>
                 <div className="relative">
                   <input
                     type={showConfirmNewPassword ? "text" : "password"}
                     value={confirmNewPasswordInput}
                     onChange={(e) => setConfirmNewPasswordInput(e.target.value)}
-                    placeholder="Ulang semula password baharu..."
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none pr-10"
+                    placeholder="Ulang semula kata laluan baharu..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none pr-11"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
-                    {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showConfirmNewPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
 
               {changePasswordError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2 font-semibold">
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-700 flex items-center gap-2 font-semibold">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   <span>{changePasswordError}</span>
                 </div>
               )}
 
               {changePasswordSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2 font-bold">
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 flex items-center gap-2 font-bold">
                   <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                   <span>{changePasswordSuccess}</span>
                 </div>
@@ -2657,83 +3120,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                 <button
                   type="submit"
                   disabled={isChangingPassword}
-                  className="py-2.5 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  className="py-3 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2 cursor-pointer"
                 >
-                  <Key className="w-3.5 h-3.5" />
-                  <span>{isChangingPassword ? "Menyimpan..." : "Simpan Password Baharu"}</span>
+                  <Key className="w-4 h-4" />
+                  <span>{isChangingPassword ? "Menyimpan..." : "Simpan Kata Laluan Baharu"}</span>
                 </button>
               </div>
             </form>
-          ) : (
-            /* =========================================================================
-               TAB 3: GOOGLE SHEETS JADUAL GUIDE & APPS SCRIPT WEBHOOK SETUP
-               ========================================================================= */
-            <div className="space-y-4 py-1 text-xs text-slate-700 leading-relaxed">
-              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl space-y-2">
-                <div className="font-bold text-blue-900 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-                    <span>Google Apps Script Web App Tersambung:</span>
-                  </div>
-                  <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full">
-                    Tab JADUAL
-                  </span>
-                </div>
-                <p className="text-[11px] text-blue-800 break-all font-mono bg-white p-2 rounded-xl border border-blue-200">
-                  {GOOGLE_APPS_SCRIPT_WEB_APP_URL}
-                </p>
-                <p className="text-[11px] text-blue-800">
-                  Fail <strong>Jadual Team</strong> mestilah mempunyai tab <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-blue-950">JADUAL</code> dan <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-blue-950">AKSES TEAM</code>:
-                </p>
-                <div className="bg-white p-2.5 rounded-xl border border-blue-150 font-mono text-[10px] text-slate-800 overflow-x-auto whitespace-nowrap space-y-1">
-                  <div><strong>JADUAL:</strong> ID JADUAL | NAMA TEAM | TARIKH | MASA | KAWASAN | CATATAN | STATUS</div>
-                  <div><strong>AKSES TEAM:</strong> ID | NAMA | EMAIL | TARIKH | STATUS</div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h4 className="font-bold text-slate-800">
-                  Pastikan Tetapan Deployment di Google Apps Script:
-                </h4>
-                <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-slate-600">
-                  <li>Buka Google Sheet <strong>&quot;Jadual Team&quot;</strong> &gt; Klik <strong>Extensions &gt; Apps Script</strong>.</li>
-                  <li>Tampal kod lengkap di bawah ke dalam fail <code>Code.gs</code> (menguruskan Produk, Jadual, <code>AKSES TEAM</code> &amp; notifikasi emel ke <code>maktabahumrr@gmail.com</code>).</li>
-                  <li>Simpan (Ctrl+S), kemudian pilih fungsi <code>authorizePermissions</code> dan klik <strong>Run</strong> sekali untuk meluluskan akses Google Sheets, Drive &amp; Gmail (MailApp).</li>
-                  <li>Klik <strong>Deploy &gt; Manage deployments</strong> &gt; ikon pensel (Edit) &gt; pilih <strong>Version: New version</strong> &gt; <strong>Deploy</strong>.</li>
-                  <li>Semua pendaftaran ahli team, kelulusan, jadual, dan produk akan segerak secara langsung!</li>
-                </ol>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-bold text-slate-800 text-[11px]">Kod Lengkap Google Apps Script (2 Fail: Frozen Bergerak + Jadual Team):</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={downloadAppsScript}
-                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      <span>Muat Turun Code.gs</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={copyAppsScript}
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <Copy className="w-3 h-3" />
-                      <span>{copiedScript ? "Disalin!" : "Salin Kod Lengkap"}</span>
-                    </button>
-                  </div>
-                </div>
-                <pre className="p-3 bg-slate-900 text-slate-200 rounded-xl font-mono text-[10px] overflow-x-auto max-h-48 scrollbar-thin">
-                  {UNIFIED_APPS_SCRIPT_CODE}
-                </pre>
-              </div>
-            </div>
           )}
         </div>
-
       </div>
     </div>
   );

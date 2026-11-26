@@ -37,7 +37,9 @@ import { FeedbackView } from "./components/FeedbackView";
 import { BottomNav, NavView } from "./components/BottomNav";
 import { FeedbackModal } from "./components/FeedbackModal";
 import { TeamScheduleModal } from "./components/TeamScheduleModal";
+import { SlotBookingModal } from "./components/SlotBookingModal";
 import { AnimatedNotificationBanner, LiveNotificationPayload } from "./components/AnimatedNotificationBanner";
+import { subscribeToFcmForegroundMessages } from "./lib/firebase";
 import { usePWA } from "./hooks/usePWA";
 
 export default function App() {
@@ -59,8 +61,9 @@ export default function App() {
   // Active View State: 5 Views (home | catalog | schedule | loyalty | feedback)
   const [activeView, setActiveView] = useState<NavView>("home");
 
-  // Feedback Modal State
+  // Feedback & Slot Booking Modal State
   const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
+  const [isSlotBookingOpen, setIsSlotBookingOpen] = useState<boolean>(false);
 
   // Live Animated Push Notification Banner State (Vehicle Moving Animation)
   const [liveNotification, setLiveNotification] = useState<LiveNotificationPayload | null>(null);
@@ -154,11 +157,27 @@ export default function App() {
     }
     window.addEventListener("frozen_live_notification" as any, handleCustomLiveNotification as EventListener);
 
+    let unsubscribeFcm: (() => void) | null = null;
+    subscribeToFcmForegroundMessages((payload) => {
+      const notifTitle = payload?.notification?.title || payload?.data?.title || "FrozenBergerak 📍 Kemaskini Terkini";
+      const notifBody = payload?.notification?.body || payload?.data?.body || "Sila semak jadual pergerakan pasukan hari ini.";
+      setLiveNotification({
+        id: String(Date.now()),
+        title: notifTitle,
+        body: notifBody,
+        url: payload?.data?.url || "/#section-jadual-pergerakan",
+        timestamp: Date.now()
+      });
+    }).then((unsub) => {
+      unsubscribeFcm = unsub;
+    });
+
     return () => {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.removeEventListener("message", handleSWMessage);
       }
       window.removeEventListener("frozen_live_notification" as any, handleCustomLiveNotification as EventListener);
+      if (unsubscribeFcm) unsubscribeFcm();
     };
   }, []);
 
@@ -595,6 +614,7 @@ export default function App() {
               setActiveView("schedule");
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
+            onOpenSlotBooking={() => setIsSlotBookingOpen(true)}
             onNavigateView={(view) => {
               setActiveView(view);
               window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1052,6 +1072,12 @@ export default function App() {
         onScheduleUpdated={() => {
           fetchData(true);
         }}
+      />
+
+      {/* Slot Booking Modal (Dual Action CTA from Home) */}
+      <SlotBookingModal
+        isOpen={isSlotBookingOpen}
+        onClose={() => setIsSlotBookingOpen(false)}
       />
 
       {/* Footer */}

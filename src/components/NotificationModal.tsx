@@ -129,9 +129,9 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               <BellRing className="w-6 h-6 animate-bounce" />
             </div>
             <div>
-              <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider mb-1">
+              <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400/20 text-amber-200 border border-amber-400/30 uppercase tracking-wider mb-1">
                 <Sparkles className="w-3 h-3" />
-                PWA True Push
+                FCM Web Push
               </div>
               <h2 className="text-xl font-bold tracking-tight text-white">
                 Notifikasi Pergerakan
@@ -143,7 +143,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
         {/* Content */}
         <div className="p-6 space-y-5">
           {!isSupported ? (
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-800 space-y-2">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-[13px] text-amber-800 space-y-2">
               <div className="flex items-center gap-2 font-bold text-amber-900">
                 <AlertCircle className="w-4 h-4 text-amber-600" />
                 <span>Pelayar Tidak Menyokong Web Push</span>
@@ -156,24 +156,24 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
             <>
               {/* Feature Highlights */}
               <div className="space-y-3">
-                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                <p className="text-sm text-slate-600 leading-relaxed">
                   Terima pemberitahuan segera pada skrin telefon anda setiap kali pasukan <strong className="text-slate-900">FrozenBergerak</strong> mengemaskini laluan pergerakan pasukan, masa tiba, dan stok istimewa di kawasan anda.
                 </p>
 
-                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-xs text-slate-700">
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-[13px] text-slate-700">
                   <div className="flex items-center gap-2 text-slate-900 font-bold">
                     <Smartphone className="w-4 h-4 text-blue-600" />
                     <span>Diterima Walaupun Aplikasi Ditutup</span>
                   </div>
-                  <p className="text-slate-500 text-[11px] pl-6">
-                    Sistem Push Notification PWA beroperasi di latar belakang menggunakan standard selamat Web Push.
+                  <p className="text-slate-500 text-xs pl-6">
+                    Sistem Push Notification Firebase Cloud Messaging (FCM) &amp; Web Push beroperasi terus di latar belakang.
                   </p>
 
                   <div className="flex items-center gap-2 text-slate-900 font-bold pt-1">
                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
                     <span>Privasi &amp; Token Selamat</span>
                   </div>
-                  <p className="text-slate-500 text-[11px] pl-6">
+                  <p className="text-slate-500 text-xs pl-6">
                     Hanya notifikasi jadual pergerakan dan promosi rasmi yang dihantar tanpa sebarang spam.
                   </p>
                 </div>

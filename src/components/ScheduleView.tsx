@@ -19,13 +19,18 @@ import {
 import { ScheduleItem, StoreConfig } from "../types";
 import { TeamScheduleModal } from "./TeamScheduleModal";
 import { NotificationModal } from "./NotificationModal";
+import { SlotBookingModal } from "./SlotBookingModal";
 import { 
   isPushNotificationSupported, 
   getExistingPushSubscription, 
   subscribeUserToPush,
   sendTestPushNotification
 } from "../utils/pushNotifications";
-import { getFilteredTodaySchedules, getTodayDateInfo } from "../utils/scheduleDateHelper";
+import {
+  getFilteredTodaySchedules,
+  getTodayAndUpcomingSchedules,
+  getTodayDateInfo
+} from "../utils/scheduleDateHelper";
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
 
 interface ScheduleViewProps {
@@ -37,8 +42,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   storeConfig,
   onNavigateToCatalog,
 }) => {
-  const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
-  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
 
   // Strict Live Schedule & Push Notification States (zero hardcoded mock schedules)
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
@@ -47,18 +50,16 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState<boolean>(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
+  const [isSlotBookingOpen, setIsSlotBookingOpen] = useState<boolean>(false);
   const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(false);
   const [isSubscribing, setIsSubscribing] = useState<boolean>(false);
   const [isTestingPush, setIsTestingPush] = useState<boolean>(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(null);
 
-  // Dynamic automatic date calculation for today
+  // Dynamic automatic date calculation — strictly show ONLY today or future schedules (auto-hide past)
   const todayInfo = useMemo(() => getTodayDateInfo(), []);
-  const todaySchedules = useMemo(() => getFilteredTodaySchedules(schedules, 10), [schedules]);
-  const displayedSchedules = useMemo(() => {
-    if (todaySchedules.length > 0) return todaySchedules;
-    return schedules;
-  }, [todaySchedules, schedules]);
+  const todaySchedules = useMemo(() => getFilteredTodaySchedules(schedules, 20), [schedules]);
+  const displayedSchedules = useMemo(() => getTodayAndUpcomingSchedules(schedules), [schedules]);
 
   // Pending Team Approvals state for Admin alert
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
@@ -458,17 +459,17 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           </div>
         )}
 
-        {/* WhatsApp Slot Booking CTA */}
+        {/* Dynamic WhatsApp Slot Booking CTA -> Opens Area + Manual Agent Picker */}
         <div className="pt-2">
-          <a
-            href={`https://wa.me/${cleanNumber}?text=${encodeURIComponent("Salam FrozenBergerak, saya ingin membuat pertanyaan jadual pergerakan atau menempah slot penghantaran di kawasan saya.")}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-xs"
+          <button
+            id="schedule-book-slot-btn"
+            type="button"
+            onClick={() => setIsSlotBookingOpen(true)}
+            className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
           >
-            <MessageSquareQuote className="w-4 h-4" />
+            <MessageSquareQuote className="w-4 h-4 shrink-0" />
             <span>Tempah Slot Kawasan / Chat WhatsApp Pasukan</span>
-          </a>
+          </button>
         </div>
       </div>
 
@@ -514,6 +515,14 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             });
           }
         }}
+      />
+
+      {/* Dynamic Area & Agent Slot Booking Modal */}
+      <SlotBookingModal
+        isOpen={isSlotBookingOpen}
+        onClose={() => setIsSlotBookingOpen(false)}
+        title="Tempah Slot Kawasan Anda"
+        subtitle="Pilih tarikh rancangan, kawasan, dan agen bertugas secara terus."
       />
     </div>
   );

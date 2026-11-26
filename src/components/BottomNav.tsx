@@ -1,10 +1,10 @@
 import React from "react";
 import { 
   Home, 
-  Grid, 
-  CalendarDays, 
-  Gift, 
-  MessageSquareHeart 
+  ShoppingBag, 
+  Truck, 
+  Award, 
+  MessageCircle 
 } from "lucide-react";
 
 export type NavView = "home" | "catalog" | "schedule" | "loyalty" | "feedback";
@@ -31,24 +31,24 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     {
       id: "catalog" as NavView,
       label: "Katalog",
-      icon: Grid,
+      icon: ShoppingBag,
       badge: productsCount !== undefined && productsCount > 0 ? `${productsCount}` : undefined,
     },
     {
       id: "schedule" as NavView,
       label: "Jadual",
-      icon: CalendarDays,
+      icon: Truck,
       hasDot: hasActiveSchedule,
     },
     {
       id: "loyalty" as NavView,
       label: "Stamp Loyalti",
-      icon: Gift,
+      icon: Award,
     },
     {
       id: "feedback" as NavView,
       label: "Aduan/Cadangan",
-      icon: MessageSquareHeart,
+      icon: MessageCircle,
     },
   ];
 
@@ -72,7 +72,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 onSelectView(item.id);
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}
-              className={`flex-1 min-h-[48px] py-1.5 px-1 rounded-2xl flex flex-col items-center justify-center relative transition-all duration-200 cursor-pointer active:scale-95 ${
+              className={`flex-1 min-h-[50px] py-1.5 px-1 rounded-2xl flex flex-col items-center justify-center relative transition-all duration-200 cursor-pointer active:scale-95 ${
                 isActive
                   ? "text-blue-600 bg-gradient-to-b from-sky-50/90 to-blue-50/70 font-bold shadow-2xs"
                   : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/80 font-medium"
@@ -83,11 +83,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 <span className="absolute -top-1 w-7 h-1 bg-gradient-to-r from-blue-600 to-sky-500 rounded-full shadow-xs" />
               )}
 
-              {/* Icon with potential live notification dot */}
-              <div className="relative flex items-center justify-center">
+              {/* Uniform Icon Container */}
+              <div className="relative w-6 h-6 flex items-center justify-center shrink-0 overflow-visible">
                 <Icon
-                  className={`w-5 h-5 transition-transform duration-200 ${
-                    isActive ? "scale-110 stroke-[2.4]" : "stroke-[1.8]"
+                  className={`w-5 h-5 shrink-0 transition-transform duration-200 ${
+                    isActive ? "scale-110 stroke-[2.2]" : "stroke-[1.9]"
                   }`}
                 />
                 {item.hasDot && (
