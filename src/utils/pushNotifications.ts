@@ -280,19 +280,24 @@ export async function subscribeUserToPush(): Promise<SubscribeResult> {
       if (Notification.permission === 'granted') {
         const welcomeTitle = "FrozenBergerak 📍 Notifikasi Diaktifkan!";
         const welcomeBody = "Anda akan menerima makluman pergerakan pasukan dan kemaskini terkini secara terus.";
+        const welcomeTag = `frozenbergerak-welcome-${Date.now()}`;
         if (registration && registration.showNotification) {
           registration.showNotification(welcomeTitle, {
             body: welcomeBody,
             icon: '/icons/icon-192.png',
-            badge: '/icons/icon-192.png'
-          }).catch(() => {
+            badge: '/icons/icon-192.png',
+            tag: welcomeTag,
+            renotify: true,
+            silent: false,
+            vibrate: [200, 100, 200]
+          } as NotificationOptions).catch(() => {
             try {
-              new Notification(welcomeTitle, { body: welcomeBody, icon: '/icons/icon-192.png' });
+              new Notification(welcomeTitle, { body: welcomeBody, icon: '/icons/icon-192.png', tag: welcomeTag, silent: false });
             } catch {}
           });
         } else {
           try {
-            new Notification(welcomeTitle, { body: welcomeBody, icon: '/icons/icon-192.png' });
+            new Notification(welcomeTitle, { body: welcomeBody, icon: '/icons/icon-192.png', tag: welcomeTag, silent: false });
           } catch {}
         }
       }
@@ -396,6 +401,7 @@ export async function sendTestPushNotification(): Promise<{ success: boolean; me
 
     const title = "FrozenBergerak 📍 Team Bergerak Sekarang!";
     const body = "Team Frozen kini dalam perjalanan ke lokasi anda. Stok sedia dihantar terus ke rumah!";
+    const testTag = `frozenbergerak-test-${Date.now()}`;
 
     try {
       const reg = await getOrRegisterServiceWorker();
@@ -403,10 +409,14 @@ export async function sendTestPushNotification(): Promise<{ success: boolean; me
         await reg.showNotification(title, {
           body,
           icon: '/icons/icon-192.png',
-          badge: '/icons/icon-192.png'
-        });
+          badge: '/icons/icon-192.png',
+          tag: testTag,
+          renotify: true,
+          silent: false,
+          vibrate: [200, 100, 200]
+        } as NotificationOptions);
       } else if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(title, { body, icon: '/icons/icon-192.png' });
+        new Notification(title, { body, icon: '/icons/icon-192.png', tag: testTag, silent: false });
       }
     } catch {}
 

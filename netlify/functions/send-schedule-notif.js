@@ -207,6 +207,7 @@ export const handler = async (event) => {
     let totalFailed = 0;
     /** @type {string[]} */
     const invalidDocIds = [];
+    const notifTag = `frozenbergerak-schedule-${scheduleId || "update"}-${Date.now()}`;
 
     for (let i = 0; i < tokenRecords.length; i += BATCH_SIZE) {
       const batch = tokenRecords.slice(i, i + BATCH_SIZE);
@@ -224,12 +225,24 @@ export const handler = async (event) => {
           teamName,
           date,
           status,
-          locations
+          locations,
+          tag: notifTag,
+          silent: "false"
         },
         webpush: {
+          headers: {
+            Urgency: "high",
+            TTL: "86400"
+          },
           notification: {
+            title: notifTitle,
+            body: notifBody,
             icon: "/icons/icon-192.png",
-            badge: "/icons/icon-192.png"
+            badge: "/icons/icon-192.png",
+            tag: notifTag,
+            renotify: true,
+            silent: false,
+            vibrate: [200, 100, 200]
           },
           fcmOptions: {
             link: "/#section-jadual-pergerakan"

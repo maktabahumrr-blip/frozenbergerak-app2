@@ -3,9 +3,9 @@
  * Version: 2.4.0 (Unified 2-Spreadsheet Live Sync + AKSES TEAM Access Control)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v28';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v28';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v28';
+const CACHE_NAME = 'frozenbergerak-static-v29';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v29';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v29';
 
 const STATIC_ASSETS = [
   '/',
@@ -198,17 +198,26 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       const parsed = event.data.json();
-      const notif = parsed.notification || {};
+      const webpushNotif = (parsed.webpush && parsed.webpush.notification) || {};
+      const notif = parsed.notification || webpushNotif || {};
       const fcmData = parsed.data || {};
+      const explicitSilent =
+        notif.silent === true ||
+        webpushNotif.silent === true ||
+        parsed.silent === true ||
+        fcmData.silent === 'true';
+
       data = {
         ...data,
         ...parsed,
-        title: notif.title || parsed.title || fcmData.title || data.title,
-        body: notif.body || parsed.body || fcmData.body || data.body,
-        icon: notif.icon || parsed.icon || data.icon,
-        badge: notif.badge || parsed.badge || data.badge,
-        image: notif.image || parsed.image || data.image,
-        url: fcmData.url || parsed.url || (parsed.fcmOptions && parsed.fcmOptions.link) || data.url
+        title: notif.title || webpushNotif.title || parsed.title || fcmData.title || data.title,
+        body: notif.body || webpushNotif.body || parsed.body || fcmData.body || data.body,
+        icon: notif.icon || webpushNotif.icon || parsed.icon || data.icon,
+        badge: notif.badge || webpushNotif.badge || parsed.badge || data.badge,
+        image: notif.image || webpushNotif.image || parsed.image || data.image,
+        url: fcmData.url || parsed.url || (parsed.fcmOptions && parsed.fcmOptions.link) || data.url,
+        tag: notif.tag || webpushNotif.tag || parsed.tag || fcmData.tag || `frozenbergerak-schedule-${Date.now()}`,
+        silent: explicitSilent ? true : false
       };
     } catch (e) {
       data.body = event.data.text() || data.body;
@@ -235,9 +244,11 @@ self.addEventListener('push', (event) => {
     badge: finalBadge,
     image: finalImage,
     vibrate: [200, 100, 200, 100, 200],
-    tag: 'frozenbergerak-schedule-update',
+    tag: data.tag || `frozenbergerak-schedule-${Date.now()}`,
     renotify: true,
+    silent: data.silent === true ? true : false,
     requireInteraction: true,
+    timestamp: Date.now(),
     data: {
       url: data.url || '/#section-jadual-pergerakan',
       title: data.title,

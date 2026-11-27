@@ -301,6 +301,7 @@ async function sendFcmMessagesToTokens(
   let sent = 0;
   let failed = 0;
   const endpointUrl = `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`;
+  const notifTag = `frozenbergerak-schedule-${Date.now()}`;
 
   await Promise.all(
     tokens.map(async (fcmToken) => {
@@ -321,15 +322,27 @@ async function sendFcmMessagesToTokens(
               data: {
                 url: payload.url || "/#section-jadual-pergerakan",
                 title: payload.title || "FrozenBergerak 📍 Jadual Pergerakan",
-                body: payload.body
+                body: payload.body,
+                tag: notifTag,
+                silent: "false"
               },
               webpush: {
+                headers: {
+                  Urgency: "high",
+                  TTL: "86400"
+                },
                 fcm_options: {
                   link: payload.url || "/#section-jadual-pergerakan"
                 },
                 notification: {
+                  title: payload.title || "FrozenBergerak 📍 Jadual Pergerakan",
+                  body: payload.body,
                   icon: payload.icon || "/icons/icon-192.png",
-                  badge: payload.badge || "/icons/icon-192.png"
+                  badge: payload.badge || "/icons/icon-192.png",
+                  tag: notifTag,
+                  renotify: true,
+                  silent: false,
+                  vibrate: [200, 100, 200]
                 }
               }
             }
@@ -372,6 +385,7 @@ async function broadcastPushNotification(payload: {
   let sent = 0;
   let failed = 0;
   const invalidEndpoints: string[] = [];
+  const notifTag = `frozenbergerak-schedule-${Date.now()}`;
 
   const stringifiedPayload = JSON.stringify({
     title: payload.title || "FrozenBergerak 📍 Jadual Pergerakan",
@@ -379,7 +393,11 @@ async function broadcastPushNotification(payload: {
     icon: payload.icon || "/icons/icon-192.png",
     badge: payload.badge || "/icons/icon-192.png",
     image: payload.image || "/icons/icon-512.png",
-    url: payload.url || "/#section-jadual-pergerakan"
+    url: payload.url || "/#section-jadual-pergerakan",
+    tag: notifTag,
+    silent: false,
+    renotify: true,
+    vibrate: [200, 100, 200]
   });
 
   const vapidPromises = subscriptions.map(async (sub) => {
@@ -391,7 +409,8 @@ async function broadcastPushNotification(payload: {
         },
         stringifiedPayload,
         {
-          TTL: 86400
+          TTL: 86400,
+          urgency: "high"
         }
       );
       sent++;
@@ -3261,7 +3280,11 @@ app.post("/api/push/test", async (req: Request, res: Response) => {
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
       image: "/icons/icon-512.png",
-      url: "/#section-jadual-pergerakan"
+      url: "/#section-jadual-pergerakan",
+      tag: `frozenbergerak-test-${Date.now()}`,
+      silent: false,
+      renotify: true,
+      vibrate: [200, 100, 200]
     };
 
     const testPayload = JSON.stringify(testPayloadObj);
@@ -3269,7 +3292,10 @@ app.post("/api/push/test", async (req: Request, res: Response) => {
     let sent = 0;
     for (const sub of targetSubs) {
       try {
-        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, testPayload, { TTL: 60 });
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, testPayload, {
+          TTL: 60,
+          urgency: "high"
+        });
         sent++;
       } catch (err: any) {
         if (err.statusCode === 404 || err.statusCode === 410) {

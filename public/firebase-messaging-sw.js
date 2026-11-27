@@ -14,21 +14,36 @@ self.addEventListener('push', (event) => {
     body: 'Semak lokasi terkini & laluan penghantaran pasukan kami hari ini.',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    url: '/#section-jadual-pergerakan'
+    url: '/#section-jadual-pergerakan',
+    tag: `frozenbergerak-fcm-${Date.now()}`,
+    silent: false,
+    renotify: true,
+    vibrate: [200, 100, 200]
   };
 
   if (event.data) {
     try {
       const raw = event.data.json();
-      const notif = raw.notification || {};
+      const webpushNotif = (raw.webpush && raw.webpush.notification) || {};
+      const notif = raw.notification || webpushNotif || {};
       const data = raw.data || {};
+      const explicitSilent =
+        notif.silent === true ||
+        webpushNotif.silent === true ||
+        raw.silent === true ||
+        data.silent === 'true';
+
       payload = {
         ...payload,
-        title: notif.title || raw.title || data.title || payload.title,
-        body: notif.body || raw.body || data.body || payload.body,
-        icon: notif.icon || raw.icon || payload.icon,
-        badge: notif.badge || raw.badge || payload.badge,
-        url: data.url || raw.url || (raw.fcmOptions && raw.fcmOptions.link) || payload.url
+        title: notif.title || webpushNotif.title || raw.title || data.title || payload.title,
+        body: notif.body || webpushNotif.body || raw.body || data.body || payload.body,
+        icon: notif.icon || webpushNotif.icon || raw.icon || payload.icon,
+        badge: notif.badge || webpushNotif.badge || raw.badge || payload.badge,
+        url: data.url || raw.url || (raw.fcmOptions && raw.fcmOptions.link) || (raw.webpush && raw.webpush.fcm_options && raw.webpush.fcm_options.link) || payload.url,
+        tag: notif.tag || webpushNotif.tag || raw.tag || data.tag || payload.tag,
+        silent: explicitSilent ? true : false,
+        renotify: typeof notif.renotify === 'boolean' ? notif.renotify : true,
+        vibrate: Array.isArray(notif.vibrate) ? notif.vibrate : payload.vibrate
       };
     } catch {
       payload.body = event.data.text() || payload.body;
@@ -63,9 +78,11 @@ self.addEventListener('push', (event) => {
         body: payload.body,
         icon: toAbs(payload.icon, '/icons/icon-192.png'),
         badge: toAbs(payload.badge, '/icons/icon-192.png'),
-        vibrate: [200, 100, 200],
-        tag: 'frozenbergerak-fcm-notification',
-        renotify: true,
+        vibrate: payload.vibrate,
+        tag: payload.tag,
+        renotify: payload.renotify,
+        silent: payload.silent === true ? true : false,
+        timestamp: Date.now(),
         data: { url: payload.url }
       }),
       broadcastPromise

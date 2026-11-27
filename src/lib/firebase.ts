@@ -172,6 +172,9 @@ export async function requestFcmToken(
       swReg = await navigator.serviceWorker
         .register("/firebase-messaging-sw.js", { scope: "/firebase-cloud-messaging-push-scope" })
         .catch(() => navigator.serviceWorker.getRegistration().catch(() => undefined));
+      if (swReg && typeof swReg.update === "function") {
+        swReg.update().catch(() => {});
+      }
     }
 
     const tokenOptions: any = {};
