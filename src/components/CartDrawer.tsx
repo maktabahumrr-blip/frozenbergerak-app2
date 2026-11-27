@@ -22,7 +22,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { AgentContact, CartItem, CustomerOrderInfo, DeliveryArea } from "../types";
-import { formatCurrency, generateCartWhatsAppUrl } from "../utils/formatters";
+import { formatCurrency, generateCartWhatsAppUrl, isProductPriceHidden } from "../utils/formatters";
 import { formatImageUrl, handleOptimizedImageError } from "../utils/googleDrive";
 import { formatIsoDateMalay, getLocalTodayIso } from "../utils/scheduleDateHelper";
 import { AreaAgentSelector } from "./AreaAgentSelector";
@@ -75,17 +75,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   if (!isOpen) return null;
 
   const safeItems = Array.isArray(items) ? items : [];
-  const isItemPriceHidden = (p: any) => {
-    const catLower = String(p?.category || "").toLowerCase();
-    return Boolean(
-      p?.hidePrice ||
-      catLower.includes("promosi bermusim") ||
-      catLower.includes("seasonal") ||
-      catLower.includes("musiman")
-    );
-  };
-  const fixedPriceItems = safeItems.filter((item) => !isItemPriceHidden(item?.product));
-  const hasHiddenPriceItems = safeItems.some((item) => isItemPriceHidden(item?.product));
+  const fixedPriceItems = safeItems.filter((item) => !isProductPriceHidden(item?.product));
+  const hasHiddenPriceItems = safeItems.some((item) => isProductPriceHidden(item?.product));
   const allItemsHiddenPrice = safeItems.length > 0 && fixedPriceItems.length === 0;
   const productSubtotal = fixedPriceItems.reduce(
     (acc, item) => acc + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1),
@@ -251,7 +242,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       const pId = p?.id || Math.random().toString();
                       const itemQty = Number(item?.quantity) || 1;
                       const itemPrice = Number(p?.price) || 0;
-                      const itemHidePrice = isItemPriceHidden(p);
+                      const itemHidePrice = isProductPriceHidden(p);
 
                       return (
                         <div

@@ -15,15 +15,80 @@ function formatReadableDate(rawDate?: string): string {
   return rawDate.trim();
 }
 
-function isProductPriceHidden(product?: Product | null): boolean {
+export function isProductPriceHidden(product?: Product | null): boolean {
   if (!product) return false;
   const catLower = String(product.category || "").toLowerCase();
+  const numericPrice = Number(product.price);
+  const hasFixedPrice = Number.isFinite(numericPrice) && numericPrice > 0;
   return Boolean(
     product.hidePrice ||
+    !hasFixedPrice ||
     catLower.includes("promosi bermusim") ||
+    catLower.includes("tawaran terhad") ||
     catLower.includes("seasonal") ||
     catLower.includes("musiman")
   );
+}
+
+interface StandardizedOrderMessageParams {
+  whatsappNumber: string;
+  itemEntries: string[];
+  totalText: string;
+  deliveryFeeNote?: string;
+  plannedDate?: string;
+  deliveryType?: "penghantaran" | "ambil_sendiri";
+  areaName?: string;
+  agentName?: string;
+  customerName?: string;
+  customerPhone?: string;
+  address?: string;
+  notes?: string;
+}
+
+function buildStandardOrderWhatsAppUrl(params: StandardizedOrderMessageParams): string {
+  const cleanNumber = String(params.whatsappNumber || "").replace(/[^0-9]/g, "");
+  const safeEntries = params.itemEntries.filter(Boolean);
+
+  const itemLine =
+    safeEntries.length <= 1
+      ? `📦 *Item:* ${safeEntries[0] || "Pilih semasa penghantaran (Disahkan team)"}`
+      : `📦 *Item:*\n${safeEntries.map((entry, idx) => `${idx + 1}. ${entry}`).join("\n")}`;
+
+  const feeNote = params.deliveryFeeNote || "*(+ caj COD ikut kawasan)*";
+  const dateText = formatReadableDate(params.plannedDate);
+  const deliveryShort = params.deliveryType === "ambil_sendiri" ? "Pickup <11 pagi" : "Delivery";
+
+  const trimmedName = params.customerName?.trim() || "";
+  const trimmedPhone = params.customerPhone?.trim() || "";
+  const customerLineValue =
+    trimmedName && trimmedPhone
+      ? `${trimmedName} (${trimmedPhone})`
+      : trimmedName || trimmedPhone || "-";
+
+  const lines: string[] = [
+    itemLine,
+    `💰 *Jumlah:* ${params.totalText} ${feeNote}`,
+    `📅 *Tarikh:* ${dateText} (${deliveryShort})`,
+    `📍 *Kawasan:* ${params.areaName?.trim() || "-"}`,
+    `🧕 *Agen:* ${params.agentName?.trim() || "-"}`,
+    `👤 *Nama:* ${customerLineValue}`,
+  ];
+
+  if (params.deliveryType !== "ambil_sendiri" && params.address?.trim()) {
+    lines.push(`🏠 *Alamat:* ${params.address.trim()}`);
+  }
+  if (params.notes?.trim()) {
+    lines.push(`📝 *Nota:* ${params.notes.trim()}`);
+  }
+
+  const text = `Salam Team FrozenBergerak, nak buat pesanan awal:
+
+${lines.join("\n")}
+
+➕ *(Boleh tambah item masa sampai)*
+Mohon sahkan stok & caj ya. Terima kasih!`;
+
+  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
 }
 
 export function generateSingleProductWhatsAppUrl(
@@ -34,50 +99,38 @@ export function generateSingleProductWhatsAppUrl(
     area?: string;
     agentName?: string;
     plannedDate?: string;
+    deliveryType?: "penghantaran" | "ambil_sendiri";
+    customerName?: string;
+    customerPhone?: string;
+    address?: string;
     notes?: string;
   }
 ): string {
-  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "");
   const prodPrice = Number(product?.price) || 0;
   const prodQty = Number(quantity) || 1;
   const subtotal = prodPrice * prodQty;
   const hidePrice = isProductPriceHidden(product);
-
   const prodName = product?.name || "Produk FrozenBergerak";
-  const dateText = formatReadableDate(orderMeta?.plannedDate);
 
-  const itemLine = hidePrice
-    ? `📦 *Item:* ${prodName} ×${prodQty} (Disahkan team)`
-    : `📦 *Item:* ${prodName} ×${prodQty} (${formatCurrency(subtotal)})`;
+  const itemEntry = hidePrice
+    ? `${prodName} ×${prodQty} (Disahkan team)`
+    : `${prodName} ×${prodQty} (${formatCurrency(subtotal)})`;
 
-  const totalLine = hidePrice
-    ? `💰 *Jumlah:* Disahkan team *(+ caj COD ikut kawasan)*`
-    : `💰 *Jumlah:* *${formatCurrency(subtotal)}* *(+ caj COD ikut kawasan)*`;
+  const totalText = hidePrice ? "Disahkan team" : `*${formatCurrency(subtotal)}*`;
 
-  const lines: string[] = [
-    itemLine,
-    totalLine,
-    `📅 *Tarikh:* ${dateText} (Delivery)`,
-  ];
-
-  if (orderMeta?.area) {
-    lines.push(`📍 *Kawasan:* ${orderMeta.area}`);
-  }
-  if (orderMeta?.agentName) {
-    lines.push(`🧕 *Agen:* ${orderMeta.agentName}`);
-  }
-  if (orderMeta?.notes?.trim()) {
-    lines.push(`📝 *Nota:* ${orderMeta.notes.trim()}`);
-  }
-
-  const text = `Salam Team FrozenBergerak, nak buat pesanan awal:
-
-${lines.join("\n")}
-
-➕ *(Boleh tambah item masa sampai)*
-Mohon sahkan stok & caj ya. Terima kasih!`;
-
-  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
+  return buildStandardOrderWhatsAppUrl({
+    whatsappNumber,
+    itemEntries: [itemEntry],
+    totalText,
+    plannedDate: orderMeta?.plannedDate,
+    deliveryType: orderMeta?.deliveryType || "penghantaran",
+    areaName: orderMeta?.area,
+    agentName: orderMeta?.agentName,
+    customerName: orderMeta?.customerName,
+    customerPhone: orderMeta?.customerPhone,
+    address: orderMeta?.address,
+    notes: orderMeta?.notes,
+  });
 }
 
 export function generateCartWhatsAppUrl(
@@ -86,7 +139,6 @@ export function generateCartWhatsAppUrl(
   whatsappNumber: string = ""
 ): string {
   const targetNumber = customer?.agentPhone || whatsappNumber || "";
-  const cleanNumber = String(targetNumber || "").replace(/[^0-9]/g, "");
   const safeItems = Array.isArray(items) ? items : [];
   const fixedItems = safeItems.filter((item) => !isProductPriceHidden(item?.product));
   const hasHiddenPriceItems = safeItems.some((item) => isProductPriceHidden(item?.product));
@@ -95,7 +147,7 @@ export function generateCartWhatsAppUrl(
     0
   );
 
-  const formattedItems = safeItems.map((item) => {
+  const itemEntries = safeItems.map((item) => {
     const p = item?.product;
     const itemPrice = Number(p?.price) || 0;
     const itemQty = Number(item?.quantity) || 1;
@@ -105,61 +157,32 @@ export function generateCartWhatsAppUrl(
     return `${p?.name || "Produk"} ×${itemQty} (${formatCurrency(itemPrice * itemQty)})`;
   });
 
-  const itemLine =
-    formattedItems.length <= 1
-      ? `📦 *Item:* ${formattedItems[0] || "- Tiada item"}`
-      : `📦 *Item:*\n${formattedItems.map((entry, idx) => `${idx + 1}. ${entry}`).join("\n")}`;
-
   const deliveryFeeNote =
     typeof customer?.deliveryFee === "number" && customer.deliveryFee > 0
       ? `*(+ caj COD ${formatCurrency(customer.deliveryFee)})*`
       : `*(+ caj COD ikut kawasan)*`;
 
-  const totalAmountText =
+  const totalText =
     fixedItems.length === 0 && hasHiddenPriceItems
       ? "Disahkan team"
       : hasHiddenPriceItems
-      ? `*${formatCurrency(subtotal)}* + item pakej`
+      ? `*${formatCurrency(subtotal)}* + item pakej (Disahkan team)`
       : `*${formatCurrency(subtotal)}*`;
 
-  const deliveryShort =
-    customer?.deliveryType === "ambil_sendiri" ? "Pickup <11 pagi" : "Delivery";
-
-  const plannedDateText = formatReadableDate(customer?.plannedDate);
-
-  const lines: string[] = [
-    itemLine,
-    `💰 *Jumlah:* ${totalAmountText} ${deliveryFeeNote}`,
-    `📅 *Tarikh:* ${plannedDateText} (${deliveryShort})`,
-    `📍 *Kawasan:* ${customer?.deliveryArea || "-"}`,
-    `🧕 *Agen:* ${customer?.agentName || "-"}`,
-  ];
-
-  const customerName = customer?.name?.trim();
-  const customerPhone = customer?.phone?.trim();
-  if (customerName && customerPhone) {
-    lines.push(`👤 *Nama:* ${customerName} (${customerPhone})`);
-  } else if (customerName) {
-    lines.push(`👤 *Nama:* ${customerName}`);
-  } else if (customerPhone) {
-    lines.push(`👤 *Pelanggan:* ${customerPhone}`);
-  }
-
-  if (customer?.deliveryType === "penghantaran" && customer?.address?.trim()) {
-    lines.push(`🏠 *Alamat:* ${customer.address.trim()}`);
-  }
-  if (customer?.notes?.trim()) {
-    lines.push(`📝 *Nota:* ${customer.notes.trim()}`);
-  }
-
-  const text = `Salam Team FrozenBergerak, nak buat pesanan awal:
-
-${lines.join("\n")}
-
-➕ *(Boleh tambah item masa sampai)*
-Mohon sahkan stok & caj ya. Terima kasih!`;
-
-  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
+  return buildStandardOrderWhatsAppUrl({
+    whatsappNumber: targetNumber,
+    itemEntries,
+    totalText,
+    deliveryFeeNote,
+    plannedDate: customer?.plannedDate,
+    deliveryType: customer?.deliveryType || "penghantaran",
+    areaName: customer?.deliveryArea,
+    agentName: customer?.agentName,
+    customerName: customer?.name,
+    customerPhone: customer?.phone,
+    address: customer?.address,
+    notes: customer?.notes,
+  });
 }
 
 export function generateSlotBookingWhatsAppUrl(params: {
@@ -173,42 +196,17 @@ export function generateSlotBookingWhatsAppUrl(params: {
   deliveryType?: "penghantaran" | "ambil_sendiri";
   notes?: string;
 }): string {
-  const cleanNumber = String(params.agentPhone || "").replace(/[^0-9]/g, "");
-  const plannedDateText = formatReadableDate(params.plannedDate);
-  const deliveryShort =
-    params.deliveryType === "ambil_sendiri" ? "Pickup <11 pagi" : "Delivery";
-
-  const lines: string[] = [
-    `📦 *Item:* Pilih semasa penghantaran (Disahkan team)`,
-    `💰 *Jumlah:* Disahkan team *(+ caj COD ikut kawasan)*`,
-    `📅 *Tarikh:* ${plannedDateText} (${deliveryShort})`,
-    `📍 *Kawasan:* ${params.areaName}`,
-    `🧕 *Agen:* ${params.agentName}`,
-  ];
-
-  const customerName = params.customerName?.trim();
-  const customerPhone = params.customerPhone?.trim();
-  if (customerName && customerPhone) {
-    lines.push(`👤 *Nama:* ${customerName} (${customerPhone})`);
-  } else if (customerName) {
-    lines.push(`👤 *Nama:* ${customerName}`);
-  } else if (customerPhone) {
-    lines.push(`👤 *Pelanggan:* ${customerPhone}`);
-  }
-
-  if (params.address?.trim() && params.deliveryType !== "ambil_sendiri") {
-    lines.push(`🏠 *Alamat:* ${params.address.trim()}`);
-  }
-  if (params.notes?.trim()) {
-    lines.push(`📝 *Nota:* ${params.notes.trim()}`);
-  }
-
-  const text = `Salam Team FrozenBergerak, nak tempah slot pesanan awal:
-
-${lines.join("\n")}
-
-➕ *(Boleh tambah item masa sampai)*
-Mohon sahkan slot & caj ya. Terima kasih!`;
-
-  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
+  return buildStandardOrderWhatsAppUrl({
+    whatsappNumber: params.agentPhone,
+    itemEntries: ["Pilih semasa penghantaran (Disahkan team)"],
+    totalText: "Disahkan team",
+    plannedDate: params.plannedDate,
+    deliveryType: params.deliveryType || "penghantaran",
+    areaName: params.areaName,
+    agentName: params.agentName,
+    customerName: params.customerName,
+    customerPhone: params.customerPhone,
+    address: params.address,
+    notes: params.notes,
+  });
 }

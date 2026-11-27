@@ -27,6 +27,7 @@ import { Sidebar } from "./components/Sidebar";
 import { CategoryBar } from "./components/CategoryBar";
 import { ProductCard } from "./components/ProductCard";
 import { ProductModal } from "./components/ProductModal";
+import { isProductPriceHidden } from "./utils/formatters";
 import { CartDrawer } from "./components/CartDrawer";
 import { Footer } from "./components/Footer";
 import { InstallPwaBanner } from "./components/InstallPwaBanner";
@@ -621,7 +622,11 @@ export default function App() {
   );
 
   const totalCartValue = useMemo(
-    () => (Array.isArray(cart) ? cart : []).reduce((sum, item) => sum + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1), 0),
+    () =>
+      (Array.isArray(cart) ? cart : []).reduce((sum, item) => {
+        if (isProductPriceHidden(item?.product)) return sum;
+        return sum + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1);
+      }, 0),
     [cart]
   );
 
@@ -792,7 +797,7 @@ export default function App() {
                       {activePromoFilter === "seasonal" && (
                         <span className="text-xs font-extrabold text-white bg-amber-500 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
                           <Sun className="w-3 h-3" />
-                          ✨ PROMOSI BERMUSIM
+                          ✨ TAWARAN TERHAD
                         </span>
                       )}
 
@@ -813,7 +818,7 @@ export default function App() {
                       {activePromoFilter === "alltime"
                         ? "Koleksi All Time Promo"
                         : activePromoFilter === "seasonal"
-                        ? "Koleksi Promosi Bermusim"
+                        ? "Koleksi Tawaran Terhad"
                         : "Katalog Makanan Beku"}
                     </h1>
                     <p className="text-slate-500 text-sm mt-0.5">
@@ -1093,7 +1098,7 @@ export default function App() {
               <span className="font-bold text-xs">Lihat Senarai Pesanan</span>
             </div>
             <span className="font-black text-sm text-blue-300">
-              RM {totalCartValue.toFixed(2)} ➔
+              {totalCartValue > 0 ? `RM ${totalCartValue.toFixed(2)}` : "Disahkan team"} ➔
             </span>
           </button>
         </div>

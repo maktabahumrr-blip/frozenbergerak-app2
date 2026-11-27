@@ -480,7 +480,8 @@ export function parseTabRowsSafely(
         isNew: tabType === "seasonal" || r === 1,
         inStock,
         halalCertified: true,
-        storageInfo: "Simpan pada suhu sejuk beku (-18°C). Nyahbeku sebelum memasak mengikut arahan penyediaan."
+        storageInfo: "Simpan pada suhu sejuk beku (-18°C). Nyahbeku sebelum memasak mengikut arahan penyediaan.",
+        hidePrice: tabType === "seasonal"
       });
     }
 
@@ -517,6 +518,7 @@ export function mergeTabProducts(
         originalPrice: current.originalPrice || current.price,
         price: item.promoPrice || item.price || current.price,
         isPopular: true,
+        hidePrice: Boolean(current.hidePrice || item.hidePrice),
         imageUrl: current.imageUrl || item.imageUrl,
         cookedImageUrl: current.cookedImageUrl || item.cookedImageUrl,
         packagingImageUrl: current.packagingImageUrl || item.packagingImageUrl
@@ -532,7 +534,7 @@ export function mergeTabProducts(
   };
 
   alltimeList.forEach((it) => addOrUpdate(it, "All Time Promo"));
-  seasonalList.forEach((it) => addOrUpdate(it, "PROMOSI BERMUSIM"));
+  seasonalList.forEach((it) => addOrUpdate({ ...it, hidePrice: true }, "PROMOSI BERMUSIM"));
 
   return merged;
 }

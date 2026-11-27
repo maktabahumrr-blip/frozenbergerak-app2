@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ShoppingBag, Eye, Check, ShieldCheck, Sparkles, Tag, Layers, Maximize2 } from "lucide-react";
 import { Product } from "../types";
-import { formatCurrency } from "../utils/formatters";
+import { formatCurrency, isProductPriceHidden } from "../utils/formatters";
 import { formatImageUrl, getCategoryFallbackImage, handleOptimizedImageError } from "../utils/googleDrive";
 import { ImageLightbox } from "./ImageLightbox";
 
@@ -51,14 +51,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     : formatImageUrl(product?.cookedImageUrl || product?.imageUrl || product?.packagingImageUrl, product?.category, product?.name, "card");
 
   const badgeColor = getCategoryBadgeClass(product?.category);
-  const catLower = String(product?.category || "").toLowerCase();
-  const isPriceHidden = Boolean(
-    hidePrice ||
-    product?.hidePrice ||
-    catLower.includes("promosi bermusim") ||
-    catLower.includes("seasonal") ||
-    catLower.includes("musiman")
-  );
+  const isPriceHidden = Boolean(hidePrice || isProductPriceHidden(product));
   const hasPromo = Boolean(!isPriceHidden && product?.promoPrice && product?.originalPrice && product?.promoPrice < product?.originalPrice);
 
   return (
