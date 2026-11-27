@@ -75,7 +75,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   if (!isOpen) return null;
 
   const safeItems = Array.isArray(items) ? items : [];
-  const productSubtotal = safeItems.reduce(
+  const isItemPriceHidden = (p: any) => {
+    const catLower = String(p?.category || "").toLowerCase();
+    return Boolean(
+      p?.hidePrice ||
+      catLower.includes("promosi bermusim") ||
+      catLower.includes("seasonal") ||
+      catLower.includes("musiman")
+    );
+  };
+  const fixedPriceItems = safeItems.filter((item) => !isItemPriceHidden(item?.product));
+  const hasHiddenPriceItems = safeItems.some((item) => isItemPriceHidden(item?.product));
+  const allItemsHiddenPrice = safeItems.length > 0 && fixedPriceItems.length === 0;
+  const productSubtotal = fixedPriceItems.reduce(
     (acc, item) => acc + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1),
     0
   );
@@ -239,6 +251,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       const pId = p?.id || Math.random().toString();
                       const itemQty = Number(item?.quantity) || 1;
                       const itemPrice = Number(p?.price) || 0;
+                      const itemHidePrice = isItemPriceHidden(p);
 
                       return (
                         <div
@@ -260,12 +273,20 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             <h4 className="font-bold text-sm text-slate-900 truncate">
                               {p?.name || "Produk"}
                             </h4>
-                            <p className="text-[13px] text-slate-500">
-                              {formatCurrency(itemPrice)} / {p?.unit || "1 pek"}
-                            </p>
-                            <p className="text-[13px] font-bold text-blue-600 mt-0.5">
-                              Subtotal: {formatCurrency(itemPrice * itemQty)}
-                            </p>
+                            {!itemHidePrice ? (
+                              <>
+                                <p className="text-[13px] text-slate-500">
+                                  {formatCurrency(itemPrice)} / {p?.unit || "1 pek"}
+                                </p>
+                                <p className="text-[13px] font-bold text-blue-600 mt-0.5">
+                                  Subtotal: {formatCurrency(itemPrice * itemQty)}
+                                </p>
+                              </>
+                            ) : (
+                              <p className="text-[13px] text-slate-500 mt-0.5">
+                                Item pakej / random ({itemQty} pek)
+                              </p>
+                            )}
                           </div>
 
                           {/* Quantity Controls */}
@@ -552,7 +573,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-[13px] font-semibold text-slate-600">Jumlah Belian Produk (Subtotal):</span>
-                          <span className="text-base font-black text-slate-900">{formatCurrency(productSubtotal)}</span>
+                          <span className="text-base font-black text-slate-900">
+                            {allItemsHiddenPrice
+                              ? "Item pakej / random"
+                              : hasHiddenPriceItems
+                              ? `${formatCurrency(productSubtotal)} + pakej`
+                              : formatCurrency(productSubtotal)}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between border-t border-slate-200 pt-2">
                           <span className="text-[13px] font-semibold text-slate-600">Caj Penghantaran:</span>
@@ -592,7 +619,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <div className="space-y-1">
                 <div className="flex items-baseline justify-between">
                   <span className="text-[13px] font-semibold text-slate-600">Subtotal Produk:</span>
-                  <span className="text-xl font-black text-slate-900">{formatCurrency(productSubtotal)}</span>
+                  <span className="text-xl font-black text-slate-900">
+                    {allItemsHiddenPrice
+                      ? "Disahkan team"
+                      : hasHiddenPriceItems
+                      ? `${formatCurrency(productSubtotal)} + pakej`
+                      : formatCurrency(productSubtotal)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-slate-500">
                   <span>Caj Penghantaran:</span>

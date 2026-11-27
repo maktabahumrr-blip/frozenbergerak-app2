@@ -46,7 +46,7 @@ export function usePWA() {
       // 1. Purge outdated SW caches so mobile browsers pull fresh assets
       if ("caches" in window) {
         caches.keys().then((cacheNames) => {
-          const currentVersion = "v27";
+          const currentVersion = "v30";
           cacheNames.forEach((name) => {
             if (!name.includes(currentVersion)) {
               console.log(`[PWA] Removing outdated cache: ${name}`);
@@ -56,18 +56,18 @@ export function usePWA() {
         }).catch(() => {});
       }
 
-      // 2. Unregister any stale SW registrations and update active SW
+      // 2. Unregister any stale SW registrations (preserve sw.js & firebase-messaging-sw.js) and update active SWs
       const registerAndUpdateSW = async () => {
         try {
           const registrations = await navigator.serviceWorker.getRegistrations();
           for (const reg of registrations) {
-            // Unregister obsolete service workers with non-root scopes or wrong script URLs
             const scriptURL = reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || "";
-            if (scriptURL && !scriptURL.endsWith("/sw.js")) {
+            const isPrimarySw = scriptURL.endsWith("/sw.js");
+            const isFcmSw = scriptURL.endsWith("/firebase-messaging-sw.js");
+            if (scriptURL && !isPrimarySw && !isFcmSw) {
               console.log("[PWA] Unregistering obsolete service worker:", scriptURL);
               await reg.unregister().catch(() => {});
             } else {
-              // Force update to fetch latest sw.js from server
               await reg.update().catch(() => {});
             }
           }

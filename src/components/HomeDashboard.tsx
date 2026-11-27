@@ -6,14 +6,12 @@ import {
   ShoppingCart,
   Sparkles, 
   Truck, 
-  ArrowRight, 
   ShieldCheck, 
   Tag, 
   ChevronRight,
   ChevronLeft,
   Gift, 
   Sun,
-  Star,
   CheckCircle2,
   CalendarDays,
   CalendarPlus,
@@ -123,7 +121,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               price: sp?.promoPrice || found.promoPrice || found.price,
               description: sp?.description || found.description,
               imageUrl: sp?.imageUrl || found.imageUrl,
-              cookedImageUrl: sp?.imageUrl || found.cookedImageUrl
+              cookedImageUrl: sp?.imageUrl || found.cookedImageUrl,
+              hidePrice: true
             };
           }
           return {
@@ -141,16 +140,19 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             isNew: false,
             inStock: !String(sp?.status || "").toLowerCase().includes("habis") && !String(sp?.status || "").toLowerCase().includes("tidak"),
             halalCertified: true,
-            storageInfo: "Simpan pada suhu sejuk beku (-18°C)."
+            storageInfo: "Simpan pada suhu sejuk beku (-18°C).",
+            hidePrice: true
           };
         });
       }
 
       // Check if any product in main sheet is explicitly categorized as Seasonal
-      return safeProducts.filter((p) => {
-        const catLower = String(p?.category || "").toLowerCase();
-        return catLower.includes("seasonal") || catLower.includes("musiman");
-      });
+      return safeProducts
+        .filter((p) => {
+          const catLower = String(p?.category || "").toLowerCase();
+          return catLower.includes("seasonal") || catLower.includes("musiman");
+        })
+        .map((p) => ({ ...p, hidePrice: true }));
     } catch (e) {
       console.warn("Error calculating displaySeasonalItems:", e);
       return [];
@@ -534,7 +536,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
 
       {/* ============================================================ */}
-      {/* 2. ✨ SEASONAL PROMO SECTION (Promosi Musiman & Istimewa) */}
+      {/* 2. ✨ SEASONAL PROMO SECTION (Tawaran Terhad) */}
       {/* ============================================================ */}
       <motion.section 
         variants={itemVariants}
@@ -544,126 +546,65 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-slate-200 pb-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-amber-100 text-amber-600">
+              <span className="p-1.5 rounded-lg bg-slate-100 text-slate-700">
                 <Sun className="w-4 h-4" />
               </span>
               <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                ✨ PROMOSI BERMUSIM
+                ✨ Tawaran Terhad
               </h2>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Pilihan hidangan istimewa musim perayaan, cuti sekolah &amp; hidangan mudah seisi keluarga.
+            <p className="text-[13px] text-slate-500 mt-1">
+              Luncur ke tepi untuk lihat tawaran terhad &amp; pilihan hidangan istimewa FrozenBergerak.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigateToCatalog("all", "seasonal")}
-            className="text-[13px] font-bold text-amber-700 hover:text-amber-800 flex items-center gap-1 self-start sm:self-auto hover:underline cursor-pointer"
-          >
-            <span>Terokai Promosi Bermusim Dalam Katalog</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Seasonal Promo Highlight Banner */}
-        <div className="p-6 sm:p-8 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white rounded-3xl shadow-md relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-2 text-center md:text-left relative z-10">
-            <div className="inline-flex items-center gap-1.5 bg-black/20 px-3 py-0.5 rounded-full text-xs font-bold text-amber-100">
-              <Star className="w-3.5 h-3.5 text-amber-300" />
-              <span>Edisi Khas Musim Ini</span>
-            </div>
-            <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Pakej Jimat &amp; Hidangan Lazat
-            </h3>
-            <p className="text-xs sm:text-sm text-amber-50 max-w-xl leading-relaxed">
-              Dapatkan stok makanan beku berkualiti seperti kambing perap, rendang daging, dimsum &amp; kudapan mudah saji terus ke pintu rumah anda.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => onNavigateToCatalog("all", "seasonal")}
-            className="px-6 py-3 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 flex-shrink-0 cursor-pointer"
-          >
-            <span>Buka Koleksi Promosi Bermusim</span>
-            <ArrowRight className="w-4 h-4 text-amber-400" />
-          </button>
-        </div>
-
-        {/* Seasonal Promo Products Grid or Empty Notice */}
-        {displaySeasonalItems.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-amber-200/80 p-6 sm:p-8 text-center shadow-xs space-y-4">
-            <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto text-amber-600 border border-amber-100 shadow-xs">
-              <Sun className="w-7 h-7" />
-            </div>
-            <div className="space-y-1.5 max-w-md mx-auto">
-              <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                Promosi Bermusim Akan Datang
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-                Tiada produk promosi bermusim buat masa ini. Anda boleh menyemak tawaran promosi berterusan di bahagian <strong>All Time Promo</strong> atau terokai katalog penuh kami.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => onNavigateToCatalog("all", "alltime")}
-                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Flame className="w-3.5 h-3.5" />
-                <span>Lihat All Time Promo</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigateToCatalog("all")}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Grid className="w-3.5 h-3.5" />
-                <span>Buka Katalog Penuh</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             {displaySeasonalItems.length > 1 && (
-              <div className="flex items-center justify-between text-[13px] text-slate-500">
-                <span>Luncur ke tepi untuk lihat pakej bermusim ({displaySeasonalItems.length} item)</span>
-                <div className="hidden sm:flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(seasonalCarouselRef, "left")}
-                    aria-label="Skrol Promosi Bermusim ke kiri"
-                    className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(seasonalCarouselRef, "right")}
-                    aria-label="Skrol Promosi Bermusim ke kanan"
-                    className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+              <div className="hidden sm:flex items-center gap-1.5 mr-1">
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel(seasonalCarouselRef, "left")}
+                  aria-label="Skrol Tawaran Terhad ke kiri"
+                  className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollCarousel(seasonalCarouselRef, "right")}
+                  aria-label="Skrol Tawaran Terhad ke kanan"
+                  className="p-1.5 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 shadow-2xs cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             )}
-            <div
-              ref={seasonalCarouselRef}
-              className="flex gap-4 sm:gap-5 overflow-x-auto snap-x snap-mandatory pb-3 scroll-smooth"
+            <button
+              type="button"
+              onClick={() => onNavigateToCatalog("all", "seasonal")}
+              className="text-[13px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 hover:underline cursor-pointer"
             >
-              {displaySeasonalItems?.map((product) => {
-                if (!product) return null;
-                const hasPromoPrice = Boolean(
-                  product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice
-                );
+              <span>Lihat Semua di Katalog</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
 
-                return (
-                  <div
-                    key={`seasonal-${product?.id || Math.random()}`}
-                    className="w-[265px] sm:w-[290px] lg:w-[300px] shrink-0 snap-start bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group"
-                  >
+        {/* Horizontal Sliding Carousel */}
+        {displaySeasonalItems.length > 0 ? (
+          <div
+            ref={seasonalCarouselRef}
+            className="flex gap-4 sm:gap-5 overflow-x-auto snap-x snap-mandatory pb-3 scroll-smooth"
+          >
+            {displaySeasonalItems.map((product) => {
+              if (!product) return null;
+
+              return (
+                <div
+                  key={`seasonal-${product?.id || Math.random()}`}
+                  className="w-[272px] sm:w-[300px] lg:w-[320px] shrink-0 snap-start bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group hover:border-blue-300"
+                >
+                  {/* Gambar Pakej with Click to View Modal */}
                   <div
                     onClick={() => onViewProductDetails(product)}
                     className="relative aspect-4/3 bg-slate-100 overflow-hidden cursor-pointer"
@@ -679,54 +620,36 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       }}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
-                    <span className="absolute top-2.5 left-2.5 bg-amber-500 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      Pilihan Musim
+
+                    <span className="absolute bottom-2 right-2 bg-slate-900/85 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-xs">
+                      ✨ Pilihan Musim
                     </span>
                   </div>
 
-                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                  {/* Butiran Pakej (Tanpa Harga Tetap) */}
+                  <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3">
                     <div>
                       <span className="text-[10px] uppercase font-bold text-blue-600 tracking-wider block">
-                        {product?.category || "Promosi"}
+                        {product?.category || "Promosi Bermusim"}
                       </span>
-                      <h4
+                      <h3
                         onClick={() => onViewProductDetails(product)}
-                        className="font-bold text-slate-900 text-sm line-clamp-1 group-hover:text-blue-600 transition-colors cursor-pointer hover:underline"
+                        className="font-bold text-slate-900 text-base line-clamp-1 group-hover:text-blue-600 transition-colors cursor-pointer hover:underline"
                       >
                         {product?.name || "Produk"}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 line-clamp-2 mt-1">
+                      </h3>
+                      <p className="text-xs text-slate-500 line-clamp-2 mt-1 leading-relaxed whitespace-pre-line">
                         {product?.description || "Kualiti terbaik sedia dimasak untuk hidangan keluarga."}
                       </p>
                     </div>
 
-                    <div className="pt-2.5 border-t border-slate-100 flex flex-col gap-2.5">
-                      <div>
-                        {hasPromoPrice ? (
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-base font-extrabold text-rose-600">
-                              {formatCurrency(product?.promoPrice)}
-                            </span>
-                            <span className="text-[11px] text-slate-400 line-through">
-                              {formatCurrency(product?.originalPrice)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-base font-extrabold text-slate-900">
-                            {formatCurrency(product?.price)}
-                          </span>
-                        )}
-                        <span className="text-[10px] text-slate-400 block -mt-0.5">
-                          {product?.unit || "1 pek"}
-                        </span>
-                      </div>
-
+                    {/* Tindakan + Troli & Pesan Sekarang */}
+                    <div className="pt-3 border-t border-slate-100">
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => onAddToCart(product, 1)}
-                          className="w-full py-2 px-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="w-full py-2.5 px-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                           title="Tambah ke Senarai Pesanan"
                         >
                           <ShoppingCart className="w-3.5 h-3.5 text-slate-600 shrink-0" />
@@ -735,16 +658,45 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                         <button
                           type="button"
                           onClick={() => onViewProductDetails(product)}
-                          className="w-full py-2 px-2 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center cursor-pointer"
+                          className="w-full py-2.5 px-2 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <span>Pesan Sekarang</span>
                         </button>
                       </div>
                     </div>
                   </div>
-                  </div>
-                );
-              })}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-8 bg-white rounded-2xl border border-dashed border-slate-200 text-center space-y-2 shadow-xs">
+            <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
+              <Sun className="w-5 h-5" />
+            </div>
+            <h4 className="font-bold text-sm text-slate-800">
+              Promosi Bermusim Akan Datang
+            </h4>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Tiada produk promosi bermusim buat masa ini. Semak tawaran <strong>All Time Promo</strong> atau terokai katalog penuh kami.
+            </p>
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigateToCatalog("all", "alltime")}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-rose-700 transition-colors cursor-pointer"
+              >
+                <Flame className="w-3.5 h-3.5" />
+                <span>Lihat All Time Promo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateToCatalog("all")}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors cursor-pointer"
+              >
+                <Grid className="w-3.5 h-3.5" />
+                <span>Buka Katalog Penuh</span>
+              </button>
             </div>
           </div>
         )}

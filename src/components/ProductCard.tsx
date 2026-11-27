@@ -12,6 +12,7 @@ interface ProductCardProps {
   onAddToCart: (product: Product) => void;
   isInCart: boolean;
   cartQuantity: number;
+  hidePrice?: boolean;
 }
 
 const getCategoryBadgeClass = (category?: string) => {
@@ -35,6 +36,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onAddToCart,
   isInCart,
   cartQuantity,
+  hidePrice = false,
 }) => {
   if (!product) return null;
 
@@ -49,7 +51,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     : formatImageUrl(product?.cookedImageUrl || product?.imageUrl || product?.packagingImageUrl, product?.category, product?.name, "card");
 
   const badgeColor = getCategoryBadgeClass(product?.category);
-  const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product?.promoPrice < product?.originalPrice);
+  const catLower = String(product?.category || "").toLowerCase();
+  const isPriceHidden = Boolean(
+    hidePrice ||
+    product?.hidePrice ||
+    catLower.includes("promosi bermusim") ||
+    catLower.includes("seasonal") ||
+    catLower.includes("musiman")
+  );
+  const hasPromo = Boolean(!isPriceHidden && product?.promoPrice && product?.originalPrice && product?.promoPrice < product?.originalPrice);
 
   return (
     <div
@@ -169,29 +179,33 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               {product?.name || "Produk"}
             </h4>
 
-            {/* Price section with Promo Price support */}
-            <div className="text-right whitespace-nowrap">
-              {hasPromo && product?.originalPrice ? (
-                <div className="flex flex-col items-end">
-                  <span className="text-xs text-slate-400 line-through font-semibold">
-                    {formatCurrency(product?.originalPrice)}
-                  </span>
-                  <span className="text-red-600 font-black text-base">
+            {/* Price section with Promo Price support (hidden for random/seasonal packages) */}
+            {!isPriceHidden && (
+              <div className="text-right whitespace-nowrap">
+                {hasPromo && product?.originalPrice ? (
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs text-slate-400 line-through font-semibold">
+                      {formatCurrency(product?.originalPrice)}
+                    </span>
+                    <span className="text-red-600 font-black text-base">
+                      {formatCurrency(product?.price)}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-blue-600 font-extrabold text-base">
                     {formatCurrency(product?.price)}
                   </span>
-                </div>
-              ) : (
-                <span className="text-blue-600 font-extrabold text-base">
-                  {formatCurrency(product?.price)}
-                </span>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
-            <span>{product?.unit || "1 pek"}</span>
-            {product?.weight && <span>• {product?.weight}</span>}
-          </div>
+          {!isPriceHidden && (
+            <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
+              <span>{product?.unit || "1 pek"}</span>
+              {product?.weight && <span>• {product?.weight}</span>}
+            </div>
+          )}
 
           <p className="text-slate-500 text-xs sm:text-sm mb-4 line-clamp-2 leading-relaxed">
             {product?.description || ""}

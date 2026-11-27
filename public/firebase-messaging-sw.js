@@ -80,8 +80,9 @@ self.addEventListener('push', (event) => {
         badge: toAbs(payload.badge, '/icons/icon-192.png'),
         vibrate: payload.vibrate,
         tag: payload.tag,
-        renotify: payload.renotify,
-        silent: payload.silent === true ? true : false,
+        renotify: true,
+        silent: false,
+        requireInteraction: false,
         timestamp: Date.now(),
         data: { url: payload.url }
       }),

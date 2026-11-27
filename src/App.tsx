@@ -132,8 +132,11 @@ export default function App() {
 
   // Listen to Service Worker messages and custom live notifications to show the moving Frozen vehicle
   useEffect(() => {
+    let lastSwPushAt = 0;
+
     const handleSWMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === "PUSH_NOTIFICATION_RECEIVED" && event.data.payload) {
+        lastSwPushAt = Date.now();
         setLiveNotification({
           id: String(Date.now()),
           title: event.data.payload.title || "FrozenBergerak 📍 Jadual Pergerakan",
@@ -162,13 +165,56 @@ export default function App() {
     subscribeToFcmForegroundMessages((payload) => {
       const notifTitle = payload?.notification?.title || payload?.data?.title || "FrozenBergerak 📍 Kemaskini Terkini";
       const notifBody = payload?.notification?.body || payload?.data?.body || "Sila semak jadual pergerakan pasukan hari ini.";
+      const notifUrl = payload?.data?.url || "/#section-jadual-pergerakan";
+      const notifTag = payload?.data?.tag || `frozenbergerak-fg-${Date.now()}`;
+
       setLiveNotification({
         id: String(Date.now()),
         title: notifTitle,
         body: notifBody,
-        url: payload?.data?.url || "/#section-jadual-pergerakan",
+        url: notifUrl,
         timestamp: Date.now()
       });
+
+      // If SW push event didn't already show an OS notification in the last 3s, display one with sound (silent: false)
+      if (
+        Date.now() - lastSwPushAt > 3000 &&
+        typeof window !== "undefined" &&
+        "Notification" in window &&
+        Notification.permission === "granted"
+      ) {
+        const showOptions: NotificationOptions = {
+          body: notifBody,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          tag: notifTag,
+          silent: false,
+          data: { url: notifUrl }
+        };
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker
+            .getRegistration()
+            .then((reg) => {
+              if (reg && reg.showNotification) {
+                return reg.showNotification(notifTitle, {
+                  ...showOptions,
+                  renotify: true,
+                  vibrate: [200, 100, 200]
+                } as NotificationOptions);
+              }
+              new Notification(notifTitle, showOptions);
+            })
+            .catch(() => {
+              try {
+                new Notification(notifTitle, showOptions);
+              } catch {}
+            });
+        } else {
+          try {
+            new Notification(notifTitle, showOptions);
+          } catch {}
+        }
+      }
     }).then((unsub) => {
       unsubscribeFcm = unsub;
     });
@@ -360,7 +406,8 @@ export default function App() {
             isNew: false,
             inStock: !String(pr.status || "").toLowerCase().includes("habis") && !String(pr.status || "").toLowerCase().includes("tidak"),
             halalCertified: true,
-            storageInfo: "Simpan pada suhu sejuk beku (-18°C)."
+            storageInfo: "Simpan pada suhu sejuk beku (-18°C).",
+            hidePrice: isSeasonal
           });
         }
       });
@@ -930,13 +977,16 @@ export default function App() {
                   {(filteredProducts || []).map((product) => {
                     if (!product) return null;
                     const cartItem = (Array.isArray(cart) ? cart : []).find((i) => i?.product?.id === product?.id);
+                    const isSeasonalCard = activePromoFilter === "seasonal" || Boolean(product?.hidePrice);
+                    const cardProduct = isSeasonalCard && !product?.hidePrice ? { ...product, hidePrice: true } : product;
                     return (
                       <ProductCard
                         key={product?.id || Math.random().toString()}
-                        product={product}
+                        product={cardProduct}
                         whatsappNumber={whatsappNumber}
-                        onViewDetails={(p) => setSelectedProduct(p)}
-                        onAddToCart={(p) => handleAddToCart(p, 1)}
+                        hidePrice={isSeasonalCard}
+                        onViewDetails={(p) => setSelectedProduct(isSeasonalCard ? { ...p, hidePrice: true } : p)}
+                        onAddToCart={(p) => handleAddToCart(isSeasonalCard ? { ...p, hidePrice: true } : p, 1)}
                         isInCart={Boolean(cartItem)}
                         cartQuantity={cartItem ? (Number(cartItem?.quantity) || 0) : 0}
                       />

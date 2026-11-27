@@ -74,6 +74,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   const hasBothImages = Boolean(product.cookedImageUrl && product.packagingImageUrl);
 
+  const catLower = String(product?.category || "").toLowerCase();
+  const isPriceHidden = Boolean(
+    product?.hidePrice ||
+    catLower.includes("promosi bermusim") ||
+    catLower.includes("seasonal") ||
+    catLower.includes("musiman")
+  );
   const total = (Number(product?.price) || 0) * (Number(quantity) || 1);
   const canDirectWhatsApp = Boolean(selectedArea && selectedAgent && plannedDate);
   const whatsappUrl = canDirectWhatsApp && selectedAgent && selectedArea
@@ -84,7 +91,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         { area: selectedArea.name, agentName: selectedAgent.name, plannedDate }
       )
     : "#";
-  const hasPromo = Boolean(product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice);
+  const hasPromo = Boolean(!isPriceHidden && product?.promoPrice && product?.originalPrice && product.promoPrice < product.originalPrice);
 
   const handleAdd = () => {
     onAddToCart(product, quantity);
@@ -271,31 +278,42 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               </h2>
             </div>
 
-            {/* Price & Unit */}
-            <div className="flex items-baseline gap-2 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
-              {hasPromo && product?.originalPrice ? (
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-extrabold text-red-600">
+            {/* Price & Unit (Hidden for random/seasonal packages) */}
+            {!isPriceHidden ? (
+              <div className="flex items-baseline gap-2 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                {hasPromo && product?.originalPrice ? (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-extrabold text-red-600">
+                      {formatCurrency(product?.price)}
+                    </span>
+                    <span className="text-sm text-slate-400 line-through font-semibold">
+                      {formatCurrency(product?.originalPrice)}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-2xl font-extrabold text-blue-600">
                     {formatCurrency(product?.price)}
                   </span>
-                  <span className="text-sm text-slate-400 line-through font-semibold">
-                    {formatCurrency(product?.originalPrice)}
+                )}
+                <span className="text-xs text-slate-500 font-medium">
+                  / {product?.unit || "1 pek"}
+                </span>
+                {product?.weight && (
+                  <span className="ml-auto text-xs bg-white px-2 py-0.5 rounded-lg border border-slate-200 text-slate-600 font-semibold">
+                    {product?.weight}
+                  </span>
+                )}
+              </div>
+            ) : (
+              product?.weight && (
+                <div className="flex items-center justify-between bg-slate-50 px-3.5 py-2.5 rounded-2xl border border-slate-100 text-xs text-slate-600">
+                  <span className="font-medium">Pakej Pilihan Musim</span>
+                  <span className="bg-white px-2 py-0.5 rounded-lg border border-slate-200 font-semibold">
+                    {product?.weight}
                   </span>
                 </div>
-              ) : (
-                <span className="text-2xl font-extrabold text-blue-600">
-                  {formatCurrency(product?.price)}
-                </span>
-              )}
-              <span className="text-xs text-slate-500 font-medium">
-                / {product?.unit || "1 pek"}
-              </span>
-              {product?.weight && (
-                <span className="ml-auto text-xs bg-white px-2 py-0.5 rounded-lg border border-slate-200 text-slate-600 font-semibold">
-                  {product?.weight}
-                </span>
-              )}
-            </div>
+              )
+            )}
 
             {/* Description */}
             <div className="bg-slate-50/60 rounded-2xl p-3.5 border border-slate-100/80">
@@ -320,9 +338,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             <div className="pt-2">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-slate-700">Pilih Kuantiti:</span>
-                <span className="text-xs text-slate-500 font-medium">
-                  Jumlah: <strong className="text-slate-900">{formatCurrency(total)}</strong>
-                </span>
+                {!isPriceHidden ? (
+                  <span className="text-xs text-slate-500 font-medium">
+                    Jumlah: <strong className="text-slate-900">{formatCurrency(total)}</strong>
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-500 font-medium">
+                    Kuantiti: <strong className="text-slate-900">{quantity} pek</strong>
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 p-1">
@@ -370,7 +394,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               ) : (
                 <>
                   <ShoppingBag className="w-4 h-4" />
-                  <span>Tambah ke Senarai Pesanan ({formatCurrency(total)})</span>
+                  <span>
+                    {isPriceHidden
+                      ? `Tambah ke Senarai Pesanan (${quantity} pek)`
+                      : `Tambah ke Senarai Pesanan (${formatCurrency(total)})`}
+                  </span>
                 </>
               )}
             </button>
@@ -405,10 +433,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             />
 
             {/* Separated Price Note */}
-            <div className="text-xs text-slate-600 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 flex items-center justify-between">
-              <span>Subtotal Produk: <strong>{formatCurrency(total)}</strong></span>
-              <span className="text-blue-700 font-semibold">+ Caj hantar berasingan</span>
-            </div>
+            {!isPriceHidden ? (
+              <div className="text-xs text-slate-600 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 flex items-center justify-between">
+                <span>Subtotal Produk: <strong>{formatCurrency(total)}</strong></span>
+                <span className="text-blue-700 font-semibold">+ Caj hantar berasingan</span>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-600 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 flex items-center justify-between">
+                <span>Item pakej / random ({quantity} pek)</span>
+                <span className="text-blue-700 font-semibold">+ Caj hantar berasingan</span>
+              </div>
+            )}
 
             {!canDirectWhatsApp ? (
               <div className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-2">
@@ -424,7 +459,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 className="w-full py-3 px-4 rounded-xl text-sm font-bold bg-green-600 hover:bg-green-700 text-white shadow-xs flex items-center justify-center gap-2 transition-all active:scale-95"
               >
                 <MessageCircle className="w-4 h-4 fill-current" />
-                <span>Pesan Terus ke {selectedAgent?.name} ({formatCurrency(total)})</span>
+                <span>
+                  {isPriceHidden
+                    ? `Pesan Terus ke ${selectedAgent?.name}`
+                    : `Pesan Terus ke ${selectedAgent?.name} (${formatCurrency(total)})`}
+                </span>
               </a>
             )}
           </div>

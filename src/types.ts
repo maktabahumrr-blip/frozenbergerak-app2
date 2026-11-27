@@ -16,6 +16,7 @@ export interface Product {
   halalCertified: boolean;
   weight?: string;
   storageInfo?: string;
+  hidePrice?: boolean;
 }
 
 export interface PromoItem {

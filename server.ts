@@ -326,6 +326,23 @@ async function sendFcmMessagesToTokens(
                 tag: notifTag,
                 silent: "false"
               },
+              android: {
+                priority: "HIGH",
+                notification: {
+                  sound: "default",
+                  default_sound: true
+                }
+              },
+              apns: {
+                headers: {
+                  "apns-priority": "10"
+                },
+                payload: {
+                  aps: {
+                    sound: "default"
+                  }
+                }
+              },
               webpush: {
                 headers: {
                   Urgency: "high",

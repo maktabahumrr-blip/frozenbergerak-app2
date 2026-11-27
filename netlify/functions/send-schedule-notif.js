@@ -229,6 +229,23 @@ export const handler = async (event) => {
           tag: notifTag,
           silent: "false"
         },
+        android: {
+          priority: "high",
+          notification: {
+            sound: "default",
+            defaultSound: true
+          }
+        },
+        apns: {
+          headers: {
+            "apns-priority": "10"
+          },
+          payload: {
+            aps: {
+              sound: "default"
+            }
+          }
+        },
         webpush: {
           headers: {
             Urgency: "high",

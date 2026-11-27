@@ -3,9 +3,9 @@
  * Version: 2.4.0 (Unified 2-Spreadsheet Live Sync + AKSES TEAM Access Control)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v29';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v29';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v29';
+const CACHE_NAME = 'frozenbergerak-static-v30';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v30';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v30';
 
 const STATIC_ASSETS = [
   '/',
@@ -246,8 +246,8 @@ self.addEventListener('push', (event) => {
     vibrate: [200, 100, 200, 100, 200],
     tag: data.tag || `frozenbergerak-schedule-${Date.now()}`,
     renotify: true,
-    silent: data.silent === true ? true : false,
-    requireInteraction: true,
+    silent: false,
+    requireInteraction: false,
     timestamp: Date.now(),
     data: {
       url: data.url || '/#section-jadual-pergerakan',

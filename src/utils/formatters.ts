@@ -15,6 +15,17 @@ function formatReadableDate(rawDate?: string): string {
   return rawDate.trim();
 }
 
+function isProductPriceHidden(product?: Product | null): boolean {
+  if (!product) return false;
+  const catLower = String(product.category || "").toLowerCase();
+  return Boolean(
+    product.hidePrice ||
+    catLower.includes("promosi bermusim") ||
+    catLower.includes("seasonal") ||
+    catLower.includes("musiman")
+  );
+}
+
 export function generateSingleProductWhatsAppUrl(
   product?: Product | null,
   quantity: number = 1,
@@ -30,16 +41,24 @@ export function generateSingleProductWhatsAppUrl(
   const prodPrice = Number(product?.price) || 0;
   const prodQty = Number(quantity) || 1;
   const subtotal = prodPrice * prodQty;
+  const hidePrice = isProductPriceHidden(product);
 
   const prodName = product?.name || "Produk FrozenBergerak";
   const dateText = formatReadableDate(orderMeta?.plannedDate);
 
-  const details: string[] = [
-    `• *Produk:* ${prodName} (${prodQty} pek × ${formatCurrency(prodPrice)})`,
-    `• *Jumlah Produk (Subtotal):* *${formatCurrency(subtotal)}*`,
-    `• *Caj Penghantaran:* Berasingan (disahkan ikut kawasan)`,
-    `• *Tarikh Pilihan:* ${dateText}`,
-  ];
+  const details: string[] = hidePrice
+    ? [
+        `• *Produk:* ${prodName} (${prodQty} pek - Item Pakej / Random)`,
+        `• *Harga Produk:* Disahkan oleh team mengikut pilihan semasa`,
+        `• *Caj Penghantaran:* Berasingan (disahkan ikut kawasan)`,
+        `• *Tarikh Pilihan:* ${dateText}`,
+      ]
+    : [
+        `• *Produk:* ${prodName} (${prodQty} pek × ${formatCurrency(prodPrice)})`,
+        `• *Jumlah Produk (Subtotal):* *${formatCurrency(subtotal)}*`,
+        `• *Caj Penghantaran:* Berasingan (disahkan ikut kawasan)`,
+        `• *Tarikh Pilihan:* ${dateText}`,
+      ];
 
   if (orderMeta?.area) {
     details.push(`• *Kawasan:* ${orderMeta.area}`);
@@ -69,7 +88,9 @@ export function generateCartWhatsAppUrl(
   const targetNumber = customer?.agentPhone || whatsappNumber || "";
   const cleanNumber = String(targetNumber || "").replace(/[^0-9]/g, "");
   const safeItems = Array.isArray(items) ? items : [];
-  const subtotal = safeItems.reduce(
+  const fixedItems = safeItems.filter((item) => !isProductPriceHidden(item?.product));
+  const hasHiddenPriceItems = safeItems.some((item) => isProductPriceHidden(item?.product));
+  const subtotal = fixedItems.reduce(
     (acc, item) => acc + (Number(item?.product?.price) || 0) * (Number(item?.quantity) || 1),
     0
   );
@@ -79,6 +100,9 @@ export function generateCartWhatsAppUrl(
       const p = item?.product;
       const itemPrice = Number(p?.price) || 0;
       const itemQty = Number(item?.quantity) || 1;
+      if (isProductPriceHidden(p)) {
+        return `${index + 1}. ${p?.name || "Produk"} ×${itemQty} — Item Pakej / Random`;
+      }
       return `${index + 1}. ${p?.name || "Produk"} ×${itemQty} — ${formatCurrency(itemPrice * itemQty)}`;
     })
     .join("\n");
@@ -111,6 +135,13 @@ export function generateCartWhatsAppUrl(
       ? formatCurrency(customer.deliveryFee)
       : "Berasingan (disahkan ikut kawasan)";
 
+  const subtotalSummaryLine =
+    fixedItems.length === 0 && hasHiddenPriceItems
+      ? "Disahkan oleh team (item pakej / random)"
+      : hasHiddenPriceItems
+      ? `*${formatCurrency(subtotal)}* (+ item pakej random)`
+      : `*${formatCurrency(subtotal)}*`;
+
   const text = `Salam sejahtera Team FrozenBergerak!
 Berikut *Nota Anggaran / Pesanan Awal* saya _(penambahan produk secara bersemuka/on-the-spot dibenarkan)_:
 
@@ -118,7 +149,7 @@ Berikut *Nota Anggaran / Pesanan Awal* saya _(penambahan produk secara bersemuka
 ${itemsList || "- Tiada item"}
 
 *RINGKASAN HARGA:*
-• *Jumlah Belian Produk (Subtotal):* *${formatCurrency(subtotal)}*
+• *Jumlah Belian Produk (Subtotal):* ${subtotalSummaryLine}
 • *Caj Penghantaran:* ${deliveryFeeLine}
 
 *MAKLUMAT TEMPAHAN:*
