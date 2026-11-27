@@ -3169,10 +3169,13 @@ app.post("/api/push/unsubscribe", (req: Request, res: Response) => {
 // Register Firebase Cloud Messaging (FCM) Web Push Token
 app.post("/api/push/fcm-subscribe", (req: Request, res: Response) => {
   try {
-    const { token, userAgent } = req.body;
+    const { token, previousToken, userAgent } = req.body;
     if (!token || typeof token !== "string") {
       res.status(400).json({ success: false, error: "Token FCM diperlukan." });
       return;
+    }
+    if (previousToken && typeof previousToken === "string" && previousToken !== token) {
+      removeFcmToken(previousToken);
     }
     upsertFcmToken(token, userAgent);
     const allTokens = loadFcmTokens();
@@ -3275,6 +3278,45 @@ app.post("/api/push/test", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Gagal menghantar notifikasi ujian." });
+  }
+});
+
+// Express mirror for Netlify Function (/.netlify/functions/send-schedule-notif) in local/Cloud Run server
+app.post("/.netlify/functions/send-schedule-notif", requireAdminOrTeamAuth, async (req: Request, res: Response) => {
+  try {
+    const teamName = String(req.body?.teamName || req.body?.driverName || "").trim().slice(0, 120);
+    const date = String(req.body?.date || "").trim().slice(0, 100);
+    const status = String(req.body?.status || "").trim().slice(0, 60);
+    const locations = String(req.body?.locations || "").trim().slice(0, 260);
+    const isUpdate = Boolean(req.body?.isUpdate);
+
+    const notifTitle = `FrozenBergerak 📍 Jadual Pergerakan ${isUpdate ? "Dikemaskini" : "Baharu"}`;
+    const parts: string[] = [];
+    const teamStatus = [teamName, status ? `(${status})` : ""].filter(Boolean).join(" ");
+    if (teamStatus) parts.push(teamStatus);
+    if (locations) parts.push(`Kawasan: ${locations}`);
+    if (date) parts.push(`Tarikh: ${date}`);
+
+    const notifBody =
+      parts.length > 0
+        ? parts.join(" • ")
+        : "Semak lokasi terkini & laluan penghantaran pasukan kami hari ini.";
+
+    const pushResult = await broadcastPushNotification({
+      title: notifTitle,
+      body: notifBody,
+      url: "/#section-jadual-pergerakan"
+    });
+
+    res.json({
+      success: true,
+      sent: pushResult.sent,
+      failed: pushResult.failed,
+      totalTokens: pushResult.total,
+      message: `Notifikasi jadual diproses (${pushResult.sent} berjaya dihantar).`
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Gagal menghantar notifikasi jadual." });
   }
 });
 

@@ -1471,6 +1471,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         localStorage.getItem("fb_auth_token") ||
         (await auth.currentUser?.getIdToken().catch(() => "")) ||
         "";
+      let scheduleSavedOk = webAppResult.success;
       try {
         const updateRes = await fetch("/api/schedule/update", {
           method: "POST",
@@ -1486,11 +1487,12 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             locations: finalLocations,
             notes: finalNotes,
             status: finalStatus,
-            sendPushNotification,
+            sendPushNotification: false,
             token
           })
         });
         if (updateRes.ok) {
+          scheduleSavedOk = true;
           const updateData = await safeParseJson(updateRes);
           if (updateData?.schedules && Array.isArray(updateData.schedules)) {
             setAllSchedules(updateData.schedules);
@@ -1508,9 +1510,41 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
         console.warn("[ScheduleSync] Server update call note:", serverUpErr);
       }
 
-      if (webAppResult.success) {
-        setSubmitSuccess("Jadual pergerakan berjaya disimpan dan dikemaskini untuk pelanggan!");
-        setTimeout(() => setSubmitSuccess(null), 3500);
+      // 3. Call Netlify Function (and Express mirror route) to send FCM Push Notifications
+      let pushNotifSummary = "";
+      if (sendPushNotification) {
+        try {
+          const notifRes = await fetch("/.netlify/functions/send-schedule-notif", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              scheduleId,
+              teamName: finalTeam,
+              date: finalDate,
+              status: finalStatus,
+              locations: finalLocations,
+              isUpdate: Boolean(selectedId)
+            })
+          });
+          if (notifRes.ok) {
+            const notifData = await safeParseJson(notifRes);
+            if (notifData?.sent > 0) {
+              pushNotifSummary = ` Notifikasi dihantar ke ${notifData.sent} peranti.`;
+            }
+          }
+        } catch (pushErr) {
+          console.warn("[FCM] Schedule push trigger note (non-fatal):", pushErr);
+        }
+      }
+
+      if (scheduleSavedOk) {
+        setSubmitSuccess(
+          `Jadual pergerakan berjaya disimpan dan dikemaskini untuk pelanggan!${pushNotifSummary}`
+        );
+        setTimeout(() => setSubmitSuccess(null), 4000);
       } else {
         setSubmitError(webAppResult.error || "Gagal menyimpan rekod jadual.");
       }

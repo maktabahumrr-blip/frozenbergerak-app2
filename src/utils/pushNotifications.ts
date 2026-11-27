@@ -179,19 +179,21 @@ export async function subscribeUserToPush(): Promise<SubscribeResult> {
       localStorage.setItem('push_notification_permission', 'granted');
     } catch {}
 
+    const previousFcmToken = getStoredFcmToken();
     const registration = await getOrRegisterServiceWorker();
     const vapidPublicKey = await fetchVapidPublicKey();
 
-    // 2. Register Firebase Cloud Messaging (FCM) token when supported
+    // 2. Register Firebase Cloud Messaging (FCM) token via firebase-messaging-sw.js + VITE_FIREBASE_VAPID_KEY
     let fcmToken: string | null = null;
     try {
-      fcmToken = await requestFcmToken(registration, undefined);
+      fcmToken = await requestFcmToken(undefined, undefined);
       if (fcmToken) {
         fetch('/api/push/fcm-subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             token: fcmToken,
+            previousToken: previousFcmToken && previousFcmToken !== fcmToken ? previousFcmToken : undefined,
             userAgent: navigator.userAgent
           })
         }).catch(() => {});
@@ -432,3 +434,34 @@ function dispatchLiveEvent() {
     }));
   }
 }
+
+/**
+ * Silently refreshes & syncs FCM token if user has already granted Notification permission.
+ */
+export async function syncExistingFcmSubscription(): Promise<string | null> {
+  if (typeof window === 'undefined' || !('Notification' in window)) return null;
+  if (Notification.permission !== 'granted') return null;
+
+  const hasOptedIn =
+    Boolean(getStoredFcmToken()) || localStorage.getItem('web_notification_enabled') === 'true';
+  if (!hasOptedIn) return null;
+
+  const previousToken = getStoredFcmToken();
+  try {
+    const token = await requestFcmToken(undefined, undefined);
+    if (token) {
+      fetch('/api/push/fcm-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          previousToken: previousToken && previousToken !== token ? previousToken : undefined,
+          userAgent: navigator.userAgent
+        })
+      }).catch(() => {});
+      return token;
+    }
+  } catch {}
+  return null;
+}
+

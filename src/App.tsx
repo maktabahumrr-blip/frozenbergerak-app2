@@ -40,6 +40,7 @@ import { TeamScheduleModal } from "./components/TeamScheduleModal";
 import { SlotBookingModal } from "./components/SlotBookingModal";
 import { AnimatedNotificationBanner, LiveNotificationPayload } from "./components/AnimatedNotificationBanner";
 import { subscribeToFcmForegroundMessages } from "./lib/firebase";
+import { syncExistingFcmSubscription } from "./utils/pushNotifications";
 import { usePWA } from "./hooks/usePWA";
 
 export default function App() {
@@ -171,6 +172,8 @@ export default function App() {
     }).then((unsub) => {
       unsubscribeFcm = unsub;
     });
+
+    syncExistingFcmSubscription().catch(() => {});
 
     return () => {
       if ("serviceWorker" in navigator) {

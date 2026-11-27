@@ -54,6 +54,54 @@ try {
 }
 export const db = firestoreDb;
 
+// Deterministic safe Firestore document ID from an FCM registration token
+export function getFcmTokenDocId(token: string): string {
+  let h1 = 2166136261;
+  let h2 = 3735928559;
+  for (let i = 0; i < token.length; i++) {
+    const ch = token.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 16777619);
+    h2 = Math.imul(h2 ^ ch, 2246822519);
+  }
+  return `fcm_${(h1 >>> 0).toString(16)}_${(h2 >>> 0).toString(16)}_${token.length}`;
+}
+
+export async function saveFcmTokenToFirestore(
+  token: string,
+  metadata?: { userAgent?: string }
+): Promise<boolean> {
+  if (!db || !token) return false;
+  try {
+    const docId = getFcmTokenDocId(token);
+    await setDoc(
+      doc(db, "fcm_tokens", docId),
+      {
+        token,
+        userAgent: metadata?.userAgent || (typeof navigator !== "undefined" ? navigator.userAgent : ""),
+        active: true,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+    return true;
+  } catch (err: any) {
+    console.warn("[FCM] Firestore token save note:", err?.message || err);
+    return false;
+  }
+}
+
+export async function removeFcmTokenFromFirestore(token: string): Promise<boolean> {
+  if (!db || !token) return false;
+  try {
+    const docId = getFcmTokenDocId(token);
+    await deleteDoc(doc(db, "fcm_tokens", docId));
+    return true;
+  } catch (err: any) {
+    console.warn("[FCM] Firestore token delete note:", err?.message || err);
+    return false;
+  }
+}
+
 // Lazy singleton for Firebase Cloud Messaging (FCM)
 let messagingPromise: Promise<Messaging | null> | null = null;
 
@@ -78,6 +126,14 @@ export async function requestFcmToken(
   serviceWorkerRegistration?: ServiceWorkerRegistration | null,
   vapidKeyOverride?: string | null
 ): Promise<string | null> {
+  const previousToken = (() => {
+    try {
+      return localStorage.getItem("fb_fcm_token");
+    } catch {
+      return null;
+    }
+  })();
+
   try {
     const messaging = await getFirebaseMessaging();
     if (!messaging) return null;
@@ -98,20 +154,45 @@ export async function requestFcmToken(
 
     const token = await getToken(messaging, tokenOptions);
     if (token) {
+      if (previousToken && previousToken !== token) {
+        removeFcmTokenFromFirestore(previousToken).catch(() => {});
+      }
       try {
         localStorage.setItem("fb_fcm_token", token);
       } catch {}
+      await saveFcmTokenToFirestore(token);
       return token;
     }
     return null;
   } catch (err: any) {
-    console.warn("[FCM] Token generation note:", err?.message || err);
+    const errMsg = String(err?.message || err || "");
+    if (
+      previousToken &&
+      (errMsg.includes("token") || errMsg.includes("permission") || errMsg.includes("unregistered"))
+    ) {
+      removeFcmTokenFromFirestore(previousToken).catch(() => {});
+      try {
+        localStorage.removeItem("fb_fcm_token");
+      } catch {}
+    }
+    console.warn("[FCM] Token generation note:", errMsg);
     return null;
   }
 }
 
 export async function revokeFcmToken(): Promise<void> {
+  const existingToken = (() => {
+    try {
+      return localStorage.getItem("fb_fcm_token");
+    } catch {
+      return null;
+    }
+  })();
+
   try {
+    if (existingToken) {
+      await removeFcmTokenFromFirestore(existingToken);
+    }
     const messaging = await getFirebaseMessaging();
     if (messaging) {
       await deleteToken(messaging).catch(() => {});
