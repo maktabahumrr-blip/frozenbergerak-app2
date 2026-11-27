@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Search, 
   AlertCircle, 
@@ -42,6 +42,7 @@ import { AnimatedNotificationBanner, LiveNotificationPayload } from "./component
 import { subscribeToFcmForegroundMessages } from "./lib/firebase";
 import { syncExistingFcmSubscription } from "./utils/pushNotifications";
 import { usePWA } from "./hooks/usePWA";
+import { SplashScreen } from "./components/SplashScreen";
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -50,8 +51,36 @@ export default function App() {
   const [seasonalPromos, setSeasonalPromos] = useState<PromoItem[]>(() => readCachedPromos("cached_seasonal_promos"));
   const [storeConfig, setStoreConfig] = useState<StoreConfig | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+  const [isSplashFadingOut, setIsSplashFadingOut] = useState<boolean>(false);
+  const splashStartRef = useRef<number>(Date.now());
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      setIsSplashFadingOut(true);
+    }, 1500);
+    return () => clearTimeout(safetyTimer);
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const elapsed = Date.now() - splashStartRef.current;
+    const delay = Math.max(0, 700 - elapsed);
+    const timer = setTimeout(() => {
+      setIsSplashFadingOut(true);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!isSplashFadingOut) return;
+    const hideTimer = setTimeout(() => {
+      setShowSplash(false);
+    }, 320);
+    return () => clearTimeout(hideTimer);
+  }, [isSplashFadingOut]);
 
   // Team Approvals Live Sync State across all devices
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
@@ -600,6 +629,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-sky-50/40 via-slate-50 to-blue-50/30 font-sans text-slate-800 selection:bg-blue-500 selection:text-white pb-20 sm:pb-16 overflow-x-clip">
+      <SplashScreen isVisible={showSplash} isFadingOut={isSplashFadingOut} />
       
       {/* Sticky Top Wrapper: PWA Install Banner + Offline Notice + Top Navbar */}
       <div className="sticky top-0 z-40 w-full">

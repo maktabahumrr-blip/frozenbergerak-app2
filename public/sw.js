@@ -3,17 +3,17 @@
  * Version: 2.4.0 (Unified 2-Spreadsheet Live Sync + AKSES TEAM Access Control)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v30';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v30';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v30';
+const CACHE_NAME = 'frozenbergerak-static-v31';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v31';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v31';
 
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
   '/manifest.webmanifest',
-  '/favicon.svg',
-  '/favicon.ico',
+  '/logo.png',
+  '/favicon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable.png',

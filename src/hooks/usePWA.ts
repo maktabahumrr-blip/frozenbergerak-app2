@@ -46,7 +46,7 @@ export function usePWA() {
       // 1. Purge outdated SW caches so mobile browsers pull fresh assets
       if ("caches" in window) {
         caches.keys().then((cacheNames) => {
-          const currentVersion = "v30";
+          const currentVersion = "v31";
           cacheNames.forEach((name) => {
             if (!name.includes(currentVersion)) {
               console.log(`[PWA] Removing outdated cache: ${name}`);

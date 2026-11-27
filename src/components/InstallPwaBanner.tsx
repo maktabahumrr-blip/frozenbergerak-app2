@@ -76,9 +76,9 @@ export const InstallPwaBanner: React.FC<InstallPwaBannerProps> = ({
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
             <img
-              src="/logo.svg"
+              src="/logo.png"
               alt="Logo FrozenBergerak"
-              className="w-9 h-9 object-contain shrink-0"
+              className="w-9 h-9 object-contain rounded-full shrink-0"
             />
             <div>
               <h3 id="manual-install-guide-title" className="font-extrabold text-slate-900 text-sm sm:text-base leading-tight">

@@ -6,7 +6,7 @@
     "name": "izyannazihahabdullah",
     "tarikh": "15/11/2026 00:36",
     "requestedAt": "15/11/2026 00:36",
-    "status": "pending"
+    "status": "approved"
   },
   "nuraliabadrulhisham@gmail.com": {
     "id": "AKS-02",
@@ -15,6 +15,33 @@
     "name": "Nur Alia",
     "tarikh": "15/11/2026 13:10",
     "requestedAt": "15/11/2026 13:10",
-    "status": "pending"
+    "status": "approved"
+  },
+  "anaghurabak@gmail.com": {
+    "id": "AKS-03",
+    "email": "anaghurabak@gmail.com",
+    "nama": "Nazihah",
+    "name": "Nazihah",
+    "tarikh": "16/11/2026 23:48",
+    "requestedAt": "16/11/2026 23:48",
+    "status": "approved"
+  },
+  "ummuanas93@gmail.com": {
+    "id": "AKS-04",
+    "email": "ummuanas93@gmail.com",
+    "nama": "Husna",
+    "name": "Husna",
+    "tarikh": "17/11/2026 12:15",
+    "requestedAt": "17/11/2026 12:15",
+    "status": "approved"
+  },
+  "nurahdafashihah@gmail.com": {
+    "id": "AKS-05",
+    "email": "nurahdafashihah@gmail.com",
+    "nama": "Ahda",
+    "name": "Ahda",
+    "tarikh": "18/11/2026 22:13",
+    "requestedAt": "18/11/2026 22:13",
+    "status": "approved"
   }
 }
