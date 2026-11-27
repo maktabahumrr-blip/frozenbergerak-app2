@@ -40,7 +40,8 @@ import {
   updatePassword as firebaseUpdatePassword,
   onAuthStateChanged,
   saveScheduleToFirestore,
-  deleteScheduleFromFirestore
+  deleteScheduleFromFirestore,
+  countActiveFcmTokensFromFirestore
 } from "../lib/firebase";
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
 import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
@@ -293,17 +294,41 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     } catch {}
   };
 
-  // Fetch push subscriber count for preview badge
-  const fetchSubscriberCount = async () => {
-    try {
-      const res = await fetch(`/api/push/status?_t=${Date.now()}`, { cache: "no-store" });
-      if (res.ok) {
-        const data = await safeParseJson(res);
-        if (data && typeof data.totalSubscribers === "number") {
-          setSubscriberCount(data.totalSubscribers);
-        }
-      }
-    } catch {}
+  // Fetch global push subscriber count (counts ALL active:true tokens in fcm_tokens across all areas)
+  const fetchSubscriberCount = async (explicitToken?: string) => {
+    const token =
+      explicitToken ||
+      authToken ||
+      localStorage.getItem("fb_auth_token") ||
+      (await auth.currentUser?.getIdToken().catch(() => "")) ||
+      "";
+
+    const [firestoreActiveCount, netlifyStatus, expressStatus] = await Promise.all([
+      countActiveFcmTokensFromFirestore().catch(() => null),
+      token
+        ? fetch(`/.netlify/functions/send-schedule-notif?_t=${Date.now()}`, {
+            cache: "no-store",
+            headers: { Authorization: `Bearer ${token}` }
+          })
+            .then((r) => (r.ok ? safeParseJson(r) : null))
+            .catch(() => null)
+        : Promise.resolve(null),
+      fetch(`/api/push/status?_t=${Date.now()}`, { cache: "no-store" })
+        .then((r) => (r.ok ? safeParseJson(r) : null))
+        .catch(() => null)
+    ]);
+
+    const netlifyCount =
+      netlifyStatus && typeof netlifyStatus.totalSubscribers === "number"
+        ? netlifyStatus.totalSubscribers
+        : 0;
+    const serverCount =
+      expressStatus && typeof expressStatus.totalSubscribers === "number"
+        ? expressStatus.totalSubscribers
+        : 0;
+    const fsCount = typeof firestoreActiveCount === "number" ? firestoreActiveCount : 0;
+
+    setSubscriberCount(Math.max(fsCount, netlifyCount, serverCount));
   };
 
   // Safe JSON parser so empty/HTML responses never trigger syntax errors
@@ -899,11 +924,14 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     }
   }, [isOpen, existingSchedule, initialTab]);
 
-  // Live Auto-Refresh Approvals while modal is open for Admin
+  // Live Auto-Refresh Approvals & Global Subscriber Count while modal is open
   useEffect(() => {
-    if (!isOpen || currentUser?.role !== "admin") return;
-    loadApprovals();
-    loadRoles();
+    if (!isOpen || !currentUser) return;
+    fetchSubscriberCount(currentUser.token || undefined);
+    if (currentUser.role === "admin") {
+      loadApprovals();
+      loadRoles();
+    }
   }, [isOpen, currentUser]);
 
   if (!isOpen) return null;
@@ -1537,6 +1565,8 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           }
         } catch (pushErr) {
           console.warn("[FCM] Schedule push trigger note (non-fatal):", pushErr);
+        } finally {
+          fetchSubscriberCount(token).catch(() => {});
         }
       }
 
@@ -2573,16 +2603,24 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                           <span>Hantar Notifikasi Push Ke Telefon Pelanggan</span>
                         </span>
                       </label>
-                      <span className="text-[13px] text-blue-300 font-bold">
+                      <span
+                        className="text-[13px] text-blue-300 font-bold"
+                        title="Jumlah semua pelanggan aktif yang melanggan notifikasi umum (semua kawasan)"
+                      >
                         {subscriberCount} Melanggan
                       </span>
                     </div>
 
                     {sendPushNotification && (
-                      <div className="p-3 bg-white/10 rounded-xl border border-white/15 text-[13px] text-white/95 leading-relaxed">
-                        <strong>FrozenBergerak 📍 Jadual Pergerakan:</strong>{" "}
-                        {teamName ? `${teamName}: ` : ""}Pergerakan di{" "}
-                        {locations || "Kawasan Perkhidmatan"} ({date || "Hari Ini"}).
+                      <div className="p-3 bg-white/10 rounded-xl border border-white/15 text-[13px] text-white/95 leading-relaxed space-y-1">
+                        <div>
+                          <strong>FrozenBergerak 📍 Jadual Pergerakan:</strong>{" "}
+                          {teamName ? `${teamName}: ` : ""}Pergerakan di{" "}
+                          {locations || "Kawasan Perkhidmatan"} ({date || "Hari Ini"}).
+                        </div>
+                        <div className="text-xs text-blue-200/90">
+                          Dihantar kepada semua {subscriberCount} pelanggan aktif (umum, semua kawasan).
+                        </div>
                       </div>
                     )}
                   </div>

@@ -76,11 +76,11 @@ export const handler = async (event) => {
     };
   }
 
-  if (event.httpMethod !== "POST") {
+  if (event.httpMethod !== "POST" && event.httpMethod !== "GET") {
     return {
       statusCode: 405,
       headers,
-      body: JSON.stringify({ success: false, error: "Method Not Allowed. Gunakan POST." })
+      body: JSON.stringify({ success: false, error: "Method Not Allowed. Gunakan GET atau POST." })
     };
   }
 
@@ -113,7 +113,36 @@ export const handler = async (event) => {
       return {
         statusCode: 403,
         headers,
-        body: JSON.stringify({ success: false, error: "Akses ditolak: Akaun tidak dibenarkan menghantar notifikasi." })
+        body: JSON.stringify({ success: false, error: "Akses ditolak: Akaun tidak dibenarkan mengakses notifikasi." })
+      };
+    }
+
+    const db = admin.firestore(app);
+    // Langganan notifikasi bersifat umum: ambil SEMUA token yang active == true tanpa menapis kawasan
+    const snapshot = await db.collection("fcm_tokens").where("active", "==", true).get();
+
+    /** @type {Array<{ docId: string, token: string }>} */
+    const tokenRecords = [];
+    const seenTokens = new Set();
+
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() || {};
+      const tok = typeof data.token === "string" ? data.token.trim() : "";
+      if (tok && data.active === true && !seenTokens.has(tok)) {
+        seenTokens.add(tok);
+        tokenRecords.push({ docId: docSnap.id, token: tok });
+      }
+    });
+
+    if (event.httpMethod === "GET") {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          activeFcmTokens: tokenRecords.length,
+          totalSubscribers: tokenRecords.length
+        })
       };
     }
 
@@ -157,22 +186,6 @@ export const handler = async (event) => {
         ? summaryParts.join(" • ")
         : "Semak lokasi terkini & laluan penghantaran pasukan kami hari ini.");
 
-    const db = admin.firestore(app);
-    const snapshot = await db.collection("fcm_tokens").get();
-
-    /** @type {Array<{ docId: string, token: string }>} */
-    const tokenRecords = [];
-    const seenTokens = new Set();
-
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data() || {};
-      const tok = typeof data.token === "string" ? data.token.trim() : "";
-      if (tok && !seenTokens.has(tok)) {
-        seenTokens.add(tok);
-        tokenRecords.push({ docId: docSnap.id, token: tok });
-      }
-    });
-
     if (tokenRecords.length === 0) {
       return {
         statusCode: 200,
@@ -183,7 +196,7 @@ export const handler = async (event) => {
           failed: 0,
           totalTokens: 0,
           removedInvalidTokens: 0,
-          message: "Tiada token FCM pelanggan yang berdaftar buat masa ini."
+          message: "Tiada token FCM pelanggan yang aktif buat masa ini."
         })
       };
     }

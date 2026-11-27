@@ -137,6 +137,7 @@ const FCM_TOKENS_FILE = path.join(DATA_DIR, "fcm-tokens.json");
 
 interface FcmTokenRecord {
   token: string;
+  active: boolean;
   userAgent?: string;
   updatedAt: string;
 }
@@ -149,6 +150,16 @@ function loadFcmTokens(): FcmTokenRecord[] {
     } catch {}
   }
   return [];
+}
+
+function loadActiveFcmTokens(): FcmTokenRecord[] {
+  const seen = new Set<string>();
+  return loadFcmTokens().filter((item) => {
+    const tok = String(item?.token || "").trim();
+    if (!tok || item.active === false || seen.has(tok)) return false;
+    seen.add(tok);
+    return true;
+  });
 }
 
 function saveFcmTokens(tokens: FcmTokenRecord[]) {
@@ -164,6 +175,7 @@ function upsertFcmToken(token: string, userAgent?: string): boolean {
   const idx = list.findIndex((item) => item.token === clean);
   const record: FcmTokenRecord = {
     token: clean,
+    active: true,
     userAgent: userAgent || "Unknown",
     updatedAt: new Date().toISOString()
   };
@@ -351,7 +363,7 @@ async function broadcastPushNotification(payload: {
   image?: string;
 }): Promise<{ sent: number; failed: number; total: number }> {
   const subscriptions = loadSubscriptions();
-  const fcmTokens = loadFcmTokens().map((item) => item.token);
+  const fcmTokens = loadActiveFcmTokens().map((item) => item.token);
 
   if (subscriptions.length === 0 && fcmTokens.length === 0) {
     return { sent: 0, failed: 0, total: 0 };
@@ -3178,7 +3190,7 @@ app.post("/api/push/fcm-subscribe", (req: Request, res: Response) => {
       removeFcmToken(previousToken);
     }
     upsertFcmToken(token, userAgent);
-    const allTokens = loadFcmTokens();
+    const allTokens = loadActiveFcmTokens();
     const subs = loadSubscriptions();
     res.json({
       success: true,
@@ -3204,10 +3216,10 @@ app.post("/api/push/fcm-unsubscribe", (req: Request, res: Response) => {
   }
 });
 
-// Push notification system status
+// Push notification system status (global across all active tokens, not filtered by area)
 app.get("/api/push/status", (_req: Request, res: Response) => {
   const subs = loadSubscriptions();
-  const fcmTokens = loadFcmTokens();
+  const fcmTokens = loadActiveFcmTokens();
   res.json({
     isConfigured: Boolean(vapidKeys.publicKey),
     fcmEnabled: true,
@@ -3224,7 +3236,7 @@ app.post("/api/push/test", async (req: Request, res: Response) => {
   try {
     const { endpoint, fcmToken } = req.body;
     const subscriptions = loadSubscriptions();
-    const fcmTokens = loadFcmTokens().map((item) => item.token);
+    const fcmTokens = loadActiveFcmTokens().map((item) => item.token);
 
     if (subscriptions.length === 0 && fcmTokens.length === 0 && !fcmToken) {
       res.status(400).json({
@@ -3282,6 +3294,16 @@ app.post("/api/push/test", async (req: Request, res: Response) => {
 });
 
 // Express mirror for Netlify Function (/.netlify/functions/send-schedule-notif) in local/Cloud Run server
+app.get("/.netlify/functions/send-schedule-notif", requireAdminOrTeamAuth, (_req: Request, res: Response) => {
+  const subs = loadSubscriptions();
+  const activeTokens = loadActiveFcmTokens();
+  res.json({
+    success: true,
+    activeFcmTokens: activeTokens.length,
+    totalSubscribers: subs.length + activeTokens.length
+  });
+});
+
 app.post("/.netlify/functions/send-schedule-notif", requireAdminOrTeamAuth, async (req: Request, res: Response) => {
   try {
     const teamName = String(req.body?.teamName || req.body?.driverName || "").trim().slice(0, 120);

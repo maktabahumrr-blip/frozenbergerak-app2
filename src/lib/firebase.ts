@@ -13,6 +13,8 @@ import {
   getFirestore, 
   collection, 
   getDocs, 
+  query,
+  where,
   doc, 
   setDoc,
   deleteDoc,
@@ -99,6 +101,30 @@ export async function removeFcmTokenFromFirestore(token: string): Promise<boolea
   } catch (err: any) {
     console.warn("[FCM] Firestore token delete note:", err?.message || err);
     return false;
+  }
+}
+
+/**
+ * Counts all active (active === true) FCM tokens in Firestore collection `fcm_tokens`
+ * across all customers globally (never filtered by delivery area).
+ */
+export async function countActiveFcmTokensFromFirestore(): Promise<number | null> {
+  if (!db) return null;
+  try {
+    const q = query(collection(db, "fcm_tokens"), where("active", "==", true));
+    const snapshot = await getDocs(q);
+    const uniqueTokens = new Set<string>();
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() || {};
+      const tok = typeof data.token === "string" ? data.token.trim() : "";
+      if (tok) {
+        uniqueTokens.add(tok);
+      }
+    });
+    return uniqueTokens.size;
+  } catch (err: any) {
+    console.warn("[FCM] Firestore active token count note:", err?.message || err);
+    return null;
   }
 }
 
