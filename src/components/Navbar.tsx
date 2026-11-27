@@ -142,7 +142,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <img
               src="/logo.png"
               alt="Logo FrozenBergerak"
-              className="w-8 h-8 sm:w-12 sm:h-12 object-contain rounded-full group-hover:scale-105 transition-transform duration-200"
+              className="w-8 h-8 sm:w-12 sm:h-12 object-contain group-hover:scale-105 transition-transform duration-200"
             />
             {isOffline && (
               <span

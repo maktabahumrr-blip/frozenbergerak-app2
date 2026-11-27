@@ -17,11 +17,13 @@ export const Footer: React.FC<FooterProps> = ({ config }) => {
           {/* Brand Col */}
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <img
-                src="/logo.png"
-                alt="Logo FrozenBergerak"
-                className="w-10 h-10 object-contain rounded-full bg-white p-0.5"
-              />
+              <div className="w-11 h-11 rounded-full bg-white p-1 flex items-center justify-center shrink-0">
+                <img
+                  src="/logo.png"
+                  alt="Logo FrozenBergerak"
+                  className="w-full h-full object-contain"
+                />
+              </div>
               <span className="font-bold text-lg text-white tracking-tight">
                 Frozen<span className="text-blue-400">Bergerak</span>
               </span>

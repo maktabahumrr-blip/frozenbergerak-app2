@@ -91,11 +91,11 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ isVisible, isFadingO
           {/* Brand Emblem Badge */}
           <div className="relative mb-4 sm:mb-5">
             <div className="absolute inset-0 -m-2 rounded-full bg-sky-200/50 blur-md animate-pulse" />
-            <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white p-1.5 shadow-[0_10px_28px_rgba(37,99,235,0.16)] border-2 border-sky-200 flex items-center justify-center overflow-hidden">
+            <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white p-2.5 shadow-[0_10px_28px_rgba(37,99,235,0.16)] border-2 border-sky-200 flex items-center justify-center">
               <img
                 src="/logo.png"
                 alt="Logo FrozenBergerak"
-                className="w-full h-full object-contain rounded-full"
+                className="w-full h-full object-contain"
               />
             </div>
           </div>

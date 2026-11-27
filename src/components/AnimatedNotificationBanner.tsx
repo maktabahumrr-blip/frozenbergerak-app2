@@ -82,7 +82,7 @@ export const AnimatedNotificationBanner: React.FC<AnimatedNotificationBannerProp
               <img
                 src="/logo.png"
                 alt="FrozenBergerak Bergerak"
-                className="w-full h-full object-contain rounded-full bg-white p-0.5 filter drop-shadow-md animate-[bounceTruck_0.8s_ease-in-out_infinite] transform"
+                className="w-full h-full object-contain rounded-xl bg-white p-1 filter drop-shadow-md animate-[bounceTruck_0.8s_ease-in-out_infinite] transform"
               />
 
               {/* Speed motion streaks */}
