@@ -3,9 +3,9 @@
  * Version: 2.4.0 (Unified 2-Spreadsheet Live Sync + AKSES TEAM Access Control)
  */
 
-const CACHE_NAME = 'frozenbergerak-static-v32';
-const DATA_CACHE_NAME = 'frozenbergerak-data-v32';
-const IMAGE_CACHE_NAME = 'frozenbergerak-images-v32';
+const CACHE_NAME = 'frozenbergerak-static-v33';
+const DATA_CACHE_NAME = 'frozenbergerak-data-v33';
+const IMAGE_CACHE_NAME = 'frozenbergerak-images-v33';
 
 const STATIC_ASSETS = [
   '/',
@@ -57,8 +57,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Never intercept or cache live schedule / Google Sheets / Firebase API calls
+  // Never intercept or cache Vite dev modules, TypeScript/TSX source files, live schedules, Google Sheets, or Firebase calls
   if (
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/@vite/') ||
+    url.pathname.startsWith('/@react-refresh') ||
+    url.pathname.startsWith('/@fs/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.match(/\.(tsx?|jsx?|mjs)$/i) && url.pathname.startsWith('/src/') ||
+    url.pathname.endsWith('.tsx') ||
+    url.pathname.endsWith('.ts') ||
     url.pathname.startsWith('/api/schedule') ||
     url.hostname.includes('script.google.com') ||
     url.hostname.includes('script.googleusercontent.com') ||
@@ -68,7 +76,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 1. API Calls (/api/products, /api/categories, /api/config)
+  // 1. API Calls (/api/products, /api/banners, /api/categories, /api/config)
   // Strategy: Network-First with Cache Fallback (Ensures fresh Google Sheets data, but offline-accessible)
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
@@ -120,7 +128,7 @@ self.addEventListener('fetch', (event) => {
   // Strategy: Network-First with cache fallback so mobile browsers always pull the latest version immediately
   if (event.request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname === '/') {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-store' })
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();

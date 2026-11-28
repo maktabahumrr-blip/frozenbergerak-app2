@@ -46,7 +46,7 @@ export function usePWA() {
       // 1. Purge outdated SW caches so mobile browsers pull fresh assets
       if ("caches" in window) {
         caches.keys().then((cacheNames) => {
-          const currentVersion = "v32";
+          const currentVersion = "v33";
           cacheNames.forEach((name) => {
             if (!name.includes(currentVersion)) {
               console.log(`[PWA] Removing outdated cache: ${name}`);
@@ -57,6 +57,18 @@ export function usePWA() {
       }
 
       // 2. Unregister any stale SW registrations (preserve sw.js & firebase-messaging-sw.js) and update active SWs
+      let refreshingForSw = false;
+      const hadControllerAtBoot = Boolean(navigator.serviceWorker.controller);
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadControllerAtBoot || refreshingForSw) return;
+        try {
+          if (sessionStorage.getItem("fb_sw_reloaded_v33") === "1") return;
+          sessionStorage.setItem("fb_sw_reloaded_v33", "1");
+        } catch {}
+        refreshingForSw = true;
+        window.location.reload();
+      });
+
       const registerAndUpdateSW = async () => {
         try {
           const registrations = await navigator.serviceWorker.getRegistrations();

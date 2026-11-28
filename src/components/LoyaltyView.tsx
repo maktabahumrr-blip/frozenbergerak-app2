@@ -17,14 +17,16 @@ import { TEAM_WHATSAPP_CONTACTS } from "../data/deliveryAgents";
 
 interface LoyaltyViewProps {
   storeConfig: StoreConfig | null;
+  stampCount?: number;
   onNavigateToCatalog: () => void;
 }
 
 export const LoyaltyView: React.FC<LoyaltyViewProps> = ({
   storeConfig: _storeConfig,
+  stampCount,
   onNavigateToCatalog,
 }) => {
-  const [simulatedStamps] = useState<number>(3);
+  const currentStamps = typeof stampCount === "number" ? Math.max(0, Math.min(10, stampCount)) : 3;
   const [isTeamMenuOpen, setIsTeamMenuOpen] = useState<boolean>(false);
 
   const loyaltyWaMessage = encodeURIComponent(
@@ -168,8 +170,8 @@ export const LoyaltyView: React.FC<LoyaltyViewProps> = ({
           <div className="p-5 sm:p-6 bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-2xl text-white shadow-sm space-y-4">
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-slate-300">Kemajuan Stamp Semasa (Pratonton):</span>
-              <span className="font-extrabold text-amber-400 text-sm">
-                {simulatedStamps} / 10 Stamp
+              <span className="font-extrabold text-amber-400 text-sm tabular-nums">
+                {currentStamps} / 10 Stamp
               </span>
             </div>
 
@@ -177,14 +179,14 @@ export const LoyaltyView: React.FC<LoyaltyViewProps> = ({
             <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
               <div 
                 className="bg-gradient-to-r from-amber-400 to-amber-300 h-full rounded-full transition-all duration-500"
-                style={{ width: `${(simulatedStamps / 10) * 100}%` }}
+                style={{ width: `${(currentStamps / 10) * 100}%` }}
               />
             </div>
 
             {/* Stamp slots */}
             <div className="grid grid-cols-5 gap-2 sm:gap-3 pt-2">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((slot) => {
-                const isCollected = slot <= simulatedStamps;
+                const isCollected = slot <= currentStamps;
                 const isRewardSlot = slot === 10;
 
                 return (
@@ -201,7 +203,7 @@ export const LoyaltyView: React.FC<LoyaltyViewProps> = ({
                     {isCollected ? (
                       <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                     ) : isRewardSlot ? (
-                      <Gift className="w-5 h-5 sm:w-6 sm:h-6 text-amber-300 animate-pulse" />
+                      <Gift className="w-5 h-5 sm:w-6 sm:h-6 text-amber-300" />
                     ) : (
                       <span className="text-xs sm:text-sm font-bold text-slate-300">{slot}</span>
                     )}

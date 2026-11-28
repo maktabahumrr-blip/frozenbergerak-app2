@@ -1,5 +1,5 @@
-import { Product, Category, PromoItem } from "../types";
-import { extractGoogleDriveFileId, formatImageUrl, getCategoryFallbackImage } from "../utils/googleDrive";
+import { Product, Category, PromoItem, BannerItem } from "../types";
+import { extractGoogleDriveFileId, formatImageUrl, getCategoryFallbackImage, resolveBannerImageUrl } from "../utils/googleDrive";
 import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
 
 export const DEFAULT_FROZEN_BERGERAK_SHEET_ID = "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw";
@@ -8,6 +8,18 @@ export function readCachedPromos(storageKey: "cached_all_time_promos" | "cached_
   try {
     if (typeof window === "undefined" || !window.localStorage) return [];
     const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function readCachedBanners(): BannerItem[] {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return [];
+    const raw = window.localStorage.getItem("cached_promo_banners");
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -1202,5 +1214,177 @@ export async function fetchLiveSeasonalPromos(
     console.warn("fetchLiveSeasonalPromos fallback:", err);
     const cached = readCachedPromos(CACHE_KEY);
     return { promos: cached, source: cached.length > 0 ? "local_cache" : "error", confirmedEmpty: false };
+  }
+}
+
+function parseBannerCsvRows(rows: string[][]): { banners: BannerItem[]; validSheet: boolean } {
+  if (!Array.isArray(rows) || rows.length < 2) {
+    return { banners: [], validSheet: false };
+  }
+
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const joined = rows[i].join(" ").toUpperCase();
+    if (joined.includes("LINK GAMBAR") || joined.includes("NAMA PROMOSI") || (joined.includes("GAMBAR") && joined.includes("STATUS"))) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+
+  const headerRow = (rows[headerRowIdx] || []).map((h) => String(h || "").trim().toUpperCase());
+  const headerJoined = headerRow.join(" ");
+
+  // Guard against Google Sheets silently returning the main Produk tab when Banner tab does not exist
+  if (headerJoined.includes("GAMBAR SIAP MASAK") || headerJoined.includes("GAMBAR PACKAGING")) {
+    return { banners: [], validSheet: false };
+  }
+
+  const findColIdx = (aliases: string[]): number => {
+    for (const alias of aliases) {
+      const idx = headerRow.findIndex((h) => h === alias);
+      if (idx !== -1) return idx;
+    }
+    for (const alias of aliases) {
+      const idx = headerRow.findIndex((h) => h.includes(alias));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+
+  const nameIdx = findColIdx(["NAMA PROMOSI", "NAMA BANNER", "NAMA", "TAJUK PROMO", "TAJUK", "PROMOSI", "TITLE"]);
+  const imageIdx = findColIdx(["LINK GAMBAR", "PAUTAN GAMBAR", "URL GAMBAR", "GAMBAR", "IMAGE", "LINK", "URL"]);
+  const statusIdx = findColIdx(["STATUS", "KEADAAN", "STATE"]);
+
+  if (imageIdx === -1 || statusIdx === -1) {
+    return { banners: [], validSheet: false };
+  }
+
+  const banners: BannerItem[] = [];
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length === 0 || row.every((c) => !String(c || "").trim())) continue;
+
+    const rawStatus = String(row[statusIdx] || "").trim().toUpperCase();
+    if (rawStatus !== "AKTIF") continue;
+
+    const rawImg = String(row[imageIdx] || "").trim();
+    const resolvedUrl = resolveBannerImageUrl(rawImg);
+    if (!resolvedUrl) continue;
+
+    const rawName = nameIdx !== -1 ? String(row[nameIdx] || "").trim() : "";
+    banners.push({
+      id: `BANNER-${r}`,
+      name: rawName || `Banner Promosi ${banners.length + 1}`,
+      imageUrl: resolvedUrl,
+      status: rawStatus
+    });
+  }
+
+  return { banners, validSheet: true };
+}
+
+export async function fetchLiveBanners(
+  sheetUrlOrId?: string,
+  forceRefresh = false
+): Promise<{ banners: BannerItem[]; source: string; confirmedEmpty: boolean }> {
+  const CACHE_KEY = "cached_promo_banners";
+  const saveCache = (items: BannerItem[]) => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(items));
+      }
+    } catch {}
+  };
+  const clearCache = () => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.removeItem(CACHE_KEY);
+      }
+    } catch {}
+  };
+
+  try {
+    let targetSheet = "";
+    try {
+      targetSheet = sheetUrlOrId?.trim() || (typeof window !== "undefined" && window.localStorage ? (localStorage.getItem("custom_google_sheet_url") || "") : "");
+    } catch {
+      targetSheet = sheetUrlOrId?.trim() || "";
+    }
+
+    // 1. Try Express backend /api/banners when using default sheet
+    if (!targetSheet) {
+      try {
+        const params = new URLSearchParams();
+        if (forceRefresh) params.set("refresh", "true");
+        params.set("_t", String(Date.now()));
+        const apiRes = await fetch(`/api/banners?${params.toString()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" }
+        });
+        const apiData = await parseJsonIfValid(apiRes);
+        if (apiData && Array.isArray(apiData.banners)) {
+          const normalized: BannerItem[] = apiData.banners
+            .filter((b: any) => String(b?.status || "").trim().toUpperCase() === "AKTIF")
+            .map((b: any, i: number) => ({
+              id: String(b?.id || `BANNER-${i + 1}`),
+              name: String(b?.name || b?.title || `Banner Promosi ${i + 1}`).trim(),
+              imageUrl: resolveBannerImageUrl(b?.imageUrl),
+              status: "AKTIF"
+            }))
+            .filter((b: BannerItem) => Boolean(b.imageUrl));
+
+          if (normalized.length > 0) {
+            saveCache(normalized);
+            return { banners: normalized, source: apiData.source || "server_api", confirmedEmpty: false };
+          }
+          if (apiData.source === "banner_sheet_empty" || apiData.source === "banner_tab_not_found") {
+            clearCache();
+            return { banners: [], source: apiData.source, confirmedEmpty: true };
+          }
+        }
+      } catch {
+        // Proceed to direct CSV fetch fallback
+      }
+    }
+
+    // 2. Direct Google Sheet CSV fetch for "Banner" tab
+    const sheetId = extractSheetId(targetSheet) || DEFAULT_FROZEN_BERGERAK_SHEET_ID;
+    if (sheetId) {
+      try {
+        const csvText = await fetchSheetTabCsv(sheetId, [
+          "Banner",
+          "BANNER",
+          "banner",
+          "Banners",
+          "Banner Promo",
+          "BANNER PROMO"
+        ]);
+        if (csvText) {
+          const rows = parseCSVLines(csvText);
+          const { banners, validSheet } = parseBannerCsvRows(rows);
+          if (validSheet) {
+            if (banners.length > 0) {
+              saveCache(banners);
+              return { banners, source: "google_sheet_direct_csv", confirmedEmpty: false };
+            }
+            clearCache();
+            return { banners: [], source: "banner_sheet_empty", confirmedEmpty: true };
+          }
+        }
+      } catch {
+        // Proceed cleanly
+      }
+    }
+
+    const cached = readCachedBanners();
+    if (cached.length > 0) {
+      return { banners: cached, source: "local_cache", confirmedEmpty: false };
+    }
+
+    return { banners: [], source: "unavailable", confirmedEmpty: false };
+  } catch (err) {
+    console.warn("fetchLiveBanners fallback:", err);
+    const cached = readCachedBanners();
+    return { banners: cached, source: cached.length > 0 ? "local_cache" : "error", confirmedEmpty: false };
   }
 }

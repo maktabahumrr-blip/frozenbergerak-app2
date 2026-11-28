@@ -37,6 +37,22 @@ export function extractGoogleDriveFileId(rawUrl: string | undefined): string | n
   return null;
 }
 
+export function resolveBannerImageUrl(rawUrl?: string): string {
+  const str = String(rawUrl || "").trim();
+  if (!str) return "";
+
+  const driveId = extractGoogleDriveFileId(str);
+  if (driveId) {
+    return `https://lh3.googleusercontent.com/d/${driveId}`;
+  }
+
+  if (str.startsWith("http://") || str.startsWith("https://")) {
+    return str;
+  }
+
+  return "";
+}
+
 export function formatImageUrl(
   url: any,
   category: string = "",

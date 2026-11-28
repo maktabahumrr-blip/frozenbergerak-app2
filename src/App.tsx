@@ -14,12 +14,14 @@ import {
   Flame,
   Sun
 } from "lucide-react";
-import { Product, Category, CartItem, StoreConfig, PromoItem } from "./types";
+import { Product, Category, CartItem, StoreConfig, PromoItem, BannerItem } from "./types";
 import {
   fetchLiveCatalog,
   fetchLivePromos,
   fetchLiveSeasonalPromos,
+  fetchLiveBanners,
   readCachedPromos,
+  readCachedBanners,
   buildCategoriesFromProducts
 } from "./data/catalogData";
 import { Navbar } from "./components/Navbar";
@@ -50,6 +52,17 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [promos, setPromos] = useState<PromoItem[]>(() => readCachedPromos("cached_all_time_promos"));
   const [seasonalPromos, setSeasonalPromos] = useState<PromoItem[]>(() => readCachedPromos("cached_seasonal_promos"));
+  const [banners, setBanners] = useState<BannerItem[]>(() => readCachedBanners());
+  const [stampCount] = useState<number>(() => {
+    try {
+      const saved = typeof window !== "undefined" && window.localStorage
+        ? Number(localStorage.getItem("frozenbergerak_stamp_count"))
+        : NaN;
+      return Number.isFinite(saved) && saved >= 0 ? Math.min(10, saved) : 3;
+    } catch {
+      return 3;
+    }
+  });
   const [storeConfig, setStoreConfig] = useState<StoreConfig | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [showSplash, setShowSplash] = useState<boolean>(true);
@@ -329,11 +342,12 @@ export default function App() {
 
       const cacheBuster = `_t=${Date.now()}`;
 
-      // Run all data fetches concurrently so All Time Promo & Produk resolve together without lag
-      const [catalogResult, promoResult, seasonalResult, confRes] = await Promise.all([
+      // Run all data fetches concurrently so All Time Promo, Banner & Produk resolve together without lag
+      const [catalogResult, promoResult, seasonalResult, bannerResult, confRes] = await Promise.all([
         fetchLiveCatalog(customSheet, forceRefresh).catch(() => null),
         fetchLivePromos(customSheet, forceRefresh).catch(() => null),
         fetchLiveSeasonalPromos(customSheet, forceRefresh).catch(() => null),
+        fetchLiveBanners(customSheet, forceRefresh).catch(() => null),
         fetch(`/api/config?${cacheBuster}`, { cache: "no-store" }).catch(() => null)
       ]);
 
@@ -361,6 +375,14 @@ export default function App() {
           setSeasonalPromos(seasonalResult.promos);
         } else if (seasonalResult.confirmedEmpty) {
           setSeasonalPromos([]);
+        }
+      }
+
+      if (bannerResult) {
+        if (bannerResult.banners.length > 0) {
+          setBanners(bannerResult.banners);
+        } else if (bannerResult.confirmedEmpty) {
+          setBanners([]);
         }
       }
 
@@ -692,6 +714,8 @@ export default function App() {
             categories={categories}
             promos={promos}
             seasonalPromos={seasonalPromos}
+            banners={banners}
+            stampCount={stampCount}
             storeConfig={storeConfig}
             isLoading={loading}
             onNavigateToCatalog={handleNavigateToCatalog}
@@ -1050,6 +1074,7 @@ export default function App() {
         <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
           <LoyaltyView
             storeConfig={storeConfig}
+            stampCount={stampCount}
             onNavigateToCatalog={() => handleNavigateToCatalog("all")}
           />
         </div>
@@ -1169,7 +1194,7 @@ export default function App() {
       />
 
       {/* Footer */}
-      <Footer config={storeConfig} />
+      <Footer config={storeConfig} compact={activeView === "home"} />
 
     </div>
   );

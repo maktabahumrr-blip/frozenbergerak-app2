@@ -30,6 +30,13 @@ export interface PromoItem {
   unit?: string;
 }
 
+export interface BannerItem {
+  id: string;
+  name: string;
+  imageUrl: string;
+  status: string;
+}
+
 export interface Category {
   id: string;
   name: string;

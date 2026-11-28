@@ -1,23 +1,18 @@
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { 
   Flame, 
-  ShoppingBag, 
   ShoppingCart,
-  Sparkles, 
-  Truck, 
-  ShieldCheck, 
   Tag, 
   ChevronRight,
   ChevronLeft,
   Gift, 
   Sun,
-  CheckCircle2,
   CalendarDays,
   CalendarPlus,
   Grid
 } from "lucide-react";
-import { Product, Category, StoreConfig, PromoItem } from "../types";
+import { Product, Category, StoreConfig, PromoItem, BannerItem } from "../types";
 import { formatCurrency } from "../utils/formatters";
 import { formatImageUrl, handleOptimizedImageError } from "../utils/googleDrive";
 
@@ -26,6 +21,8 @@ interface HomeDashboardProps {
   categories: Category[];
   promos?: PromoItem[];
   seasonalPromos?: PromoItem[];
+  banners?: BannerItem[];
+  stampCount?: number;
   storeConfig: StoreConfig | null;
   isLoading?: boolean;
   onNavigateToCatalog: (categoryId?: string, promoType?: "alltime" | "seasonal" | "popular" | boolean) => void;
@@ -41,10 +38,12 @@ interface HomeDashboardProps {
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   products,
-  categories,
+  categories: _categories,
   promos = [],
   seasonalPromos = [],
-  storeConfig,
+  banners = [],
+  stampCount = 3,
+  storeConfig: _storeConfig,
   isLoading = false,
   onNavigateToCatalog,
   onNavigateToSchedule,
@@ -52,10 +51,24 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onNavigateView,
   onViewProductDetails,
   onAddToCart,
-  onOpenFeedback,
 }) => {
   const allTimeCarouselRef = useRef<HTMLDivElement | null>(null);
   const seasonalCarouselRef = useRef<HTMLDivElement | null>(null);
+  const bannerCarouselRef = useRef<HTMLDivElement | null>(null);
+  const [failedBannerIds, setFailedBannerIds] = useState<Record<string, boolean>>({});
+
+  const displayStampCount = Math.max(0, Math.min(10, Number.isFinite(stampCount) ? stampCount : 3));
+
+  const visibleBanners = useMemo(() => {
+    if (!Array.isArray(banners)) return [];
+    return banners.filter(
+      (b) =>
+        b &&
+        b.imageUrl &&
+        String(b.status || "").trim().toUpperCase() === "AKTIF" &&
+        !failedBannerIds[b.id]
+    );
+  }, [banners, failedBannerIds]);
 
   const scrollCarousel = (ref: React.RefObject<HTMLDivElement | null>, direction: "left" | "right") => {
     if (!ref.current) return;
@@ -187,64 +200,153 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="w-full space-y-6 sm:space-y-8 pb-8 max-w-7xl mx-auto"
+      className="w-full space-y-5 sm:space-y-6 pb-4 max-w-7xl mx-auto"
     >
       {/* ============================================================ */}
-      {/* 0. 🎯 DWI-BUTANG TINDAKAN UTAMA (DUAL ACTION BUTTONS)       */}
+      {/* 0A. 🎁 KAPSUL STATUS STAMP LOYALTI + 2 KAD TINDAKAN UTAMA    */}
       {/* ============================================================ */}
-      <motion.section
-        variants={itemVariants}
-        className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-3xl p-5 sm:p-7 text-white shadow-md border border-blue-800/40"
-      >
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-200 border border-blue-400/30">
-              <Truck className="w-3.5 h-3.5 text-amber-300" />
-              <span>FrozenBergerak • Penghantaran Terus Ke Rumah</span>
-            </span>
-            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white">
-              Semak Lokasi Pasukan atau Rancang Tempahan Anda
-            </h1>
-            <p className="text-[13px] sm:text-sm text-blue-100/90 max-w-2xl leading-relaxed">
-              Lihat laluan semasa pasukan kami di lapangan atau tempah tarikh penghantaran pilihan anda secara terus mengikut kawasan.
-            </p>
+      <motion.section variants={itemVariants} className="space-y-3">
+        {/* Kapsul Ringkas Stamp Loyalti */}
+        <button
+          id="home-loyalty-capsule"
+          type="button"
+          onClick={() => onNavigateView?.("loyalty")}
+          className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200/90 shadow-2xs flex items-center justify-between gap-3 transition-all active:scale-99 cursor-pointer"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Gift className="w-4 h-4" />
+            </div>
+            <div className="text-left min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-900 truncate">
+                  Stamp Loyalti
+                </span>
+                <span className="text-xs font-extrabold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-md tabular-nums shrink-0">
+                  Setem: {displayStampCount} / 10
+                </span>
+              </div>
+              <div className="w-28 sm:w-40 h-1.5 bg-amber-200/80 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-amber-500 rounded-full transition-all duration-300"
+                  style={{ width: `${(displayStampCount / 10) * 100}%` }}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0 w-full lg:w-auto">
-            <button
-              id="home-btn-jadual-keberadaan"
-              type="button"
-              onClick={() => {
-                if (onNavigateToSchedule) {
-                  onNavigateToSchedule();
-                } else if (onNavigateView) {
-                  onNavigateView("schedule");
-                }
-              }}
-              className="px-4 py-3.5 rounded-2xl bg-white hover:bg-blue-50 active:scale-98 text-slate-900 font-extrabold text-sm shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
-            >
-              <CalendarDays className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>Jadual Keberadaan Pasukan</span>
-            </button>
+          <span className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-800 shrink-0">
+            <span>Tebus</span>
+            <ChevronRight className="w-4 h-4" />
+          </span>
+        </button>
 
-            <button
-              id="home-btn-tempah-slot"
-              type="button"
-              onClick={() => {
-                if (onOpenSlotBooking) {
-                  onOpenSlotBooking();
-                } else if (onNavigateToSchedule) {
-                  onNavigateToSchedule();
-                }
-              }}
-              className="px-4 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-extrabold text-sm shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
-            >
-              <CalendarPlus className="w-4 h-4 text-white shrink-0" />
-              <span>Tempah Slot Anda Sekarang</span>
-            </button>
-          </div>
+        {/* 2 Kad Tindakan Utama Bersebelahan */}
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
+          <button
+            id="home-btn-jadual-keberadaan"
+            type="button"
+            onClick={() => {
+              if (onNavigateToSchedule) {
+                onNavigateToSchedule();
+              } else if (onNavigateView) {
+                onNavigateView("schedule");
+              }
+            }}
+            className="p-3 sm:p-4 rounded-xl bg-white hover:bg-blue-50/70 border border-slate-200/90 hover:border-blue-300 shadow-xs text-left flex items-center gap-2.5 sm:gap-3 transition-all active:scale-98 cursor-pointer group"
+          >
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center shrink-0 transition-colors">
+              <CalendarDays className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[13px] sm:text-base font-extrabold text-slate-900 leading-tight truncate">
+                Jadual Pasukan
+              </div>
+              <div className="text-[11px] sm:text-xs text-slate-500 mt-0.5 truncate">
+                Semak laluan hari ini
+              </div>
+            </div>
+          </button>
+
+          <button
+            id="home-btn-tempah-slot"
+            type="button"
+            onClick={() => {
+              if (onOpenSlotBooking) {
+                onOpenSlotBooking();
+              } else if (onNavigateToSchedule) {
+                onNavigateToSchedule();
+              }
+            }}
+            className="p-3 sm:p-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 border border-emerald-600 shadow-xs text-left flex items-center gap-2.5 sm:gap-3 transition-all active:scale-98 cursor-pointer group"
+          >
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-white/20 text-white flex items-center justify-center shrink-0">
+              <CalendarPlus className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[13px] sm:text-base font-extrabold text-white leading-tight truncate">
+                Tempah Slot
+              </div>
+              <div className="text-[11px] sm:text-xs text-emerald-100 mt-0.5 truncate">
+                Pilih tarikh &amp; kawasan
+              </div>
+            </div>
+          </button>
         </div>
       </motion.section>
+
+      {/* ============================================================ */}
+      {/* 0B. 🖼️ BANNER PROMO DINAMIK DARI GOOGLE SHEET ("Banner")     */}
+      {/* ============================================================ */}
+      {visibleBanners.length > 0 && (
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+          id="section-dynamic-banners"
+          aria-label="Banner Promosi"
+        >
+          {visibleBanners.length === 1 ? (
+            <div className="w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 shadow-xs aspect-[16/9] sm:aspect-[2/1]">
+              <img
+                src={visibleBanners[0].imageUrl}
+                alt={visibleBanners[0].name}
+                referrerPolicy="no-referrer"
+                loading="eager"
+                decoding="async"
+                onError={() => {
+                  setFailedBannerIds((prev) => ({ ...prev, [visibleBanners[0].id]: true }));
+                }}
+                className="w-full h-full object-cover block"
+              />
+            </div>
+          ) : (
+            <div
+              ref={bannerCarouselRef}
+              className="flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1"
+            >
+              {visibleBanners.map((banner) => (
+                <div
+                  key={banner.id}
+                  className="w-[88%] sm:w-[76%] lg:w-[64%] shrink-0 snap-center rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 shadow-xs aspect-[16/9] sm:aspect-[2/1]"
+                >
+                  <img
+                    src={banner.imageUrl}
+                    alt={banner.name}
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    decoding="async"
+                    onError={() => {
+                      setFailedBannerIds((prev) => ({ ...prev, [banner.id]: true }));
+                    }}
+                    className="w-full h-full object-cover block"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </motion.section>
+      )}
 
       {/* ============================================================ */}
       {/* 1. 🔥 ALL TIME PROMO SECTION (HORIZONTAL SLIDING CAROUSEL)  */}
@@ -252,26 +354,21 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       <motion.section 
         variants={itemVariants}
         id="section-all-time-promo" 
-        className="space-y-4"
+        className="space-y-3.5"
       >
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-slate-200 pb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-rose-100 text-rose-600">
-                <Flame className="w-4 h-4" />
-              </span>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                🔥 All Time Promo
-              </h2>
-            </div>
-            <p className="text-[13px] text-slate-500 mt-1">
-              Luncur ke tepi untuk lihat tawaran istimewa yang sentiasa tersedia daripada FrozenBergerak.
-            </p>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="p-1.5 rounded-lg bg-rose-100 text-rose-600 shrink-0">
+              <Flame className="w-4 h-4" />
+            </span>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight truncate">
+              All Time Promo
+            </h2>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex items-center gap-2 shrink-0">
             {activeAllTimePromos.length > 1 && (
-              <div className="hidden sm:flex items-center gap-1.5 mr-1">
+              <div className="hidden sm:flex items-center gap-1 mr-1">
                 <button
                   type="button"
                   onClick={() => scrollCarousel(allTimeCarouselRef, "left")}
@@ -293,9 +390,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigateToCatalog("all", "alltime")}
-              className="text-[13px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 hover:underline cursor-pointer"
+              className="text-xs sm:text-[13px] font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5 hover:underline cursor-pointer py-1"
             >
-              <span>Lihat Semua di Katalog</span>
+              <span>Lihat Semua</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -427,9 +524,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       >
                         {promo.title}
                       </h3>
-                      {/* Penerangan */}
-                      <p className="text-xs text-slate-500 line-clamp-2 mt-1 leading-relaxed whitespace-pre-line">
-                        {promo.description || "Promosi makanan sejuk beku istimewa berkualiti tinggi dari FrozenBergerak."}
+                      {/* Penerangan (1 baris ringkas) */}
+                      <p className="text-xs text-slate-500 line-clamp-1 mt-1">
+                        {promo.description || "Promosi makanan sejuk beku berkualiti tinggi dari FrozenBergerak."}
                       </p>
                     </div>
 
@@ -541,26 +638,21 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       <motion.section 
         variants={itemVariants}
         id="section-seasonal-promo" 
-        className="space-y-4"
+        className="space-y-3.5"
       >
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-slate-200 pb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-slate-100 text-slate-700">
-                <Sun className="w-4 h-4" />
-              </span>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                ✨ Tawaran Terhad
-              </h2>
-            </div>
-            <p className="text-[13px] text-slate-500 mt-1">
-              Luncur ke tepi untuk lihat tawaran terhad &amp; pilihan hidangan istimewa FrozenBergerak.
-            </p>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="p-1.5 rounded-lg bg-amber-100 text-amber-700 shrink-0">
+              <Sun className="w-4 h-4" />
+            </span>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight truncate">
+              Tawaran Terhad
+            </h2>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex items-center gap-2 shrink-0">
             {displaySeasonalItems.length > 1 && (
-              <div className="hidden sm:flex items-center gap-1.5 mr-1">
+              <div className="hidden sm:flex items-center gap-1 mr-1">
                 <button
                   type="button"
                   onClick={() => scrollCarousel(seasonalCarouselRef, "left")}
@@ -582,9 +674,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigateToCatalog("all", "seasonal")}
-              className="text-[13px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 hover:underline cursor-pointer"
+              className="text-xs sm:text-[13px] font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5 hover:underline cursor-pointer py-1"
             >
-              <span>Lihat Semua di Katalog</span>
+              <span>Lihat Semua</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -638,7 +730,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                       >
                         {product?.name || "Produk"}
                       </h3>
-                      <p className="text-xs text-slate-500 line-clamp-2 mt-1 leading-relaxed whitespace-pre-line">
+                      <p className="text-xs text-slate-500 line-clamp-1 mt-1">
                         {product?.description || "Kualiti terbaik sedia dimasak untuk hidangan keluarga."}
                       </p>
                     </div>

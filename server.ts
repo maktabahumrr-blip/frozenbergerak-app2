@@ -1657,6 +1657,13 @@ interface ParsedPromo {
   unit?: string;
 }
 
+interface ParsedBanner {
+  id: string;
+  name: string;
+  imageUrl: string;
+  status: string;
+}
+
 // In-memory cache with short TTL (60s)
 let cachedProducts: ParsedProduct[] | null = null;
 let lastFetchTime = 0;
@@ -1664,6 +1671,8 @@ let cachedPromos: ParsedPromo[] | null = null;
 let lastPromoFetchTime = 0;
 let cachedSeasonalPromos: ParsedPromo[] | null = null;
 let lastSeasonalPromoFetchTime = 0;
+let cachedBanners: ParsedBanner[] | null = null;
+let lastBannerFetchTime = 0;
 const CACHE_TTL_MS = 60 * 1000;
 
 function extractSheetId(raw: string): string {
@@ -2817,6 +2826,144 @@ async function fetchSeasonalPromosFromGoogleSheet(forceRefresh = false): Promise
   return { promos, source: "seasonalpromo_sheet" };
 }
 
+function resolveServerBannerImageUrl(rawUrl: string | undefined): string | undefined {
+  if (!rawUrl) return undefined;
+  const trimmed = String(rawUrl).trim();
+  if (!trimmed || trimmed === "-" || trimmed.toLowerCase() === "n/a" || trimmed.toLowerCase() === "tiada") {
+    return undefined;
+  }
+  const driveId = extractGoogleDriveFileId(trimmed);
+  if (driveId) {
+    return `https://lh3.googleusercontent.com/d/${driveId}`;
+  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  return undefined;
+}
+
+async function fetchBannersFromGoogleSheet(forceRefresh = false): Promise<{ banners: ParsedBanner[]; source: string }> {
+  const now = Date.now();
+
+  if (!forceRefresh && cachedBanners && (now - lastBannerFetchTime < CACHE_TTL_MS)) {
+    return { banners: cachedBanners, source: "cache" };
+  }
+
+  const sheetIdRaw = process.env.GOOGLE_SHEET_ID || "1c4gL_FAsy5nuw_LQWq4djNA58kGpY1kQoVhDoT3w2Fw";
+  if (!sheetIdRaw || !sheetIdRaw.trim()) {
+    return { banners: [], source: "banner_tab_not_found" };
+  }
+
+  const sheetId = extractSheetId(sheetIdRaw);
+  const tabNames = ["Banner", "BANNER", "banner", "Banners", "Banner Promo", "BANNER PROMO"];
+
+  let validRows: string[][] | null = null;
+  let validHeaderIdx = 0;
+
+  for (const tab of tabNames) {
+    const encodedTab = encodeURIComponent(tab);
+    const endpoints = [
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodedTab}`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${encodedTab}`,
+      `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&sheet=${encodedTab}`
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; FrozenBergerak/1.0)",
+            "Accept": "text/csv, text/plain, */*"
+          }
+        });
+
+        if (response.ok) {
+          const text = await response.text();
+          if (text && !text.includes("<!DOCTYPE html") && !text.includes("<html") && text.trim().length > 10) {
+            const parsed = parseCSV(text);
+            if (parsed.length >= 2) {
+              let hdrIdx = 0;
+              for (let i = 0; i < Math.min(5, parsed.length); i++) {
+                const joined = parsed[i].join(" ").toUpperCase();
+                if (joined.includes("LINK GAMBAR") || joined.includes("NAMA PROMOSI") || (joined.includes("GAMBAR") && joined.includes("STATUS"))) {
+                  hdrIdx = i;
+                  break;
+                }
+              }
+              const hdrUpper = parsed[hdrIdx].map(h => h.trim().toUpperCase());
+              const hdrJoined = hdrUpper.join(" ");
+              const isMainProductFallback = hdrJoined.includes("GAMBAR SIAP MASAK") || hdrJoined.includes("GAMBAR PACKAGING");
+              const hasBannerCols = hdrUpper.some(h => h.includes("LINK GAMBAR") || h.includes("GAMBAR") || h.includes("IMAGE")) &&
+                                    hdrUpper.some(h => h.includes("STATUS"));
+              if (!isMainProductFallback && hasBannerCols) {
+                validRows = parsed;
+                validHeaderIdx = hdrIdx;
+                break;
+              }
+            }
+          }
+        }
+      } catch {
+        // try next endpoint
+      }
+    }
+    if (validRows) break;
+  }
+
+  if (!validRows) {
+    cachedBanners = [];
+    lastBannerFetchTime = now;
+    return { banners: [], source: "banner_tab_not_found" };
+  }
+
+  const headerRow = validRows[validHeaderIdx].map(h => h.trim().toUpperCase());
+  const findColIdx = (aliases: string[]): number => {
+    for (const alias of aliases) {
+      const idx = headerRow.findIndex(h => h === alias);
+      if (idx !== -1) return idx;
+    }
+    for (const alias of aliases) {
+      const idx = headerRow.findIndex(h => h.includes(alias));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+
+  const nameIdx = findColIdx(["NAMA PROMOSI", "NAMA BANNER", "NAMA", "TAJUK PROMO", "TAJUK", "PROMOSI", "TITLE"]);
+  const imageIdx = findColIdx(["LINK GAMBAR", "PAUTAN GAMBAR", "URL GAMBAR", "GAMBAR", "IMAGE", "LINK", "URL"]);
+  const statusIdx = findColIdx(["STATUS", "KEADAAN", "STATE"]);
+
+  if (imageIdx === -1 || statusIdx === -1) {
+    cachedBanners = [];
+    lastBannerFetchTime = now;
+    return { banners: [], source: "banner_tab_not_found" };
+  }
+
+  const banners: ParsedBanner[] = [];
+  for (let r = validHeaderIdx + 1; r < validRows.length; r++) {
+    const row = validRows[r];
+    if (!row || row.length === 0 || row.every(cell => !cell.trim())) continue;
+
+    const rawStatus = String(row[statusIdx] || "").trim().toUpperCase();
+    if (rawStatus !== "AKTIF") continue;
+
+    const resolvedUrl = resolveServerBannerImageUrl(row[imageIdx]);
+    if (!resolvedUrl) continue;
+
+    const rawName = nameIdx !== -1 ? sanitizeText(row[nameIdx]) : "";
+    banners.push({
+      id: `BANNER-${r}`,
+      name: rawName || `Banner Promosi ${banners.length + 1}`,
+      imageUrl: resolvedUrl,
+      status: rawStatus
+    });
+  }
+
+  cachedBanners = banners;
+  lastBannerFetchTime = now;
+  return { banners, source: banners.length > 0 ? "banner_sheet" : "banner_sheet_empty" };
+}
+
 // Health endpoint
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
@@ -3060,6 +3207,24 @@ app.get("/api/seasonal-promos", async (req: Request, res: Response) => {
   } catch (error: any) {
     res.status(500).json({
       error: error.message || "Gagal membaca data promosi musiman daripada Google Sheet."
+    });
+  }
+});
+
+// Dynamic Promo Banners endpoint from "Banner" Google Sheet tab (only STATUS === "AKTIF")
+app.get("/api/banners", async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  try {
+    const { refresh } = req.query;
+    const { banners, source } = await fetchBannersFromGoogleSheet(refresh === "true");
+    res.json({
+      total: banners.length,
+      source,
+      banners
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      error: error.message || "Gagal membaca data banner promosi daripada Google Sheet."
     });
   }
 });
