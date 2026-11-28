@@ -27,9 +27,11 @@ import {
   sendTestPushNotification
 } from "../utils/pushNotifications";
 import {
-  getFilteredTodaySchedules,
+  MAX_ACTIVE_SCHEDULES,
+  getLocalTodayIso,
   getTodayAndUpcomingSchedules,
-  getTodayDateInfo
+  getTodayDateInfo,
+  isTodaySchedule
 } from "../utils/scheduleDateHelper";
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
 
@@ -56,10 +58,19 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   const [isTestingPush, setIsTestingPush] = useState<boolean>(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(null);
 
-  // Dynamic automatic date calculation — strictly show ONLY today or future schedules (auto-hide past)
-  const todayInfo = useMemo(() => getTodayDateInfo(), []);
-  const todaySchedules = useMemo(() => getFilteredTodaySchedules(schedules, 20), [schedules]);
-  const displayedSchedules = useMemo(() => getTodayAndUpcomingSchedules(schedules), [schedules]);
+  // Track current local calendar day so entering a new day auto-removes yesterday's schedules immediately
+  const [todayKey, setTodayKey] = useState<string>(() => getLocalTodayIso());
+
+  const referenceDate = useMemo(() => new Date(), [todayKey]);
+  const todayInfo = useMemo(() => getTodayDateInfo(referenceDate), [referenceDate]);
+  const displayedSchedules = useMemo(
+    () => getTodayAndUpcomingSchedules(schedules, referenceDate, MAX_ACTIVE_SCHEDULES),
+    [schedules, referenceDate]
+  );
+  const todaySchedules = useMemo(
+    () => displayedSchedules.filter((item) => isTodaySchedule(item, referenceDate)),
+    [displayedSchedules, referenceDate]
+  );
 
   // Pending Team Approvals state for Admin alert
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
@@ -125,9 +136,32 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
       });
     }
 
+    const checkDayRollover = () => {
+      const nextDayKey = getLocalTodayIso();
+      setTodayKey((prev) => {
+        if (prev !== nextDayKey) {
+          loadSchedules();
+          return nextDayKey;
+        }
+        return prev;
+      });
+    };
+
+    const dayInterval = setInterval(checkDayRollover, 60000);
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") {
+        checkDayRollover();
+      }
+    };
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
     return () => {
       clearInterval(interval);
+      clearInterval(dayInterval);
       window.removeEventListener("fb_approvals_updated", checkApprovals);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
   }, []);
 
@@ -298,7 +332,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             </div>
             <div>
               <h2 className="font-bold text-slate-900 text-lg tracking-tight">
-                {todaySchedules.length > 0 
+                {todaySchedules.length > 0 && displayedSchedules.length === todaySchedules.length
                   ? `Laluan & Sesi Hari Ini (${todayInfo.formattedShort})`
                   : `Jadual Pergerakan Pasukan (${displayedSchedules.length} Laluan)`}
               </h2>

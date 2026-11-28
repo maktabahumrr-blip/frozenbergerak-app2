@@ -46,9 +46,11 @@ import {
 import { fetchScheduleWithFallback } from "../utils/scheduleFetcher";
 import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
 import {
+  MAX_ACTIVE_SCHEDULES,
   getTodayAndUpcomingSchedules,
   getLocalTodayIso,
-  parseScheduleDate
+  parseScheduleDate,
+  prunePastSchedules
 } from "../utils/scheduleDateHelper";
 
 export const TEAM_NAME_OPTIONS = ["Nazihah", "Ahda", "Husna", "Alia"] as const;
@@ -209,11 +211,26 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
   const teamName = useMemo(() => selectedTeams.join(", "), [selectedTeams]);
   const locations = useMemo(() => selectedAreas.join(", "), [selectedAreas]);
 
-  // Strictly show only TODAY and FUTURE schedules in the slot picker (auto-hide past)
-  const upcomingSchedules = useMemo(
-    () => getTodayAndUpcomingSchedules(allSchedules),
-    [allSchedules]
-  );
+  const [todayKey, setTodayKey] = useState<string>(() => getLocalTodayIso());
+
+  useEffect(() => {
+    const checkDayRollover = () => {
+      const nextKey = getLocalTodayIso();
+      setTodayKey((prev) => (prev !== nextKey ? nextKey : prev));
+    };
+    const timer = setInterval(checkDayRollover, 60000);
+    window.addEventListener("focus", checkDayRollover);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", checkDayRollover);
+    };
+  }, []);
+
+  // Strictly show only TODAY and FUTURE schedules in the slot picker (auto-hide past), sorted earliest-first, max 5
+  const upcomingSchedules = useMemo(() => {
+    void todayKey;
+    return getTodayAndUpcomingSchedules(allSchedules, new Date(), MAX_ACTIVE_SCHEDULES);
+  }, [allSchedules, todayKey]);
 
   // Filtered area options for tick grid
   const filteredCoverageAreas = useMemo(() => {
@@ -469,7 +486,12 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       }
     } else {
       setSelectedId("");
-      setCustomId(`JAD-${(allSchedules.length + 1).toString().padStart(2, "0")}`);
+      const maxNum = allSchedules.reduce((max, s) => {
+        const match = String(s.id || "").match(/(\d+)$/);
+        const num = match ? parseInt(match[1], 10) : 0;
+        return num > max ? num : max;
+      }, 0);
+      setCustomId(`JAD-${(maxNum + 1).toString().padStart(2, "0")}`);
       setSelectedTeams([]);
       const today = getLocalTodayIso();
       setRawDateIso(today);
@@ -1417,8 +1439,14 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     setSubmitError(null);
     setSubmitSuccess(null);
 
+    const nextNumericId =
+      allSchedules.reduce((max, s) => {
+        const match = String(s.id || "").match(/(\d+)$/);
+        const num = match ? parseInt(match[1], 10) : 0;
+        return num > max ? num : max;
+      }, 0) + 1;
     const scheduleId =
-      selectedId || customId || `JAD-${(allSchedules.length + 1).toString().padStart(2, "0")}`;
+      selectedId || customId || `JAD-${nextNumericId.toString().padStart(2, "0")}`;
     const action = selectedId ? "SCHEDULE_UPDATE" : "SCHEDULE_CREATE";
     const finalTeam = teamName.trim();
     const finalDate = (date.trim() || todayFormatted).trim();
@@ -1497,10 +1525,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
 
       setAllSchedules((prev) => {
         const idx = prev.findIndex((s) => s.id === scheduleId);
-        const updated =
+        const merged =
           idx >= 0
             ? prev.map((item, i) => (i === idx ? newScheduleObj : item))
             : [newScheduleObj, ...prev];
+        const updated = prunePastSchedules(merged);
         try {
           localStorage.setItem("frozen_schedules", JSON.stringify(updated));
         } catch {}
@@ -1540,9 +1569,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           scheduleSavedOk = true;
           const updateData = await safeParseJson(updateRes);
           if (updateData?.schedules && Array.isArray(updateData.schedules)) {
-            setAllSchedules(updateData.schedules);
+            const activeUpdated = prunePastSchedules(updateData.schedules);
+            setAllSchedules(activeUpdated);
             try {
-              localStorage.setItem("frozen_schedules", JSON.stringify(updateData.schedules));
+              localStorage.setItem("frozen_schedules", JSON.stringify(activeUpdated));
             } catch {}
           }
         } else if (updateRes.status === 403) {
@@ -1671,7 +1701,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       await postToGoogleAppsScript(deletePayload);
 
       setAllSchedules((prev) => {
-        const filtered = prev.filter((s) => s.id !== targetIdToDelete);
+        const filtered = prunePastSchedules(prev.filter((s) => s.id !== targetIdToDelete));
         try {
           localStorage.setItem("frozen_schedules", JSON.stringify(filtered));
         } catch {}
@@ -1703,11 +1733,12 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       }
 
       const rawList = Array.isArray(result.schedules) ? result.schedules : [];
-      setAllSchedules(rawList);
-      const activeCount = getTodayAndUpcomingSchedules(rawList).length;
+      const activeList = prunePastSchedules(rawList);
+      setAllSchedules(activeList);
+      const displayedCount = getTodayAndUpcomingSchedules(activeList, new Date(), MAX_ACTIVE_SCHEDULES).length;
       onScheduleUpdated();
 
-      setSubmitSuccess(`Senarai jadual dikemaskini (${activeCount} slot aktif hari ini & akan datang).`);
+      setSubmitSuccess(`Senarai jadual dikemaskini (${displayedCount} slot aktif dipaparkan, maksimum 5 terdekat).`);
       setTimeout(() => setSubmitSuccess(null), 3500);
     } catch (err: any) {
       setSubmitError(err?.message || "Gagal memuat semula data jadual buat masa ini.");
@@ -2202,10 +2233,10 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2.5 pb-1">
                 <div>
                   <span className="text-sm font-bold text-slate-800 block">
-                    Slot Jadual Aktif ({upcomingSchedules.length})
+                    Slot Jadual Aktif ({upcomingSchedules.length}/5)
                   </span>
                   <span className="text-[13px] text-slate-500">
-                    Slot tarikh lepas disembunyikan secara automatik.
+                    Maksimum 5 jadual terdekat dipaparkan. Slot tarikh lepas dibuang automatik.
                   </span>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">

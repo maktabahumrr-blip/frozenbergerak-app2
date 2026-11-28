@@ -1,6 +1,7 @@
 import { ScheduleItem } from "../types";
 import { fetchSchedulesFromFirestore } from "../lib/firebase";
 import { GOOGLE_APPS_SCRIPT_WEB_APP_URL } from "../config/googleSheets";
+import { prunePastSchedules } from "./scheduleDateHelper";
 
 export interface ScheduleFetchResult {
   schedules: ScheduleItem[];
@@ -314,6 +315,17 @@ function normalizeScheduleObject(item: any, index = 0): ScheduleItem {
  * Never falls back to hardcoded mock data or stale offline schedules.
  */
 export async function fetchScheduleWithFallback(customSheetUrlOrId?: string): Promise<ScheduleFetchResult> {
+  const rawResult = await fetchScheduleWithFallbackRaw(customSheetUrlOrId);
+  if (rawResult.source === "sync_error") {
+    return rawResult;
+  }
+  return {
+    ...rawResult,
+    schedules: prunePastSchedules(rawResult.schedules)
+  };
+}
+
+async function fetchScheduleWithFallbackRaw(customSheetUrlOrId?: string): Promise<ScheduleFetchResult> {
   console.log("[ScheduleSync] 🔄 Menyegerakkan data jadual langsung dari Google Sheets / Firebase...");
 
   let sheetId = "";

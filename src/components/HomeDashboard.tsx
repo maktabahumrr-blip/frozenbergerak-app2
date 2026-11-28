@@ -213,14 +213,14 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         {teamMemberName ? (
           <div
             id="home-team-greeting-bar"
-            className="w-full min-h-[52px] px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-sky-50 via-blue-50/90 to-indigo-50/70 border border-blue-200/90 shadow-2xs flex items-center gap-3"
+            className="w-full py-1 px-0.5 flex items-center gap-3"
           >
             {/* Emoji Perempuan Bertudung (Hijab) di dalam bulatan lembut */}
             <div
-              className={`w-11 h-11 p-2 rounded-full border flex items-center justify-center shrink-0 shadow-2xs text-2xl leading-none select-none ${
+              className={`w-11 h-11 p-2 rounded-full flex items-center justify-center shrink-0 text-2xl leading-none select-none ${
                 teamMemberRole === "admin"
-                  ? "bg-amber-50 border-amber-200/80"
-                  : "bg-blue-50 border-blue-200/80"
+                  ? "bg-amber-50"
+                  : "bg-blue-50"
               }`}
               aria-hidden="true"
             >

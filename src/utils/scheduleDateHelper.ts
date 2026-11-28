@@ -1,5 +1,7 @@
 import { ScheduleItem } from "../types";
 
+export const MAX_ACTIVE_SCHEDULES = 5;
+
 const MALAY_MONTHS = [
   "Januari",
   "Februari",
@@ -148,8 +150,8 @@ export function parseScheduleDate(
       if (!isNaN(parsed.getTime())) return startOfLocalDay(parsed);
     }
 
-    // 2. Named month e.g. "26 Ogos 2026", "19 November", "Sabtu, 21 Mac 2026"
-    const textMonthMatch = lower.match(/\b(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b/);
+    // 2. Named month e.g. "26 Ogos 2026", "19 November", "Sabtu, 21 Mac 2026", "28hb Nov 2026"
+    const textMonthMatch = lower.match(/\b(\d{1,2})(?:hb)?\s+([a-z]+)(?:\s+(\d{4}))?\b/);
     if (textMonthMatch) {
       const d = parseInt(textMonthMatch[1], 10);
       const monthKey = textMonthMatch[2];
@@ -174,7 +176,14 @@ export function parseScheduleDate(
       if (!isNaN(parsed.getTime())) return startOfLocalDay(parsed);
     }
 
-    // 4. Relative "esok" / "tomorrow"
+    // 4. Relative "semalam" / "yesterday"
+    if (lower.includes("semalam") || lower.includes("yesterday")) {
+      const yesterday = new Date(refStart);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return startOfLocalDay(yesterday);
+    }
+
+    // 5. Relative "esok" / "tomorrow"
     if (lower.includes("esok") || lower.includes("tomorrow")) {
       const tomorrow = new Date(refStart);
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -235,10 +244,19 @@ export function isTodayOrUpcomingSchedule(item: ScheduleItem, targetDate: Date =
   return parsed.getTime() >= todayStart.getTime();
 }
 
+function getStatusSortRank(status?: string): number {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("sedang") || s.includes("bergerak")) return 0;
+  if (s.includes("akan") || s.includes("upcoming") || s.includes("pending")) return 1;
+  if (s.includes("selesai") || s.includes("tamat")) return 2;
+  return 1;
+}
+
 /**
- * Returns only TODAY and FUTURE schedules, sorted chronologically (today first, upcoming ascending).
+ * Removes past-dated schedules (< today 00:00 local time) and sorts remaining
+ * active schedules (today + future) chronologically with earliest date first.
  */
-export function getTodayAndUpcomingSchedules(
+export function prunePastSchedules(
   schedules: ScheduleItem[],
   targetDate: Date = new Date()
 ): ScheduleItem[] {
@@ -253,21 +271,38 @@ export function getTodayAndUpcomingSchedules(
     .sort((a, b) => {
       const da = parseScheduleDate(a.date, a.lastUpdated, targetDate)?.getTime() ?? todayStart;
       const db = parseScheduleDate(b.date, b.lastUpdated, targetDate)?.getTime() ?? todayStart;
-      return da - db;
+      if (da !== db) return da - db;
+      return getStatusSortRank(a.status) - getStatusSortRank(b.status);
     });
 }
 
 /**
- * Filter schedules to only show active items for TODAY, up to a maximum count.
+ * Returns only TODAY and FUTURE schedules, sorted chronologically (closest/earliest date first)
+ * and capped to a maximum number of active schedules (default: 5).
+ */
+export function getTodayAndUpcomingSchedules(
+  schedules: ScheduleItem[],
+  targetDate: Date = new Date(),
+  maxCount: number = MAX_ACTIVE_SCHEDULES
+): ScheduleItem[] {
+  const active = prunePastSchedules(schedules, targetDate);
+  if (!Number.isFinite(maxCount) || maxCount < 0) return active;
+  return active.slice(0, maxCount);
+}
+
+/**
+ * Filter schedules to only show active items for TODAY, up to a maximum count (default: 5).
  */
 export function getFilteredTodaySchedules(
   schedules: ScheduleItem[],
-  maxCount: number = 10,
+  maxCount: number = MAX_ACTIVE_SCHEDULES,
   targetDate: Date = new Date()
 ): ScheduleItem[] {
   if (!Array.isArray(schedules) || schedules.length === 0) {
     return [];
   }
-  const todayItems = schedules.filter((item) => isTodaySchedule(item, targetDate));
+  const todayItems = schedules
+    .filter((item) => isTodaySchedule(item, targetDate))
+    .sort((a, b) => getStatusSortRank(a.status) - getStatusSortRank(b.status));
   return todayItems.slice(0, maxCount);
 }
