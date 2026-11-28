@@ -305,9 +305,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
           id="section-dynamic-banners"
           aria-label="Banner Promosi"
+          className="min-w-0 w-full"
         >
           {visibleBanners.length === 1 ? (
-            <div className="w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 shadow-xs aspect-[16/9] sm:aspect-[2/1]">
+            <div className="min-w-0 w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 shadow-xs">
               <img
                 src={visibleBanners[0].imageUrl}
                 alt={visibleBanners[0].name}
@@ -317,18 +318,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 onError={() => {
                   setFailedBannerIds((prev) => ({ ...prev, [visibleBanners[0].id]: true }));
                 }}
-                className="w-full h-full object-cover block"
+                className="w-full h-auto object-contain rounded-xl block"
               />
             </div>
           ) : (
             <div
               ref={bannerCarouselRef}
-              className="flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1"
+              className="min-w-0 w-full flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1"
             >
               {visibleBanners.map((banner) => (
                 <div
                   key={banner.id}
-                  className="w-[88%] sm:w-[76%] lg:w-[64%] shrink-0 snap-center rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 shadow-xs aspect-[16/9] sm:aspect-[2/1]"
+                  className="min-w-0 w-full sm:w-[76%] lg:w-[64%] shrink-0 snap-center rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 shadow-xs"
                 >
                   <img
                     src={banner.imageUrl}
@@ -339,7 +340,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     onError={() => {
                       setFailedBannerIds((prev) => ({ ...prev, [banner.id]: true }));
                     }}
-                    className="w-full h-full object-cover block"
+                    className="w-full h-auto object-contain rounded-xl block"
                   />
                 </div>
               ))}
