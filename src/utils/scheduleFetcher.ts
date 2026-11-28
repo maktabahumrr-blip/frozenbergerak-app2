@@ -69,6 +69,12 @@ function normalizeStatus(rawStatus: string): "Akan Datang" | "Sedang Bergerak" |
   return "Sedang Bergerak";
 }
 
+function normalizeTeamDisplayName(rawTeam: string): string {
+  const trimmed = String(rawTeam || "").trim();
+  if (!trimmed) return "Team Frozen 1";
+  return trimmed.replace(/\bizyan\b/gi, "Nazihah");
+}
+
 /**
  * Extracts a Google Spreadsheet ID from a URL, link, or ID string
  */
@@ -124,7 +130,7 @@ function parseScheduleRowsFromMatrix(rows: string[][]): ScheduleItem[] {
         : row.length > 1 && row[1]
         ? String(row[1]).trim()
         : "";
-    const teamName = rawTeamVal || "Team Frozen 1";
+    const teamName = normalizeTeamDisplayName(rawTeamVal);
     const date = dateIdx !== -1 && row[dateIdx] ? String(row[dateIdx]).trim() : "Hari Ini";
     const timeSlot = timeIdx !== -1 && row[timeIdx] ? String(row[timeIdx]).trim() : "Waktu Operasi";
     const locations = locIdx !== -1 && row[locIdx] ? String(row[locIdx]).trim() : "";
@@ -278,7 +284,7 @@ function normalizeScheduleObject(item: any, index = 0): ScheduleItem {
       item.driverName ||
       ""
   ).trim();
-  const teamName = resolvedTeam || "Team Frozen 1";
+  const teamName = normalizeTeamDisplayName(resolvedTeam);
   const date = String(item["TARIKH"] || item["DATE"] || item.date || item.tarikh || item.hari || "Hari Ini").trim();
   const timeSlot = String(
     item["MASA"] || item["TIME"] || item.timeSlot || item.masa || item.waktu || item.slot || "Waktu Operasi"

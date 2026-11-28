@@ -57,7 +57,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   return (
     <div
       id={`product-card-${product?.id || "item"}`}
-      className="bg-white rounded-2xl shadow-xs hover:shadow-md border border-slate-100 overflow-hidden flex flex-col transition-all duration-200 group"
+      className="h-full bg-white rounded-2xl shadow-xs hover:shadow-md border border-slate-100 overflow-hidden flex flex-col transition-all duration-200 group"
     >
       {/* Product Image Box */}
       <div 

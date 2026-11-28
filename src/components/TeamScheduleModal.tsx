@@ -51,7 +51,7 @@ import {
   parseScheduleDate
 } from "../utils/scheduleDateHelper";
 
-export const TEAM_NAME_OPTIONS = ["Izyan", "Ahda", "Husna", "Alia"] as const;
+export const TEAM_NAME_OPTIONS = ["Nazihah", "Ahda", "Husna", "Alia"] as const;
 
 export const COVERAGE_AREA_OPTIONS = [
   "Nilai",
@@ -1994,7 +1994,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                         type="text"
                         value={fullNameInput}
                         onChange={(e) => setFullNameInput(e.target.value)}
-                        placeholder="Contoh: Izyan / Team Frozen 2"
+                        placeholder="Contoh: Nazihah / Team Frozen 2"
                         className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-semibold text-slate-800 placeholder:text-[13px] placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
                         required
                       />

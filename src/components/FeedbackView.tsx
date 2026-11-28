@@ -13,6 +13,7 @@ import {
   Phone
 } from "lucide-react";
 import { StoreConfig } from "../types";
+import { AGENT_CONTACTS } from "../data/deliveryAgents";
 
 interface FeedbackViewProps {
   storeConfig: StoreConfig | null;
@@ -20,11 +21,10 @@ interface FeedbackViewProps {
 }
 
 export const FeedbackView: React.FC<FeedbackViewProps> = ({
-  storeConfig,
-  onNavigateToCatalog,
+  storeConfig: _storeConfig,
+  onNavigateToCatalog: _onNavigateToCatalog,
 }) => {
-  const whatsappNumber = storeConfig?.whatsappNumber || "60123456789";
-  const cleanNumber = String(whatsappNumber || "").replace(/[^0-9]/g, "") || "60123456789";
+  const managementPhone = AGENT_CONTACTS.NAZIHAH.phone.replace(/[^0-9]/g, "") || "60132036230";
 
   const [feedbackType, setFeedbackType] = useState<"cadangan" | "aduan" | "pujian" | "lain">("cadangan");
   const [customerName, setCustomerName] = useState<string>("");
@@ -46,17 +46,36 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({
     window.location.href = `mailto:frozenbergerak20@gmail.com?subject=${subject}&body=${body}`;
   };
 
-  const handleSendWhatsApp = () => {
-    const typeLabel = 
+  const buildManagementWhatsappUrl = (): string => {
+    const typeLabel =
       feedbackType === "cadangan" ? "💡 Cadangan" :
       feedbackType === "aduan" ? "⚠️ Aduan" :
       feedbackType === "pujian" ? "👍 Pujian" : "💬 Maklum Balas";
 
-    const waText = encodeURIComponent(
-      `Salam Pengurusan FrozenBergerak,\n\n*${typeLabel} Pelanggan:*\nNama: ${customerName || "Pelanggan"}\n\n${message || "Saya ingin memberikan maklum balas berkaitan perkhidmatan FrozenBergerak."}`
+    const trimmedMsg = message.trim();
+    const trimmedName = customerName.trim();
+    const trimmedPhone = customerPhone.trim();
+
+    const lines: string[] = [
+      "Salam pihak pengurusan FrozenBergerak,",
+      "",
+      `*${typeLabel} Pelanggan:*`
+    ];
+
+    if (trimmedName) {
+      lines.push(`Nama: ${trimmedName}`);
+    }
+    if (trimmedPhone) {
+      lines.push(`No. Tel: ${trimmedPhone}`);
+    }
+
+    lines.push("");
+    lines.push(
+      trimmedMsg ||
+        "Saya ingin berkongsi aduan / cadangan berkaitan perkhidmatan FrozenBergerak."
     );
 
-    window.open(`https://wa.me/${cleanNumber}?text=${waText}`, "_blank", "noopener,noreferrer");
+    return `https://wa.me/${managementPhone}?text=${encodeURIComponent(lines.join("\n"))}`;
   };
 
   return (
@@ -205,14 +224,16 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({
               <span>Hantar Melalui Emel Rasmi</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleSendWhatsApp}
+            <a
+              id="feedback-whatsapp-management-btn"
+              href={buildManagementWhatsappUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
               className="flex-1 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
             >
               <Phone className="w-4 h-4" />
               <span>Hantar Terus ke WhatsApp Pengurusan</span>
-            </button>
+            </a>
           </div>
         </form>
 

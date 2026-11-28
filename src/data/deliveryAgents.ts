@@ -1,14 +1,14 @@
 import { AgentContact, DeliveryAgent, DeliveryArea } from "../types";
 
-export const AGENT_CONTACTS: Record<"HUSNA" | "AHDA" | "IZYAN" | "ALIA", AgentContact> = {
+export const AGENT_CONTACTS: Record<"HUSNA" | "AHDA" | "NAZIHAH" | "ALIA", AgentContact> = {
   HUSNA: { id: "husna", name: "HUSNA", phone: "60136863099" },
   AHDA: { id: "ahda", name: "AHDA", phone: "60198754912" },
-  IZYAN: { id: "izyan", name: "IZYAN", phone: "60132036230" },
+  NAZIHAH: { id: "nazihah", name: "NAZIHAH", phone: "60132036230" },
   ALIA: { id: "alia", name: "ALIA", phone: "60148377488" },
 };
 
 export const TEAM_WHATSAPP_CONTACTS: AgentContact[] = [
-  { id: "izyan", name: "Izyan", phone: AGENT_CONTACTS.IZYAN.phone },
+  { id: "nazihah", name: "Nazihah", phone: AGENT_CONTACTS.NAZIHAH.phone },
   { id: "ahda", name: "Ahda", phone: AGENT_CONTACTS.AHDA.phone },
   { id: "husna", name: "Husna", phone: AGENT_CONTACTS.HUSNA.phone },
   { id: "alia", name: "Alia", phone: AGENT_CONTACTS.ALIA.phone },
@@ -18,27 +18,27 @@ export const DELIVERY_AREAS: DeliveryArea[] = [
   {
     id: "nilai",
     name: "NILAI",
-    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.NAZIHAH, AGENT_CONTACTS.ALIA],
   },
   {
     id: "seremban-senawang",
     name: "SEREMBAN/SENAWANG",
-    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN],
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.NAZIHAH],
   },
   {
     id: "seri-putra-bukit-mahkota",
     name: "SERI PUTRA/BUKIT MAHKOTA",
-    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.NAZIHAH],
   },
   {
     id: "salak-bbst-sepang",
     name: "SALAK/BBST/SEPANG",
-    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.NAZIHAH, AGENT_CONTACTS.ALIA],
   },
   {
     id: "kota-warisan-dengkil",
     name: "KOTA WARISAN/DENGKIL",
-    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.NAZIHAH],
   },
   {
     id: "jenderam",
@@ -58,27 +58,27 @@ export const DELIVERY_AREAS: DeliveryArea[] = [
   {
     id: "putrajaya-cyberjaya",
     name: "PUTRAJAYA/CYBERJAYA",
-    agents: [AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
+    agents: [AGENT_CONTACTS.NAZIHAH, AGENT_CONTACTS.ALIA],
   },
   {
     id: "puchong-puj-lestari",
     name: "PUCHONG/PUJ/LESTARI",
-    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.NAZIHAH],
   },
   {
     id: "bangi",
     name: "BANGI",
-    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.NAZIHAH],
   },
   {
     id: "kajang",
     name: "KAJANG",
-    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.ALIA],
+    agents: [AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.NAZIHAH, AGENT_CONTACTS.ALIA],
   },
   {
     id: "serdang-sri-kembangan",
     name: "SERDANG/SRI KEMBANGAN",
-    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.IZYAN],
+    agents: [AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.NAZIHAH],
   },
   {
     id: "cheras-btho-alam-damai",
@@ -88,17 +88,17 @@ export const DELIVERY_AREAS: DeliveryArea[] = [
   {
     id: "kuala-lumpur",
     name: "KUALA LUMPUR",
-    agents: [AGENT_CONTACTS.IZYAN],
+    agents: [AGENT_CONTACTS.NAZIHAH],
   },
   {
     id: "bdr-saujana-putra",
     name: "BDR SAUJANA PUTRA",
-    agents: [AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.ALIA],
+    agents: [AGENT_CONTACTS.NAZIHAH, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA, AGENT_CONTACTS.ALIA],
   },
   {
     id: "putra-heights-usj",
     name: "PUTRA HEIGHTS/USJ",
-    agents: [AGENT_CONTACTS.IZYAN, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA],
+    agents: [AGENT_CONTACTS.NAZIHAH, AGENT_CONTACTS.AHDA, AGENT_CONTACTS.HUSNA],
   },
   {
     id: "klang",
@@ -129,4 +129,3 @@ export const DELIVERY_AGENTS: DeliveryAgent[] = DELIVERY_AREAS.flatMap((area) =>
 );
 
 export const DEFAULT_DELIVERY_AGENT: DeliveryAgent = DELIVERY_AGENTS[0];
-

@@ -28,6 +28,7 @@ import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { CategoryBar } from "./components/CategoryBar";
 import { ProductCard } from "./components/ProductCard";
+import { CatalogSectionCarousel } from "./components/CatalogSectionCarousel";
 import { ProductModal } from "./components/ProductModal";
 import { isProductPriceHidden } from "./utils/formatters";
 import { CartDrawer } from "./components/CartDrawer";
@@ -565,6 +566,49 @@ export default function App() {
     }
   }, [allMergedProducts, promos, seasonalPromos, activePromoFilter, activeCategoryId, showPopularOnly, searchQuery]);
 
+  // Group products by category for sectioned horizontal carousels when viewing full catalog
+  const isSectionedCarouselView = Boolean(
+    activeCategoryId === "all" &&
+    !activePromoFilter &&
+    !showPopularOnly &&
+    !searchQuery.trim()
+  );
+
+  const groupedCatalogSections = useMemo(() => {
+    const groupsMap = new Map<string, { categoryId: string; categoryName: string; items: Product[] }>();
+
+    // Preserve catalogCategories order first (excluding "all")
+    catalogCategories.forEach((cat) => {
+      if (!cat || cat.id === "all") return;
+      const key = String(cat.id || cat.name).replace(/\s+/g, " ").trim().toLowerCase();
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, {
+          categoryId: cat.id,
+          categoryName: cat.name,
+          items: []
+        });
+      }
+    });
+
+    filteredProducts.forEach((product) => {
+      if (!product) return;
+      const rawCat = String(product.category || "Lain-lain").replace(/\s+/g, " ").trim();
+      const key = rawCat.toLowerCase();
+      const existing = groupsMap.get(key);
+      if (existing) {
+        existing.items.push(product);
+      } else {
+        groupsMap.set(key, {
+          categoryId: rawCat,
+          categoryName: rawCat,
+          items: [product]
+        });
+      }
+    });
+
+    return Array.from(groupsMap.values()).filter((g) => g.items.length > 0);
+  }, [filteredProducts, catalogCategories]);
+
   // Navigation Handlers
   const handleNavigateToCatalog = (
     categoryId?: string, 
@@ -792,7 +836,7 @@ export default function App() {
             )}
 
             {/* Content Main Area */}
-            <main className="flex-1 p-4 sm:p-6 lg:p-8 flex flex-col gap-6 overflow-x-hidden">
+            <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 flex flex-col gap-6 overflow-x-hidden">
               
               {/* Main Title & Action Bar */}
               {!error && (
@@ -920,7 +964,7 @@ export default function App() {
                       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1">
                         Tapis:
                       </span>
-                      {catalogCategories.slice(0, 8).map((cat) => {
+                      {catalogCategories.map((cat) => {
                         const isCatActive = activeCategoryId === cat.id && !showPopularOnly && !activePromoFilter;
                         return (
                           <button
@@ -1030,28 +1074,56 @@ export default function App() {
                 </div>
               )}
 
-              {/* Product Grid */}
+              {/* Product Sections (Horizontal Carousels by Category) OR Focused Grid */}
               {!loading && !error && filteredProducts.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {(filteredProducts || []).map((product) => {
-                    if (!product) return null;
-                    const cartItem = (Array.isArray(cart) ? cart : []).find((i) => i?.product?.id === product?.id);
-                    const isSeasonalCard = activePromoFilter === "seasonal" || Boolean(product?.hidePrice);
-                    const cardProduct = isSeasonalCard && !product?.hidePrice ? { ...product, hidePrice: true } : product;
-                    return (
-                      <ProductCard
-                        key={product?.id || Math.random().toString()}
-                        product={cardProduct}
+                isSectionedCarouselView ? (
+                  <div className="space-y-7 min-w-0 w-full">
+                    {groupedCatalogSections.map((group) => (
+                      <CatalogSectionCarousel
+                        key={`cat-section-${group.categoryId}`}
+                        categoryName={group.categoryName}
+                        products={group.items}
+                        cart={cart}
                         whatsappNumber={whatsappNumber}
-                        hidePrice={isSeasonalCard}
-                        onViewDetails={(p) => setSelectedProduct(isSeasonalCard ? { ...p, hidePrice: true } : p)}
-                        onAddToCart={(p) => handleAddToCart(isSeasonalCard ? { ...p, hidePrice: true } : p, 1)}
-                        isInCart={Boolean(cartItem)}
-                        cartQuantity={cartItem ? (Number(cartItem?.quantity) || 0) : 0}
+                        onSeeAll={(categoryName) => {
+                          const matchedCat = catalogCategories.find(
+                            (c) =>
+                              c.id !== "all" &&
+                              (c.id.toLowerCase() === categoryName.toLowerCase() ||
+                                c.name.toLowerCase() === categoryName.toLowerCase())
+                          );
+                          setActiveCategoryId(matchedCat ? matchedCat.id : group.categoryId);
+                          setActivePromoFilter(null);
+                          setShowPopularOnly(false);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        onViewDetails={(p) => setSelectedProduct(p)}
+                        onAddToCart={(p) => handleAddToCart(p, 1)}
                       />
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {(filteredProducts || []).map((product) => {
+                      if (!product) return null;
+                      const cartItem = (Array.isArray(cart) ? cart : []).find((i) => i?.product?.id === product?.id);
+                      const isSeasonalCard = activePromoFilter === "seasonal" || Boolean(product?.hidePrice);
+                      const cardProduct = isSeasonalCard && !product?.hidePrice ? { ...product, hidePrice: true } : product;
+                      return (
+                        <ProductCard
+                          key={product?.id || Math.random().toString()}
+                          product={cardProduct}
+                          whatsappNumber={whatsappNumber}
+                          hidePrice={isSeasonalCard}
+                          onViewDetails={(p) => setSelectedProduct(isSeasonalCard ? { ...p, hidePrice: true } : p)}
+                          onAddToCart={(p) => handleAddToCart(isSeasonalCard ? { ...p, hidePrice: true } : p, 1)}
+                          isInCart={Boolean(cartItem)}
+                          cartQuantity={cartItem ? (Number(cartItem?.quantity) || 0) : 0}
+                        />
+                      );
+                    })}
+                  </div>
+                )
               )}
 
             </main>
@@ -1194,7 +1266,7 @@ export default function App() {
       />
 
       {/* Footer */}
-      <Footer config={storeConfig} compact={activeView === "home"} />
+      <Footer config={storeConfig} />
 
     </div>
   );
