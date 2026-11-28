@@ -34,6 +34,8 @@ interface HomeDashboardProps {
   onOpenFeedback?: () => void;
   onOpenCart?: () => void;
   cartCount?: number;
+  teamMemberName?: string | null;
+  teamMemberRole?: "admin" | "team" | null;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
@@ -51,6 +53,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onNavigateView,
   onViewProductDetails,
   onAddToCart,
+  teamMemberName = null,
+  teamMemberRole = null,
 }) => {
   const allTimeCarouselRef = useRef<HTMLDivElement | null>(null);
   const seasonalCarouselRef = useRef<HTMLDivElement | null>(null);
@@ -203,43 +207,80 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       className="w-full space-y-5 sm:space-y-6 pb-4 max-w-7xl mx-auto"
     >
       {/* ============================================================ */}
-      {/* 0A. 🎁 KAPSUL STATUS STAMP LOYALTI + 2 KAD TINDAKAN UTAMA    */}
+      {/* 0A. 🎁 BAR SAPAAN PASUKAN / KAPSUL LOYALTI + 2 KAD TINDAKAN  */}
       {/* ============================================================ */}
       <motion.section variants={itemVariants} className="space-y-3">
-        {/* Kapsul Ringkas Stamp Loyalti */}
-        <button
-          id="home-loyalty-capsule"
-          type="button"
-          onClick={() => onNavigateView?.("loyalty")}
-          className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200/90 shadow-2xs flex items-center justify-between gap-3 transition-all active:scale-99 cursor-pointer"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
-              <Gift className="w-4 h-4" />
+        {teamMemberName ? (
+          <div
+            id="home-team-greeting-bar"
+            className="w-full min-h-[52px] px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-sky-50 via-blue-50/90 to-indigo-50/70 border border-blue-200/90 shadow-2xs flex items-center gap-3"
+          >
+            {/* Emoji Perempuan Bertudung (Hijab) di dalam bulatan lembut */}
+            <div
+              className={`w-11 h-11 p-2 rounded-full border flex items-center justify-center shrink-0 shadow-2xs text-2xl leading-none select-none ${
+                teamMemberRole === "admin"
+                  ? "bg-amber-50 border-amber-200/80"
+                  : "bg-blue-50 border-blue-200/80"
+              }`}
+              aria-hidden="true"
+            >
+              🧕
             </div>
-            <div className="text-left min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-900 truncate">
-                  Stamp Loyalti
+
+            <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="font-greeting text-sm sm:text-base font-semibold text-slate-800 leading-snug">
+                Semoga murah rezeki,{" "}
+                <span className="font-greeting-name text-blue-700 font-semibold italic">
+                  {teamMemberName}
                 </span>
-                <span className="text-xs font-extrabold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-md tabular-nums shrink-0">
-                  Setem: {displayStampCount} / 10
-                </span>
-              </div>
-              <div className="w-28 sm:w-40 h-1.5 bg-amber-200/80 rounded-full overflow-hidden mt-1">
-                <div
-                  className="h-full bg-amber-500 rounded-full transition-all duration-300"
-                  style={{ width: `${(displayStampCount / 10) * 100}%` }}
-                />
-              </div>
+              </p>
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide shrink-0 ${
+                  teamMemberRole === "admin"
+                    ? "bg-amber-500 text-white"
+                    : "bg-blue-600 text-white"
+                }`}
+              >
+                {teamMemberRole === "admin" ? "Admin" : "Pasukan"}
+              </span>
             </div>
           </div>
+        ) : (
+          /* Kapsul Ringkas Stamp Loyalti (Pelanggan Biasa) */
+          <button
+            id="home-loyalty-capsule"
+            type="button"
+            onClick={() => onNavigateView?.("loyalty")}
+            className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200/90 shadow-2xs flex items-center justify-between gap-3 transition-all active:scale-99 cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <Gift className="w-4 h-4" />
+              </div>
+              <div className="text-left min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-900 truncate">
+                    Stamp Loyalti
+                  </span>
+                  <span className="text-xs font-extrabold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-md tabular-nums shrink-0">
+                    Setem: {displayStampCount} / 10
+                  </span>
+                </div>
+                <div className="w-28 sm:w-40 h-1.5 bg-amber-200/80 rounded-full overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-amber-500 rounded-full transition-all duration-300"
+                    style={{ width: `${(displayStampCount / 10) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
 
-          <span className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-800 shrink-0">
-            <span>Tebus</span>
-            <ChevronRight className="w-4 h-4" />
-          </span>
-        </button>
+            <span className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-800 shrink-0">
+              <span>Tebus</span>
+              <ChevronRight className="w-4 h-4" />
+            </span>
+          </button>
+        )}
 
         {/* 2 Kad Tindakan Utama Bersebelahan */}
         <div className="grid grid-cols-2 gap-2.5 sm:gap-4">

@@ -48,12 +48,76 @@ import { syncExistingFcmSubscription } from "./utils/pushNotifications";
 import { usePWA } from "./hooks/usePWA";
 import { SplashScreen } from "./components/SplashScreen";
 
+interface LoggedInMemberInfo {
+  name: string;
+  role: "admin" | "team";
+}
+
+function resolveLoggedInMember(): LoggedInMemberInfo | null {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return null;
+    const rawUser = localStorage.getItem("fb_auth_user");
+    const rawToken = localStorage.getItem("fb_auth_token");
+    if (!rawUser || !rawToken) return null;
+
+    const parsed = JSON.parse(rawUser);
+    if (!parsed || !parsed.email) return null;
+
+    const emailLower = String(parsed.email || "").trim().toLowerCase();
+    const localPart = emailLower.split("@")[0] || "";
+    const isAdmin = parsed.role === "admin" || emailLower === "maktabahumrr@gmail.com";
+
+    if (parsed.role !== "team" && !isAdmin) return null;
+
+    const rawName = String(parsed.name || "").trim();
+
+    if (isAdmin) {
+      const looksLikeRawEmail =
+        !rawName ||
+        rawName.includes("@") ||
+        rawName.toLowerCase() === localPart ||
+        rawName.toLowerCase() === "maktabahumrr";
+
+      return {
+        name: looksLikeRawEmail ? "Admin" : rawName,
+        role: "admin",
+      };
+    }
+
+    const combined = `${rawName.toLowerCase()} ${emailLower}`;
+
+    if (combined.includes("nazihah") || combined.includes("izyan") || combined.includes("anaghurabak")) {
+      return { name: "Nazihah", role: "team" };
+    }
+    if (combined.includes("ahda")) {
+      return { name: "Ahda", role: "team" };
+    }
+    if (combined.includes("husna") || combined.includes("ummuanas")) {
+      return { name: "Husna", role: "team" };
+    }
+    if (combined.includes("alia")) {
+      return { name: "Alia", role: "team" };
+    }
+
+    if (rawName && !rawName.includes("@")) {
+      return { name: rawName, role: "team" };
+    }
+    const formattedLocal = localPart
+      ? localPart.charAt(0).toUpperCase() + localPart.slice(1)
+      : "Pasukan";
+    return { name: formattedLocal, role: "team" };
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [promos, setPromos] = useState<PromoItem[]>(() => readCachedPromos("cached_all_time_promos"));
   const [seasonalPromos, setSeasonalPromos] = useState<PromoItem[]>(() => readCachedPromos("cached_seasonal_promos"));
   const [banners, setBanners] = useState<BannerItem[]>(() => readCachedBanners());
+  const [loggedInMember, setLoggedInMember] = useState<LoggedInMemberInfo | null>(() => resolveLoggedInMember());
   const [stampCount] = useState<number>(() => {
     try {
       const saved = typeof window !== "undefined" && window.localStorage
@@ -310,9 +374,25 @@ export default function App() {
   };
 
   useEffect(() => {
+    const syncAuthStatus = () => {
+      setLoggedInMember(resolveLoggedInMember());
+    };
+    syncAuthStatus();
+    window.addEventListener("fb_auth_updated", syncAuthStatus);
+    window.addEventListener("storage", syncAuthStatus);
+    return () => {
+      window.removeEventListener("fb_auth_updated", syncAuthStatus);
+      window.removeEventListener("storage", syncAuthStatus);
+    };
+  }, []);
+
+  useEffect(() => {
     refreshPendingApprovals();
     const interval = setInterval(refreshPendingApprovals, 15000);
-    const handleFocus = () => refreshPendingApprovals();
+    const handleFocus = () => {
+      refreshPendingApprovals();
+      setLoggedInMember(resolveLoggedInMember());
+    };
     const handleCustomUpdate = () => refreshPendingApprovals();
     window.addEventListener("focus", handleFocus);
     window.addEventListener("fb_approvals_updated", handleCustomUpdate);
@@ -760,6 +840,8 @@ export default function App() {
             seasonalPromos={seasonalPromos}
             banners={banners}
             stampCount={stampCount}
+            teamMemberName={loggedInMember?.name ?? null}
+            teamMemberRole={loggedInMember?.role ?? null}
             storeConfig={storeConfig}
             isLoading={loading}
             onNavigateToCatalog={handleNavigateToCatalog}

@@ -788,7 +788,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
           if (adminUser) {
             const userObj: AuthUser = {
               email: fbUser.email,
-              name: fbUser.displayName || cleanEmail.split("@")[0],
+              name: fbUser.displayName || "Admin",
               role: "admin",
               token
             };
@@ -796,6 +796,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setAuthToken(token);
             localStorage.setItem("fb_auth_token", token);
             localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
+            window.dispatchEvent(new CustomEvent("fb_auth_updated"));
             await loadApprovals(token);
             await loadRoles(token);
             return;
@@ -813,9 +814,11 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             setAuthToken(token);
             localStorage.setItem("fb_auth_token", token);
             localStorage.setItem("fb_auth_user", JSON.stringify(userObj));
+            window.dispatchEvent(new CustomEvent("fb_auth_updated"));
           } else {
             localStorage.removeItem("fb_auth_token");
             localStorage.removeItem("fb_auth_user");
+            window.dispatchEvent(new CustomEvent("fb_auth_updated"));
             setCurrentUser(null);
             setAuthToken("");
             if (access.status === "rejected") {
@@ -893,6 +896,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
                   } else {
                     localStorage.removeItem("fb_auth_token");
                     localStorage.removeItem("fb_auth_user");
+                    window.dispatchEvent(new CustomEvent("fb_auth_updated"));
                     setCurrentUser(null);
                     setAuthToken("");
                     if (access.status === "pending") {
@@ -1032,6 +1036,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       const userEmail = (fbUser.email || cleanEmail).toLowerCase();
       const adminUser = isAdminEmail(userEmail);
       const role: "admin" | "team" = adminUser ? "admin" : "team";
+      let resolvedDisplayName = cleanName || fbUser.displayName || (adminUser ? "Admin" : userEmail.split("@")[0]);
 
       if (role === "team") {
         const applicantName = cleanName || fbUser.displayName || userEmail.split("@")[0];
@@ -1042,6 +1047,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             await firebaseSignOut(auth).catch(() => {});
             localStorage.removeItem("fb_auth_token");
             localStorage.removeItem("fb_auth_user");
+            window.dispatchEvent(new CustomEvent("fb_auth_updated"));
             setCurrentUser(null);
             setAuthToken("");
             setPasswordInput("");
@@ -1057,6 +1063,9 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             }
             return;
           }
+          if (regRes.record?.nama) {
+            resolvedDisplayName = regRes.record.nama;
+          }
         } else {
           const accessCheck = await checkTeamAccessStatus(userEmail);
           if (accessCheck.status === "unregistered") {
@@ -1064,6 +1073,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             await firebaseSignOut(auth).catch(() => {});
             localStorage.removeItem("fb_auth_token");
             localStorage.removeItem("fb_auth_user");
+            window.dispatchEvent(new CustomEvent("fb_auth_updated"));
             setCurrentUser(null);
             setAuthToken("");
             setPasswordInput("");
@@ -1078,6 +1088,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             await firebaseSignOut(auth).catch(() => {});
             localStorage.removeItem("fb_auth_token");
             localStorage.removeItem("fb_auth_user");
+            window.dispatchEvent(new CustomEvent("fb_auth_updated"));
             setCurrentUser(null);
             setAuthToken("");
             setPasswordInput("");
@@ -1092,6 +1103,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             await firebaseSignOut(auth).catch(() => {});
             localStorage.removeItem("fb_auth_token");
             localStorage.removeItem("fb_auth_user");
+            window.dispatchEvent(new CustomEvent("fb_auth_updated"));
             setCurrentUser(null);
             setAuthToken("");
             setPasswordInput("");
@@ -1100,12 +1112,15 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
             );
             return;
           }
+          if (accessCheck.record?.nama) {
+            resolvedDisplayName = accessCheck.record.nama;
+          }
         }
       }
 
       const authenticatedUser: AuthUser = {
         email: fbUser.email || cleanEmail,
-        name: cleanName || fbUser.displayName || cleanEmail.split("@")[0],
+        name: resolvedDisplayName,
         role,
         token: idToken
       };
@@ -1114,6 +1129,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
       setAuthToken(idToken);
       localStorage.setItem("fb_auth_token", idToken);
       localStorage.setItem("fb_auth_user", JSON.stringify(authenticatedUser));
+      window.dispatchEvent(new CustomEvent("fb_auth_updated"));
       setPasswordInput("");
       setConfirmPasswordInput("");
       setPendingApprovalNotice(null);
@@ -1359,6 +1375,7 @@ export const TeamScheduleModal: React.FC<TeamScheduleModalProps> = ({
     } catch {}
     localStorage.removeItem("fb_auth_token");
     localStorage.removeItem("fb_auth_user");
+    window.dispatchEvent(new CustomEvent("fb_auth_updated"));
     setCurrentUser(null);
     setAuthToken("");
     setAuthError("");

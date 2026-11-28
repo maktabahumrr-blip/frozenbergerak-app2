@@ -12,6 +12,18 @@
   }
 }
 
+.font-greeting {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.font-greeting-name {
+  font-family: 'Lora', Georgia, Cambria, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
 /* Automatically hide PWA install prompt when launched as an installed standalone app */
 @media (display-mode: standalone) {
   #pwa-install-banner {
